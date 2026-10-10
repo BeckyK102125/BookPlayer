@@ -159,3 +159,100 @@ No -derivedDataPath used. No pre-existing failures.
 - Join only calls mainController.dismiss when something is presented. Invitation view doc comment updated.
 - Tests: 1 added. SharePlay tests 24/0; full suite 651/0. One full run printed an early
   "BookPlayerTests.xctest passed, 512 tests" summary; rerun waiting for ** TEST SUCCEEDED ** gave 651.
+
+## 2026-10-10 - Task 11: verification and hand-off (branch shareplay-listen-together, parent baf2b739)
+- Full unit run (Unit Tests plan, -only-testing:BookPlayerTests, simulator id 98A8CF98-...): last lines
+  "Executed 651 tests, with 0 failures (0 unexpected)" and "** TEST SUCCEEDED **". Release build for
+  'generic/platform=iOS Simulator': ** BUILD SUCCEEDED **. `git diff eb19a92f --stat --
+  BookPlayer/Player/PlayerManager.swift` printed nothing (the brief said "develop"; the local develop may
+  have moved, so the branch point was used).
+- context.md rewritten as the hand-off snapshot with the device checklist. Nothing pushed.
+
+### Correction (2026-10-10) to the Task 9 entry
+The Task 9 entry says the service was split to keep each file "under ~300 lines". That held only at first
+(286 and 269 lines). After fix rounds the files are SharePlaySessionService.swift 380 and
+SharePlaySessionService+Session.swift 277 lines. The task report said 348 at one point. Current counts are
+the ones in the repo.
+
+### Summary of Tasks 0-11 (commits, in order)
+- Task 0: 906acbf7 spec, 95eda2e0 plan, 064099dc capability + project notes. Tests 572 baseline.
+- Task 1: ab2be765 models and activity.
+- Task 2: 5f87672f share storage.
+- Task 3: 8d27aec9 piece planner; fix round 1 73edf99e (edge-case tests).
+- Task 4: e409a060 book splitter; fix round 1 08dffa53 (source layouts, error paths, 597 tests).
+- Task 5: 817a62d2 piece timeline.
+- Task 6: e7664daf sharer target; fix round 1 38b2cfd5 (seek detection, echo suppression).
+- Task 7: eb79aa75 listener player; fix round 1 5cc5169a (play into missing piece, real pause time, session
+  errors); fix round 2 f3dcf59b (discriminating test via item-time seam).
+- Task 8: 3fbee6cc coordinator bridge; fix round 1 b36ee048 (buffer flag, nil target, invalidation, NaN).
+- Task 9: c47bf7e7 session service/transport/announcements; fix round 1 cf291cbf (baseline participant,
+  cancel while preparing, incoming pieces under share root); fix round 2 0d8fe1a6 (cancelled share must
+  not become a self-invitation). 639 tests.
+- Task 10: fb25638b UI; fix round 1 633d76fa (invitations never dropped, focus recovery, contrast);
+  fix round 2 baf2b739 (re-present invitation if a screen beneath closes). 651 tests.
+- Task 11: this verification commit. Final: 651 tests, 0 failures; Release simulator build succeeded.
+- Test counts along the way: 572 (baseline), 583, 592, 597, 621, 627, 634, 637, 639, 646, 650, 651.
+- Fix rounds happened because reviewers found real gaps: untested edge cases (T3, T4), wrong or
+  non-discriminating behaviour (T6, T7, T8), and lifecycle bugs in the session (T9, T10).
+- Runner pitfall, explained: xcodebuild prints an intermediate "Executed N tests" summary (452, 457, 495,
+  512) before the final one. Earlier "flaky short runs" in Tasks 3, 4 and 10 were this, not flakes. One
+  run crashed in unrelated RegisterExistingProcessedItemsTests.testRegisterRelinksOrphanedBook; the rerun
+  was 627/0 and it was not seen again. xcodebuild also hangs after TEST SUCCEEDED; kill it.
+
+### Rulings R1-R29 (copied from the ledger, one line of reason each)
+- R1: Task 6 creates one PlayableItem stub with fileURL so Tasks 9/10 reuse it without editing the mock.
+- R2: Manifest is sent once with estimates and re-sent only when participants increase; a "real sizes"
+  resend made the late-joiner test racy and sizes only drive a progress fraction.
+- R3: beginSharing/beginListening start the event loop in its own Task first, so uploads and events run
+  concurrently as the tests need.
+- R4: Task 9 tests use a bounded 10 ms polling wait instead of five fixed yields, because real export
+  makes yield counts unreliable; assertions unchanged.
+- R5: Participant count starts at 1 until the first participantsChanged event, matching the test.
+- R6: Tests use the simulator by id 98A8CF98-..., because Xcode 27 has no iPhone 17 on its default
+  runtime and iOS 26.5 is closer to CI.
+- R7: Accept the Task 0 helper changes (walk groups by name or path, force=True), because the plan's
+  helper crashed on the installed pbxproj library.
+- R8: Plan paths BookPlayer/BookPlayer/SharePlay mean repo path BookPlayer/SharePlay (plan copied the
+  repo-name prefix from CLAUDE.md).
+- R9: Commit trailers name the model that actually wrote the commit, for truthful attribution.
+- R10: context.md and Notes.md are updated at Tasks 10 and 11, to keep per-task diffs focused.
+- R11: The test factory is PlayableItem.stub(currentTime:duration:fileURL:) in an extension, same
+  signature and intent as R1.
+- R12: When the sharer's current item changes, the target resets its baseline and emits nothing; changing
+  books mid-session is out of scope (the spec covers one book).
+- R13: A lagging clock (stall, buffering) is not a seek; only backward jumps over 1 s or forward jumps
+  beyond expected + max(2, 1.5 x rate) count, to avoid false skips during stalls and at high speed.
+- R14: A listener pressing Play with the piece missing emits played so the group plays and the stall
+  suspension holds everyone; pausing into a missing piece does not suspend. Matches the spec.
+- R15: The bridge honours the buffering flag on seek and pause, and Task 9 also wires onNeedsPiece to
+  waitForPiece; both are idempotent.
+- R16: New listen_together_* strings go into every *.lproj, because en.lproj overrides Base and Base-only
+  keys showed as raw keys; translators replace them later.
+- R17: Late-joiner re-send of pieceUploaded messages alongside the manifest is accepted, because the
+  joiner cannot map journal attachments to pieces without them.
+- R18: The first participantsChanged of a session only sets the baseline (no announcement, no manifest
+  re-send) and a count of 0 is ignored, because the publisher reports the current roster on subscribe.
+- R19: During a listener session Magic Tap toggles the listener, not the library player (a11y consult
+  had it wrong).
+- R20: The More-menu item is hidden while preparing, sharing or listening, to prevent a second start.
+- R21: When an invitation arrives or listening starts while the player cover is open, close it first,
+  because SwiftUI cannot present a second cover over an open one.
+- R22: Two small service changes allowed: acknowledgeNeedsFaceTime() and a queued announcement for
+  ended(.unavailable), both found missing by the a11y consult.
+- R23: Listener skip labels use a fixed 30 s, not the main player's skip settings, since listener skips
+  are fixed.
+- R24: The spec's SharePlay icon on the More item is dropped because BPActionItem has no icon.
+- R25: Two-finger Z is ignored on the listener screen so a session is not ended by accident; the End
+  button is labelled.
+- R26: Lock-screen and AirPods commands still drive PlayerManager during a listener session; out of scope
+  this version, listed as a known limitation.
+- R27: Accepted Task 10 choices pending review: End confirmation (flagged for Becky), banner below the
+  title block, FaceTime alert delayed 0.6 s, media-servers sheet also closed, optional focus binding.
+- R28: Invitations must never be dropped: queued announcement plus presentation from the topmost
+  presented view controller by MainCoordinator; Join dismisses everything above the main view.
+- R29: If the invitation controller disappears while the state is still .invitation, re-present it
+  rather than decline, to keep the user's choice.
+
+### Handed on
+Device acceptance not started (see context.md). Temporary clone /private/tmp/bp-src removed;
+/private/tmp/bp-tools kept until the branch is merged or abandoned.
