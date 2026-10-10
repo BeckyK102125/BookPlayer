@@ -720,6 +720,7 @@
 		99F3C2082F5FD41300AC91A2 /* SchemaV2SyncTasksModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F3C2062F5FD40C00AC91A2 /* SchemaV2SyncTasksModels.swift */; };
 		99F3C20A2F62285800AC91A2 /* ApiResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F3C2092F62285500AC91A2 /* ApiResponse.swift */; };
 		99F3C20B2F62285800AC91A2 /* ApiResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F3C2092F62285500AC91A2 /* ApiResponse.swift */; };
+		9B824542A9DD5EC4E3FA1203 /* ShareStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E24A406CBA9A9BB233AA898F /* ShareStorageTests.swift */; };
 		9DA710A0CC53EEC5F7AF93D3 /* QueryTimeSortSpikeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53AE3D4C955A493470C8EAA9 /* QueryTimeSortSpikeTests.swift */; };
 		9F00A5FA294F8BFE005EA316 /* ClearableTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F00A5F9294F8BFE005EA316 /* ClearableTextField.swift */; };
 		9F00A5FC294F9B9A005EA316 /* ItemDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F00A5FB294F9B9A005EA316 /* ItemDetailsView.swift */; };
@@ -865,6 +866,7 @@
 		A34DA648F3EF87A9E11631B3 /* IntegrationAudiobookDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424AE6DFF6B641DB69DF3D78 /* IntegrationAudiobookDetailsView.swift */; };
 		A7A0756EBA206652A801B9D3 /* VideoPlayerSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2107EC31217A7421B2BA6A /* VideoPlayerSurface.swift */; };
 		A7FA45CB2BD6567C9B5EA372 /* IntegrationTagsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643E169A5F153B754F726AE1 /* IntegrationTagsView.swift */; };
+		AB1745CDA6FE66E535CC63A8 /* ShareStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50234E53B2D3F444F124BF5B /* ShareStorage.swift */; };
 		ADBA6DD206F76CF92C0765A3 /* WebAuthenticatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4388D9707FA7C85F9D07E75 /* WebAuthenticatingTests.swift */; };
 		B0B0F11E5EA1CA27D0000004 /* PlayerTimeSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B0F11E5EA1CA27D0000003 /* PlayerTimeSample.swift */; };
 		B0B0F11E5EA1CA27D0000006 /* PlayerTimeSampleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B0F11E5EA1CA27D0000005 /* PlayerTimeSampleTests.swift */; };
@@ -1344,6 +1346,7 @@
 		4C78CCAAFEB5A9D78AA108EC /* QueryTimeSortRefactorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryTimeSortRefactorTests.swift; sourceTree = "<group>"; };
 		4D91D6855100BD1823B2674F /* IntegrationConnectionViewModelProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationConnectionViewModelProtocol.swift; sourceTree = "<group>"; };
 		4D9D68F735D2519CDBC18495 /* IntegrationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationSettingsView.swift; sourceTree = "<group>"; };
+		50234E53B2D3F444F124BF5B /* ShareStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShareStorage.swift; path = ShareStorage.swift; sourceTree = "<group>"; };
 		5126F120258E9F18009965DC /* URL+BookPlayer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "URL+BookPlayer.swift"; sourceTree = "<group>"; };
 		5265B16421BFC176BFFE4EA5 /* IntegrationHTTPClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationHTTPClient.swift; sourceTree = "<group>"; };
 		53AE3D4C955A493470C8EAA9 /* QueryTimeSortSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryTimeSortSpikeTests.swift; sourceTree = "<group>"; };
@@ -1882,6 +1885,7 @@
 		D6BA8F172A4D66CD00C2BD9A /* StorageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageView.swift; sourceTree = "<group>"; };
 		D6F6A0DE6FBE7828D4C7EC9C /* m4b_WELLFORMED.m4b */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = m4b_WELLFORMED.m4b; sourceTree = "<group>"; };
 		E1FDA0B60D7BE4CFE100A612 /* IntegrationDisconnectedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationDisconnectedView.swift; sourceTree = "<group>"; };
+		E24A406CBA9A9BB233AA898F /* ShareStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShareStorageTests.swift; path = ShareStorageTests.swift; sourceTree = "<group>"; };
 		E4D25EF2A5FFF30CF12F2C21 /* PreferencesSyncService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PreferencesSyncService.swift; sourceTree = "<group>"; };
 		E55F466D61AE62A69DE4D371 /* BPNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BPNavigation.swift; sourceTree = "<group>"; };
 		EC10E1E47E1F6982D8F6A552 /* AudiobookShelfOIDCFlowTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudiobookShelfOIDCFlowTests.swift; sourceTree = "<group>"; };
@@ -3862,6 +3866,7 @@
 			children = (
 				CEE14388A5CB46B1ADE99A37 /* ListenTogetherModels.swift */,
 				62BF426FA3E0735F9DA5D5EE /* ListenTogetherActivity.swift */,
+				50234E53B2D3F444F124BF5B /* ShareStorage.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -3889,6 +3894,7 @@
 			isa = PBXGroup;
 			children = (
 				FD6D407BA130758014DD199A /* ListenTogetherModelsTests.swift */,
+				E24A406CBA9A9BB233AA898F /* ShareStorageTests.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -5076,6 +5082,7 @@
 				39313742614BCCA918DA7C0E /* IntegrationConnectionFlowView.swift in Sources */,
 				D39E4063BACC7F3C02554740 /* ListenTogetherModels.swift in Sources */,
 				E645420CAE56A0B61D7BB6D3 /* ListenTogetherActivity.swift in Sources */,
+				AB1745CDA6FE66E535CC63A8 /* ShareStorage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5129,6 +5136,7 @@
 				E101E3603ACF4DB50AA0037B /* JellyfinQuickConnectTests.swift in Sources */,
 				5A9506FC8DAB858289E0EF89 /* IntegrationServerAddressTests.swift in Sources */,
 				E4B1479AA355D14A51E7A5BA /* ListenTogetherModelsTests.swift in Sources */,
+				9B824542A9DD5EC4E3FA1203 /* ShareStorageTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
