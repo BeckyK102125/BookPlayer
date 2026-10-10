@@ -64,10 +64,12 @@ Watch build is unaffected).
    cut on chapter boundaries where possible, using `AVAssetExportSession` with the passthrough preset (no
    re-encoding). Writes to a temporary folder. Each piece records its book-time start and length. Pieces
    are uploaded to the journal in playback order, starting with the piece containing the current position.
-4. **`SharedBookAssembler`** (listener) — downloads pieces into a temporary folder, and builds an
-   `AVMutableComposition` on the book-time timeline as pieces arrive. Reports which time ranges are ready.
-5. **`ListenerPlayer`** (listener) — its own `AVPlayer` over the composition. Separate from
-   `PlayerManager`, so a listener's library, progress and sync are never touched.
+4. **`PieceTimeline`** (listener) — maps book time to (piece, offset within piece) and reports which
+   pieces have arrived. (Revised during planning: an `AVMutableComposition` cannot hold gaps for pieces
+   that haven't arrived, so pieces are played one at a time, like BookPlayer's multi-file books.)
+5. **`ListenerPlayer`** (listener) — its own `AVPlayer`, playing one received piece at a time on the
+   book-time timeline. Separate from `PlayerManager`, so a listener's library, progress and sync are
+   never touched.
 6. **`ListenTogetherCoordinatorBridge`** — the `AVDelegatingPlaybackCoordinator` delegate on both sides.
    Maps coordinator commands (play, pause, seek, buffering) to the sharer's `PlayerManagerProtocol` or the
    `ListenerPlayer`. Reports local actions back to the coordinator. Marks the listener as not ready
@@ -100,8 +102,8 @@ Watch build is unaffected).
 - **Piece upload or download fails:** retry twice, then tell everyone "Couldn't send part of the book"
   and end the session cleanly.
 - **Listener falls behind** (a piece isn't there yet at the play position): coordinator buffering state
-  holds everyone; listener hears "Waiting for the book to download"; sharer hears "Waiting for a listener".
-- **Headphones unplugged / audio route lost on any phone:** that phone pauses, which pauses everyone.
+  holds everyone; listener hears "Waiting for the book to download"; the sharer's playback simply holds.
+- **Headphones unplugged / audio route lost on any phone:** that phone pauses, which pauses everyone. (The sharer is not told "waiting for a listener"; SharePlay does not report which participant is waiting.)
   (Upstream BookPlayer doesn't pause on route loss; this is handled inside the SharePlay layer only.)
 - **Audio interruptions** (a call, Siri): treated like a local pause.
 - **App sent to background on the listener's phone:** keeps playing (the app already has background audio).
@@ -135,7 +137,7 @@ The player's "More" menu is the entry point. Specific requirements:
 
 ## Testing
 
-- **Unit tests** (BookPlayerTests, Swift Testing where the target allows it):
+- **Unit tests** (BookPlayerTests, XCTest only, per the project's CLAUDE.md):
   - `BookSplitter` piece planning: sizes under 90 MB, chapter-boundary cuts, single-file and multi-file
     books, a book smaller than one piece.
   - Book-time mapping for the sharer (book time ↔ chapter + file offset) and listener (composition).
