@@ -61,3 +61,24 @@ No -derivedDataPath used. No pre-existing failures.
   with the real AVDelegatingPlaybackCoordinator as default, so tests assert against a fake.
 - RED: tests failed to compile (cannot find ListenTogetherCoordinatorBridge). GREEN: 4 tests, 0
   failures. Full suite: 621 tests, 0 failures.
+
+## 2026-10-10 - Task 9: session service, transport and VoiceOver announcements (branch shareplay-listen-together, parent b36ee048)
+- Added BookPlayer/SharePlay/ListenTogetherAnnouncer.swift, ListenTogetherTransport.swift
+  (TransportEvent, ListenTogetherTransport, PieceTransfer, GroupSessionTransport),
+  SharePlaySessionService.swift (state, start/join/decline/end, teardown) and
+  SharePlaySessionService+Session.swift (sharer pipeline, event loop, piece placement, local
+  events -> messages). Split into two files to keep each under ~300 lines.
+- Tests: ListenTogetherAnnouncerTests (2), SharePlaySessionServiceTests (5, FakeTransport).
+  Fixed-yield settle() replaced by a bounded 10 ms polling waitUntil (ruling R4).
+- SDK check (iPhoneSimulator27.0): every GroupActivities API in the brief exists as written.
+- Differences from the brief: transportFactory is typed @MainActor; announcer init param is
+  optional (a default argument would build a @MainActor object outside the main actor);
+  published setters for the extension are setState/setListener; the sharer re-sends the
+  pieceUploaded map along with the manifest when participants increase (late joiners never
+  received the earlier messages; nothing is uploaded again); GroupSessionTransport never loads
+  attachments once it has uploaded (so the sharer does not download its own pieces).
+- Localization: en.lproj takes precedence over Base.lproj, so Base-only keys showed as raw keys
+  (the announcer test failed on that). Copied the 24 English listen_together_* strings (including
+  Task 1's activity title) into every *.lproj/Localizable.strings, as the repo does for new keys.
+- RED: tests failed to compile (cannot find ListenTogetherAnnouncer / SharePlaySessionService /
+  TransportEvent). GREEN: 7 tests, 0 failures. Full suite: 634 tests, 0 failures.

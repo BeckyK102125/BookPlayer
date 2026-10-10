@@ -1,0 +1,291 @@
+import BookPlayerKit
+import Combine
+import Foundation
+import GroupActivities
+
+enum ListenTogetherState: Equatable {
+  case idle
+  case needsFaceTime
+  case preparing(title: String)
+  case invitation(title: String, author: String)
+  case sharing(participants: Int)
+  case listening(participants: Int, downloaded: Double)
+  case ended(reason: EndReason)
+
+  enum EndReason: Equatable {
+    case normal
+    case sendFailed
+    case unavailable
+  }
+}
+
+/// Starts, joins and ends Listen Together sessions. The sharer splits and uploads the book;
+/// listeners receive the pieces and play them with their own player. Playback itself is kept in
+/// sync by `ListenTogetherCoordinatorBridge`; this service only relays other people's actions as
+/// VoiceOver announcements.
+@MainActor
+final class SharePlaySessionService: ObservableObject, BPLogger {
+  enum Role {
+    case sharer
+    case listener
+  }
+
+  @Published private(set) var state: ListenTogetherState = .idle
+  @Published private(set) var listener: ListenerPlayer?
+
+  // Collaborators. Internal (not private) so SharePlaySessionService+Session.swift can use them.
+  let playerManager: PlayerManagerProtocol
+  let storage: ShareStorage
+  let announcer: ListenTogetherAnnouncer
+  let transportFactory: @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
+  /// Pause between upload attempts. Test seam.
+  var uploadRetryDelay: Duration = .seconds(1)
+
+  // Active session. Reset by `tearDown(reason:)`.
+  var role: Role?
+  var shareID: UUID?
+  var transport: ListenTogetherTransport?
+  var bridge: ListenTogetherCoordinatorBridge?
+  var sharerTarget: SharerPlaybackTarget?
+  var manifest: SharedBookManifest?
+  var participantCount = 1
+  /// Sharer: messages already sent for uploaded pieces, re-sent to late joiners.
+  var uploadedPieceMessages: [ListenTogetherMessage] = []
+  /// Listener: attachment id -> piece index, from `.pieceUploaded`.
+  var pieceIndexByAttachment: [UUID: Int] = [:]
+  /// Listener: files that arrived before we could place them.
+  var heldAttachments: [UUID: URL] = [:]
+  var placedPieces = Set<Int>()
+  /// True while the "waiting for the book" announcement has been made for the current wait.
+  var announcedWaiting = false
+  var localEventsBag = Set<AnyCancellable>()
+  var eventLoop: Task<Void, Never>?
+
+  // SharePlay plumbing.
+  private let groupStateObserver = GroupStateObserver()
+  private var observeTask: Task<Void, Never>?
+  /// The real GroupSession behind the current transport, if any (never set in tests).
+  var activeSession: GroupSession<ListenTogetherActivity>?
+  private var pendingShareID: UUID?
+  private var pendingItem: PlayableItem?
+  private var pendingInvitation: GroupSession<ListenTogetherActivity>?
+  private var invitationBag = Set<AnyCancellable>()
+  private var endedGeneration = 0
+
+  init(
+    playerManager: PlayerManagerProtocol,
+    storage: ShareStorage = ShareStorage(),
+    announcer: ListenTogetherAnnouncer? = nil,
+    transportFactory: @escaping @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
+      = { GroupSessionTransport(session: $0, downloadFolder: $1) }
+  ) {
+    self.playerManager = playerManager
+    self.storage = storage
+    // Built here rather than as a default argument, which would run outside the main actor.
+    self.announcer = announcer ?? ListenTogetherAnnouncer()
+    self.transportFactory = transportFactory
+  }
+
+  var isInSession: Bool { role != nil }
+
+  /// Setters for SharePlaySessionService+Session.swift; the published properties stay read-only elsewhere.
+  func setState(_ newState: ListenTogetherState) { state = newState }
+  func setListener(_ player: ListenerPlayer?) { listener = player }
+
+  // MARK: Starting and joining
+
+  /// Watches for Listen Together sessions: our own (after `startSharing`) and invitations from others.
+  func startObservingSessions() {
+    guard observeTask == nil else { return }
+    observeTask = Task { [weak self] in
+      for await session in ListenTogetherActivity.sessions() {
+        guard let self else { return }
+        self.received(session)
+      }
+    }
+  }
+
+  func canShare(_ item: PlayableItem?) -> Bool {
+    guard let item else { return false }
+    return BookSplitter.isShareable(item)
+  }
+
+  func startSharing(_ item: PlayableItem) async {
+    guard !isInSession else { return }
+    guard groupStateObserver.isEligibleForGroupSession else {
+      state = .needsFaceTime
+      return
+    }
+    let shareID = UUID()
+    pendingShareID = shareID
+    pendingItem = item
+    state = .preparing(title: item.title)
+    let activity = ListenTogetherActivity(shareID: shareID, title: item.title, author: item.author)
+
+    switch await activity.prepareForActivation() {
+    case .activationPreferred:
+      do {
+        _ = try await activity.activate()
+        // The session arrives through `startObservingSessions()`.
+      } catch {
+        Self.logger.error("Listen Together: could not start SharePlay: \(error.localizedDescription)")
+        clearPendingShare()
+        state = .ended(reason: .unavailable)
+        scheduleReturnToIdle()
+      }
+    case .activationDisabled:
+      clearPendingShare()
+      state = .ended(reason: .unavailable)
+      scheduleReturnToIdle()
+    case .cancelled:
+      clearPendingShare()
+      state = .idle
+    @unknown default:
+      clearPendingShare()
+      state = .idle
+    }
+  }
+
+  func joinInvitation() {
+    guard let session = pendingInvitation, !isInSession else { return }
+    pendingInvitation = nil
+    invitationBag.removeAll()
+    let shareID = session.activity.shareID
+    let folder: URL
+    do {
+      folder = try storage.folder(for: shareID, role: .listener)
+    } catch {
+      Self.logger.error("Listen Together: could not create the download folder: \(error.localizedDescription)")
+      session.leave()
+      state = .ended(reason: .unavailable)
+      scheduleReturnToIdle()
+      return
+    }
+    playerManager.pause()
+    let transport = transportFactory(session, folder)
+    activeSession = session
+    session.join()
+    Task { await self.beginListening(with: transport, shareID: shareID) }
+  }
+
+  func declineInvitation() {
+    pendingInvitation?.leave()
+    pendingInvitation = nil
+    invitationBag.removeAll()
+    state = .idle
+  }
+
+  /// Ends Listen Together for this device. The sharer also tells everyone else it is over.
+  func end() {
+    if pendingInvitation != nil, !isInSession {
+      declineInvitation()
+      return
+    }
+    guard isInSession else { return }
+    if role == .sharer, let transport {
+      tearDown(reason: .normal, leaveTransport: false)
+      Task {
+        do {
+          try await transport.send(.sessionEnding)
+        } catch {
+          Self.logger.error("Listen Together: could not send the end message: \(error.localizedDescription)")
+        }
+        transport.leave()
+      }
+    } else {
+      tearDown(reason: .normal)
+    }
+  }
+
+  // MARK: Teardown
+
+  /// Stops playback, leaves the session, deletes this share's files and announces the end.
+  func tearDown(reason: ListenTogetherState.EndReason, announcement: String? = nil, leaveTransport: Bool = true) {
+    guard isInSession else { return }
+    let transport = self.transport
+    let shareID = self.shareID
+    role = nil
+    eventLoop?.cancel()
+    eventLoop = nil
+    localEventsBag.removeAll()
+    bridge?.invalidate()
+    bridge = nil
+    listener?.stop()
+    listener = nil
+    sharerTarget = nil
+    self.transport = nil
+    activeSession = nil
+    manifest = nil
+    participantCount = 1
+    uploadedPieceMessages = []
+    pieceIndexByAttachment = [:]
+    heldAttachments = [:]
+    placedPieces = []
+    announcedWaiting = false
+    self.shareID = nil
+    if leaveTransport { transport?.leave() }
+    if let shareID { storage.remove(shareID: shareID) }
+    announcer.announce(announcement ?? ListenTogetherAnnouncements.ended())
+    state = .ended(reason: reason)
+    scheduleReturnToIdle()
+  }
+
+  // MARK: Private
+
+  private func received(_ session: GroupSession<ListenTogetherActivity>) {
+    if let pendingShareID, session.activity.shareID == pendingShareID, let item = pendingItem {
+      // Our own session: start sharing.
+      clearPendingShare()
+      let folder: URL
+      do {
+        folder = try storage.folder(for: pendingShareID, role: .sharer)
+      } catch {
+        Self.logger.error("Listen Together: could not create the share folder: \(error.localizedDescription)")
+        session.leave()
+        state = .ended(reason: .unavailable)
+        scheduleReturnToIdle()
+        return
+      }
+      let transport = transportFactory(session, folder)
+      activeSession = session
+      session.join()
+      Task { await self.beginSharing(with: transport, item: item, shareID: pendingShareID) }
+      return
+    }
+
+    // Someone else's session. Ignore new invitations while one is already active or offered.
+    guard !isInSession, pendingInvitation == nil else { return }
+    pendingInvitation = session
+    state = .invitation(title: session.activity.title, author: session.activity.author)
+    // If the session goes away before the user answers, drop the invitation.
+    session.$state
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self, weak session] newState in
+        MainActor.assumeIsolated {
+          guard let self, let session, self.pendingInvitation === session,
+            case .invalidated = newState
+          else { return }
+          self.pendingInvitation = nil
+          self.invitationBag.removeAll()
+          self.state = .idle
+        }
+      }
+      .store(in: &invitationBag)
+  }
+
+  private func clearPendingShare() {
+    pendingShareID = nil
+    pendingItem = nil
+  }
+
+  /// After 3 seconds the ended banner goes away, unless something else happened meanwhile.
+  private func scheduleReturnToIdle() {
+    endedGeneration += 1
+    let generation = endedGeneration
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(3))
+      guard let self, self.endedGeneration == generation, case .ended = self.state else { return }
+      self.state = .idle
+    }
+  }
+}
