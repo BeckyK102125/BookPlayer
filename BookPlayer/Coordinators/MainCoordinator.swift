@@ -31,6 +31,7 @@ class MainCoordinator: NSObject {
   let audiobookshelfConnectionService: AudiobookShelfConnectionService
   let hardcoverService: HardcoverService
   let preferencesService: PreferencesSyncService
+  let sharePlayService: SharePlaySessionService
 
   var playerState: PlayerState { AppServices.shared.playerState }
 
@@ -70,6 +71,7 @@ class MainCoordinator: NSObject {
 
     self.hardcoverService = coreServices.hardcoverService
     self.preferencesService = coreServices.preferencesService
+    self.sharePlayService = SharePlaySessionService(playerManager: coreServices.playerManager)
 
     ThemeManager.shared.libraryService = libraryService
 
@@ -86,6 +88,10 @@ class MainCoordinator: NSObject {
 
     bindObservers()
 
+    // No Listen Together session survives a relaunch: remove leftover files before watching for sessions.
+    ShareStorage().cleanAll()
+    sharePlayService.startObservingSessions()
+
     accountService.loginIfUserExists(delegate: self)
 
     let vc = AppHostingViewController(
@@ -97,6 +103,7 @@ class MainCoordinator: NSObject {
       .environmentObject(singleFileDownloadService)
       .environmentObject(importManager)
       .environmentObject(playerManager)
+      .environmentObject(sharePlayService)
       .environmentObject(listSyncRefreshService)
       .environment(\.libraryService, libraryService)
       .environment(\.accountService, accountService)

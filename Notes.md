@@ -102,3 +102,30 @@ No -derivedDataPath used. No pre-existing failures.
   cancelledShare, invitation, busy). The set is not cleared when a new share starts (that would
   bring the bug back); each id is removed when its session arrives.
 - Tests: 2 added. Focused 12/0; full suite 639/0.
+
+## 2026-10-10 - Task 10: accessible Listen Together UI (branch shareplay-listen-together, parent 0d8fe1a6)
+- Accessibility consult (Step 1) was done by the controller with mobile-accessibility:
+  .superpowers/sdd/2026-10-10-shareplay-listen-together/task-10-a11y-guidance.md. Rulings R19-R25 applied.
+  The Step 9 re-review was not dispatched (implementers may not dispatch subagents); a per-view checklist
+  is in task-10-report.md.
+- New views in BookPlayer/SharePlay/Views/: ListenTogetherBanner (+ ListenTogetherStatus text mapping and
+  the needs-FaceTime alert modifier), ListenTogetherInvitationView, ListenTogetherPresentation (MainView
+  modifier: invitation sheet, listener cover, closes the player cover / media servers sheet first and
+  presents once coversOnScreen shows them gone), ListenerPlayerView (+ header), ListenerControls (position
+  adjustable element, transport row, chapters/speed row), ListenerChaptersView.
+- Service: canOfferSharing (menu item hidden while preparing/in session/invitation), hasPendingInvitation,
+  acknowledgeNeedsFaceTime() (R22), endUnavailable() announces listen_together_unavailable on every
+  .ended(.unavailable) path (R22).
+- Wiring: MainCoordinator creates the service, calls ShareStorage().cleanAll() then
+  startObservingSessions() in start(), injects .environmentObject. PlayerViewModel takes an optional
+  sharePlayService (default nil). MainView Magic Tap goes to the listener during a session (R19).
+  ListStateManager.Cover gains listenTogetherInvitation and listenTogether. ArtworkView takes an optional
+  focus binding so focus lands on the title when the banner leaves while focused.
+- Decisions: the slider value is "Elapsed X, remaining Y" and the visible time row is hidden from
+  VoiceOver (guidance 4.3 single-element variant); banner sits below title/author/chapter on the listener
+  screen (reading order = visual order, no sort priorities); End asks for confirmation except while
+  preparing; needs-FaceTime alert waits 0.6 s so it isn't dropped while the More dialog closes.
+- 13 new strings in every *.lproj (R16).
+- RED: SharePlayMenuTests failed to compile (no sharePlayService init arg, ListenTogetherStatus,
+  acknowledgeNeedsFaceTime, endUnavailable). GREEN: 7/0. Full suite: 646 tests, 0 failures.
+  The app was installed and launched in the iPhone 17 simulator: boots to the library, no crash.

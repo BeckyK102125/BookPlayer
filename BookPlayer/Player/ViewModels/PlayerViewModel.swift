@@ -45,6 +45,8 @@ final class PlayerViewModel: ObservableObject {
   let playbackService: PlaybackServiceProtocol
   let playerManager: PlayerManager
   let syncService: SyncServiceProtocol
+  /// Offers "Listen Together" in the More menu. Nil where SharePlay isn't wired (tests, previews).
+  let sharePlayService: SharePlaySessionService?
   
   private var chapterBeforeSliderValueChange: PlayableChapter?
   private var isSliderDragging = false
@@ -106,12 +108,14 @@ final class PlayerViewModel: ObservableObject {
     libraryService: LibraryService,
     playbackService: PlaybackService,
     playerManager: PlayerManager,
-    syncService: SyncService
+    syncService: SyncService,
+    sharePlayService: SharePlaySessionService? = nil
   ) {
     self.libraryService = libraryService
     self.playbackService = playbackService
     self.playerManager = playerManager
     self.syncService = syncService
+    self.sharePlayService = sharePlayService
     let sharedDefaults = UserDefaults.sharedDefaults
     self.prefersChapterContext = sharedDefaults.bool(forKey: Constants.UserDefaults.chapterContextEnabled)
     self.prefersRemainingTime = sharedDefaults.bool(forKey: Constants.UserDefaults.remainingTimeEnabled)
@@ -700,7 +704,19 @@ final class PlayerViewModel: ObservableObject {
         handler: { [weak self] in self?.handleEnableRepeat() }
       )
     )
-    
+
+    // Hidden, not disabled, when the book isn't on this device or Listen Together is already busy.
+    if let sharePlayService, let item = playerManager.currentItem, sharePlayService.canOfferSharing(item) {
+      actions.append(
+        BPActionItem(
+          title: "listen_together_title".localized,
+          handler: { [weak sharePlayService] in
+            Task { await sharePlayService?.startSharing(item) }
+          }
+        )
+      )
+    }
+
     currentAlertOrigin = .more
     currentAlert = BPAlertContent(
       title: "",

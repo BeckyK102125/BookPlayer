@@ -19,6 +19,7 @@ struct PlayerView: View {
   @State private var noteText: String = ""
   @State private var dragOffset: CGSize = .zero
   @State private var dragThresholdReached = false
+  @AccessibilityFocusState private var isMetaFocused: Bool
   let dismissThreshold: CGFloat = 44.0 * UIScreen.main.nativeScale
   
   init(initModel: @escaping () -> PlayerViewModel) {
@@ -37,6 +38,16 @@ struct PlayerView: View {
               handleDragEnded(gesture)
             }
         )
+
+      if let sharePlayService = viewModel.sharePlayService {
+        ListenTogetherBanner(service: sharePlayService) {
+          // The banner left while VoiceOver was on it: land on the book's title instead.
+          Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            isMetaFocused = true
+          }
+        }
+      }
       
       VStack {
         Group {
@@ -46,7 +57,8 @@ struct PlayerView: View {
             ArtworkView(
               title: viewModel.title,
               author: viewModel.author,
-              imagePath: viewModel.relativePath
+              imagePath: viewModel.relativePath,
+              metaFocus: $isMetaFocused
             )
           }
         }
@@ -149,6 +161,7 @@ struct PlayerView: View {
     }
     .buttonStyle(.plain)
     .bpAlert($viewModel.currentAlert)
+    .listenTogetherNeedsFaceTimeAlert(viewModel.sharePlayService)
     .alert(
         "bookmark_note_action_title",
         isPresented: Binding(

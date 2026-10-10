@@ -16,6 +16,8 @@ struct ArtworkView: View {
   var title: String
   var author: String
   var imagePath: String?
+  /// Lets the player move VoiceOver focus to the title and author element.
+  var metaFocus: AccessibilityFocusState<Bool>.Binding?
   
   var body: some View {
     ZStack(alignment: .top) {
@@ -82,6 +84,7 @@ struct ArtworkView: View {
           .accessibilityLabel(VoiceOverService.playerMetaText(title: title, author: author))
           .accessibilityAddTraits(.isStaticText)
           .accessibilityRemoveTraits(.isImage)
+          .modifier(OptionalAccessibilityFocus(binding: metaFocus))
         
         VStack {
           HStack(spacing: 12) {
@@ -104,6 +107,19 @@ struct ArtworkView: View {
       .clipped()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+/// Binds VoiceOver focus only when a binding is given.
+private struct OptionalAccessibilityFocus: ViewModifier {
+  let binding: AccessibilityFocusState<Bool>.Binding?
+
+  func body(content: Content) -> some View {
+    if let binding {
+      content.accessibilityFocused(binding)
+    } else {
+      content
+    }
   }
 }
 

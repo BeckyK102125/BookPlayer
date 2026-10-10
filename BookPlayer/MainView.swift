@@ -28,6 +28,7 @@ struct MainView: View {
 
   @EnvironmentObject private var listSyncRefreshService: ListSyncRefreshService
   @EnvironmentObject private var playerManager: PlayerManager
+  @EnvironmentObject private var sharePlayService: SharePlaySessionService
 
   var body: some View {
     TabView {
@@ -107,14 +108,21 @@ struct MainView: View {
           libraryService: libraryService,
           playbackService: playbackService,
           playerManager: playerManager,
-          syncService: syncService
+          syncService: syncService,
+          sharePlayService: sharePlayService
         )
       }
       .presentationBackground(.clear)
       .onAppear { listState.coversOnScreen.insert(.player) }
     }
+    .listenTogetherPresentation(service: sharePlayService, listState: listState, playerState: playerState)
     .accessibilityAction(.magicTap) {
-      playerManager.playPause()
+      // During Listen Together the shared book plays, not the paused library book.
+      if let listener = sharePlayService.listener {
+        listener.userTogglePlay()
+      } else {
+        playerManager.playPause()
+      }
     }
     .environment(\.tabBarContentHeight, tabBarContentHeight)
     .environmentObject(theme)

@@ -115,6 +115,25 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     return BookSplitter.isShareable(item)
   }
 
+  /// Whether to offer "Listen Together" for `item` now. Hidden (not disabled) while a share is being
+  /// prepared, a session is running or an invitation is waiting, because `startSharing` would do nothing.
+  func canOfferSharing(_ item: PlayableItem?) -> Bool {
+    guard canShare(item), !isInSession, !isPreparing, pendingInvitation == nil else { return false }
+    switch state {
+    case .idle, .needsFaceTime, .ended: return true
+    case .preparing, .invitation, .sharing, .listening: return false
+    }
+  }
+
+  /// True while someone else's share is waiting for Join or Not Now.
+  var hasPendingInvitation: Bool { pendingInvitation != nil }
+
+  /// The needs-FaceTime alert was dismissed.
+  func acknowledgeNeedsFaceTime() {
+    guard state == .needsFaceTime else { return }
+    state = .idle
+  }
+
   /// A second call while one share is still being prepared is ignored.
   func startSharing(_ item: PlayableItem) async {
     guard !isInSession, !isPreparing else { return }
@@ -137,13 +156,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
         Self.logger.error("Listen Together: could not start SharePlay: \(error.localizedDescription)")
         guard pendingShareID == shareID else { return }
         clearPendingShare()
-        state = .ended(reason: .unavailable)
-        scheduleReturnToIdle()
+        endUnavailable()
       }
     case .activationDisabled:
       clearPendingShare()
-      state = .ended(reason: .unavailable)
-      scheduleReturnToIdle()
+      endUnavailable()
     case .cancelled:
       clearPendingShare()
       state = .idle
@@ -178,8 +195,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     } catch {
       Self.logger.error("Listen Together: could not create the download folder: \(error.localizedDescription)")
       session.leave()
-      state = .ended(reason: .unavailable)
-      scheduleReturnToIdle()
+      endUnavailable()
       return
     }
     playerManager.pause()
@@ -301,8 +317,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     } catch {
       Self.logger.error("Listen Together: could not create the share folder: \(error.localizedDescription)")
       session.leave()
-      state = .ended(reason: .unavailable)
-      scheduleReturnToIdle()
+      endUnavailable()
       return
     }
     let transport = transportFactory(session, folder)
@@ -333,6 +348,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private func clearPendingShare() {
     pendingShareID = nil
     pendingItem = nil
+  }
+
+  /// Listen Together could not start (SharePlay unavailable or no folder for the files). Announced,
+  /// because otherwise a VoiceOver user hears nothing. Internal for tests.
+  func endUnavailable() {
+    announcer.announce("listen_together_unavailable".localized)
+    state = .ended(reason: .unavailable)
+    scheduleReturnToIdle()
   }
 
   /// After 3 seconds the ended banner goes away, unless something else happened meanwhile.

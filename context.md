@@ -11,37 +11,36 @@ docs/superpowers/plans/ (the SharePlay Listen Together implementation plan).
 - origin: github.com/BeckyK102125/BookPlayer (Becky's fork). Nothing pushed yet.
 - upstream: github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream `develop` at eb19a92f. Only worktree.
-- Working tree is clean after the Task 0 commit ("this commit").
-- Local only, not committed: BuildConfiguration/Debug.xcconfig (copied from the template; gitignored).
+- Head: Task 10 commit ("this commit"), parent 0d8fe1a6. Clean after it.
+- Local only, not committed: BuildConfiguration/Debug.xcconfig (gitignored).
 
 ## Done so far
-- Spec and plan committed (906acbf7, 95eda2e0).
-- Task 0: Group Activities capability added (com.apple.developer.group-session in both
-  entitlements files, NSSupportsGroupActivities in Info.plist). Project notes created.
-- Helper for registering new files in the Xcode project exists outside the repo at
-  /private/tmp/bp-tools/add_to_xcodeproj.py (see Notes.md for usage). The weekly cleanup job may
-  remove /private/tmp after 3 days; Notes.md records how to rebuild it.
+- Tasks 0-9: capability, models, splitter, planner, timeline, sharer target, listener player,
+  coordinator bridge, session service, transport and announcements (see Notes.md).
+- Task 10: accessible UI (More-menu item, banner, invitation sheet, listener screen) and wiring in
+  MainCoordinator/MainView. Views live in BookPlayer/SharePlay/Views/.
 
 ## Verification
-- Baseline on the untouched code plus the Task 0 plist changes:
-  build-for-testing: TEST BUILD SUCCEEDED.
-  test-without-building: Executed 572 tests, with 0 failures. No pre-existing failures.
-- Destination must be the iPhone 17 simulator by id (98A8CF98-8142-4710-AD5E-5419F782752C, iOS 26.5).
-  `name=iPhone 17` alone fails on this Mac because the latest simulator runtime is iOS 27.0 and has
-  no iPhone 17.
-- Xcode 27.0 (27A266a) here; CI uses Xcode 26.4.
+- Full unit suite (Unit Tests plan, -only-testing:BookPlayerTests): 646 tests, 0 failures.
+- App launches in the simulator to the library. SharePlay itself can't run in the simulator.
+- Destination: iPhone 17 simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C.
+- Helper for registering new files: /private/tmp/bp-tools/add_to_xcodeproj.py (may be removed by the
+  weekly cleanup; Notes.md records how to rebuild it).
 
 ## Device and assistive-technology acceptance
-- Not started. SharePlay needs two real devices on FaceTime; the simulator cannot test it.
+- Not started. Needs two real devices on FaceTime with VoiceOver: run the device checklist in
+  .superpowers/sdd/2026-10-10-shareplay-listen-together/task-10-a11y-guidance.md section 7.
 
-## Open problems
-- None.
+## Open problems / known limitations
+- Lock-screen and AirPods play/pause still control the library player during a listener session (R26).
+- Magic Tap while the speed menu is open may not reach the listener (system menu).
+- The ended banner is visible 3 s; the announcement carries the message.
 
 ## Next steps
-1. Task 1 of the plan.
-2. Every new Swift file must be registered with the helper (the project uses classic groups).
+1. Controller review of Task 10, then any remaining plan tasks.
+2. Two-device VoiceOver test.
 
 ## Decisions waiting on Becky
+- Keep the End confirmation dialog (sharing/listening)? Implemented; easy to remove.
 - Push the branch to GitHub: not yet.
-- Signing team and bundle ID for device testing (the group-session capability must be enabled on
-  the App ID in the developer portal).
+- Signing team and bundle ID for device testing (group-session capability on the App ID).

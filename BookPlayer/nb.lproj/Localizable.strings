@@ -528,3 +528,16 @@ Vi jobber hardt for å gi deg en sømløs opplevelse. Hvis mulig, kontakt oss p�
 "listen_together_download_progress" = "Book %d percent downloaded";
 "listen_together_waiting_download" = "Waiting for the book to download";
 "listen_together_send_failed" = "Couldn't send part of the book. Listen Together ended.";
+"listen_together_unavailable" = "Listen Together isn't available right now.";
+"listen_together_invitation_message_no_author" = "Listen to %@ with the people on this FaceTime call.";
+"listen_together_join_hint" = "Pauses your current book and starts listening together.";
+"listen_together_end_hint_sharer" = "Ends Listen Together for everyone.";
+"listen_together_end_hint_listener" = "Leaves Listen Together and deletes your copy of the book.";
+"listen_together_end_hint_preparing" = "Cancels sharing.";
+"listen_together_end_confirm_title" = "End Listen Together?";
+"listen_together_status_sharing_waiting" = "Listen Together, waiting for others, sharing";
+"listen_together_status_listening_one" = "Listen Together, 1 person, listening";
+"listen_together_position_title" = "Book position";
+"listen_together_time_value" = "Elapsed %@, remaining %@";
+"listen_together_speed_title" = "Speed";
+"listen_together_speed_value" = "%@ times";

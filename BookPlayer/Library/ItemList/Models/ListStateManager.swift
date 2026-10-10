@@ -35,6 +35,8 @@ final class ListStateManager {
   enum Cover: Hashable {
     case mediaServers
     case player
+    case listenTogetherInvitation
+    case listenTogether
   }
 
   /// The covers on screen, from the moment their content appears until their dismissal has
