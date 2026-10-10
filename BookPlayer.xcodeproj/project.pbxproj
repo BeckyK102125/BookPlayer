@@ -301,6 +301,7 @@
 		5A589702CFB4A8F8EC55AC3F /* SortIntegrationHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF448F75392B02FC5451289 /* SortIntegrationHarness.swift */; };
 		5A9506FC8DAB858289E0EF89 /* IntegrationServerAddressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623E13D0C96857091397B5EF /* IntegrationServerAddressTests.swift */; };
 		5B1559A45658B195521CC454 /* SyncResponseFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6581B92E4D292C2AFC361A /* SyncResponseFixtures.swift */; };
+		5B6240138ED61770638252F3 /* SharerPlaybackTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5244AC8319CEA58743B9D6 /* SharerPlaybackTargetTests.swift */; };
 		5E20E8B93A65A58C51F1FF52 /* PKCETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A989BA90E16F60920A1DB0 /* PKCETests.swift */; };
 		61354047AB5CE83A4D4174CC /* BookSplitterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7134163837D82B36DC01F84 /* BookSplitterTests.swift */; };
 		62793611272CBE910097837D /* ImportFileItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4163E3102148606600072AA2 /* ImportFileItem.swift */; };
@@ -665,6 +666,7 @@
 		81173188169F2573B4F5AA90 /* AudiobookShelfOIDCFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75010F6AB433BBEEB7FA9376 /* AudiobookShelfOIDCFlow.swift */; };
 		8322A3C6479B099448C63C47 /* IntegrationLibraryViewModelProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E070421575334E1CD85C049 /* IntegrationLibraryViewModelProtocol.swift */; };
 		843575DDF1CEEBC9A2EF015C /* IntegrationConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 587EDC7DEA9D2985635F1161 /* IntegrationConnectionStore.swift */; };
+		84544DF4BCA7595981C2F554 /* ListenTogetherPlaybackTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBDF4E23AD17EC33CA5917E0 /* ListenTogetherPlaybackTarget.swift */; };
 		8A0883CB5B4914B2DCB70A5E /* AudiobookShelfOIDCFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC10E1E47E1F6982D8F6A552 /* AudiobookShelfOIDCFlowTests.swift */; };
 		8A2A22392CEFEB8E00E73A2D /* AdaptiveVGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A2A22382CEFEB8800E73A2D /* AdaptiveVGrid.swift */; };
 		8A495CC62CC85D27001B4244 /* JellyfinAPI in Frameworks */ = {isa = PBXBuildFile; productRef = 8A495CC52CC85D27001B4244 /* JellyfinAPI */; };
@@ -914,6 +916,7 @@
 		E5744CAA83178020500D317F /* BookSplitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9445E688C32C06741E918C /* BookSplitter.swift */; };
 		E60060C58E5E4B24A431C381 /* LibraryOrganizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6291BA47A38D043A49CE7AA /* LibraryOrganizerTests.swift */; };
 		E645420CAE56A0B61D7BB6D3 /* ListenTogetherActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BF426FA3E0735F9DA5D5EE /* ListenTogetherActivity.swift */; };
+		E69D485D82A6A4CB4A4EEA9B /* SharerPlaybackTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */; };
 		F2535BF980A548BFB9D3E8C1 /* VideoPiPCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EA56C448451F969BC0E2AB /* VideoPiPCoordinator.swift */; };
 		F50163BEFB92FB6B1B778C5E /* WindowHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BB8BFBB9A63469069F0D44A /* WindowHelper.swift */; };
 		F6348C04290CD2CE7BE3F015 /* IntegrationConnectionDataDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB8BD2F5EC900DC51D5D02D /* IntegrationConnectionDataDecodingTests.swift */; };
@@ -1086,6 +1089,7 @@
 /* Begin PBXFileReference section */
 		056B7A76F1A44CEC30562382 /* IntegrationQuickConnectViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationQuickConnectViews.swift; sourceTree = "<group>"; };
 		0EA09FE5A35CEA0B87F83EF3 /* PreferencesSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesSyncServiceTests.swift; sourceTree = "<group>"; };
+		0F5244AC8319CEA58743B9D6 /* SharerPlaybackTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharerPlaybackTargetTests.swift; path = SharerPlaybackTargetTests.swift; sourceTree = "<group>"; };
 		0FC8B923A5506F865253B97C /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		12EDB8401F38342155CBBC91 /* mp3_NO_chapters.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = mp3_NO_chapters.mp3; sourceTree = "<group>"; };
 		13C407B5BD19D3CF9CC64EC7 /* IntegrationLibraryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationLibraryView.swift; sourceTree = "<group>"; };
@@ -1345,6 +1349,7 @@
 		41FCA32625E87EC600BFB9E6 /* Audiobook Player 4.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Audiobook Player 4.xcdatamodel"; sourceTree = "<group>"; };
 		424AE6DFF6B641DB69DF3D78 /* IntegrationAudiobookDetailsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationAudiobookDetailsView.swift; sourceTree = "<group>"; };
 		43D61F68F0A174C7CA44FE8A /* IntegrationConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationConnectionView.swift; sourceTree = "<group>"; };
+		440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharerPlaybackTarget.swift; path = SharerPlaybackTarget.swift; sourceTree = "<group>"; };
 		4645F9FC2D1E46AC00A04257 /* SwipeInlineTip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeInlineTip.swift; sourceTree = "<group>"; };
 		465D87512D3195D600A4AA47 /* BookmarksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksView.swift; sourceTree = "<group>"; };
 		465D87532D31965100A4AA47 /* BookmarksViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksViewModel.swift; sourceTree = "<group>"; };
@@ -1912,6 +1917,7 @@
 		F6291BA47A38D043A49CE7AA /* LibraryOrganizerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LibraryOrganizerTests.swift; sourceTree = "<group>"; };
 		F6F0D505E060FDAEB6DB68E3 /* IntegrationLibraryListView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationLibraryListView.swift; sourceTree = "<group>"; };
 		F78387C7EDD9105363712F34 /* VideoFullscreenViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFullscreenViewController.swift; sourceTree = "<group>"; };
+		FBDF4E23AD17EC33CA5917E0 /* ListenTogetherPlaybackTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherPlaybackTarget.swift; path = ListenTogetherPlaybackTarget.swift; sourceTree = "<group>"; };
 		FD6D407BA130758014DD199A /* ListenTogetherModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherModelsTests.swift; path = ListenTogetherModelsTests.swift; sourceTree = "<group>"; };
 		FEEDBABE0000000000000001 /* SharedWidgetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedWidgetStore.swift; sourceTree = "<group>"; };
 		FEEDBABE0000000000000004 /* SharedWidgetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedWidgetStoreTests.swift; sourceTree = "<group>"; };
@@ -3884,6 +3890,8 @@
 				5A1940DDA23F0B56F6280694 /* PiecePlanner.swift */,
 				4E9445E688C32C06741E918C /* BookSplitter.swift */,
 				77144E6297065B6BE92BC220 /* PieceTimeline.swift */,
+				FBDF4E23AD17EC33CA5917E0 /* ListenTogetherPlaybackTarget.swift */,
+				440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -3916,6 +3924,7 @@
 				AA4348FDA99F033B237A56F1 /* AudioFixture.swift */,
 				D7134163837D82B36DC01F84 /* BookSplitterTests.swift */,
 				5A524E32BCFD1FEC611BB09F /* PieceTimelineTests.swift */,
+				0F5244AC8319CEA58743B9D6 /* SharerPlaybackTargetTests.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -5107,6 +5116,8 @@
 				C92743B69D66C6799740B7A7 /* PiecePlanner.swift in Sources */,
 				E5744CAA83178020500D317F /* BookSplitter.swift in Sources */,
 				174644328BDE42FD83531DFE /* PieceTimeline.swift in Sources */,
+				84544DF4BCA7595981C2F554 /* ListenTogetherPlaybackTarget.swift in Sources */,
+				E69D485D82A6A4CB4A4EEA9B /* SharerPlaybackTarget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5165,6 +5176,7 @@
 				42174188A6F4B829CD4565AA /* AudioFixture.swift in Sources */,
 				61354047AB5CE83A4D4174CC /* BookSplitterTests.swift in Sources */,
 				9FEF4AC6BBA01D718A26165F /* PieceTimelineTests.swift in Sources */,
+				5B6240138ED61770638252F3 /* SharerPlaybackTargetTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

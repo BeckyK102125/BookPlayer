@@ -64,3 +64,40 @@ extension PlayableItem {
     )
   }
 }
+
+extension PlayableItem {
+  /// Single-chapter item spanning the whole duration. When `fileURL` is given, the chapter's
+  /// `relativePath` is its last path component, so `PlayableChapter.fileURL` resolves to
+  /// `DataManager.getProcessedFolderURL()/<name>`.
+  static func stub(
+    currentTime: TimeInterval,
+    duration: TimeInterval,
+    fileURL: URL? = nil
+  ) -> PlayableItem {
+    let path = fileURL?.lastPathComponent ?? "stub-\(UUID().uuidString).m4a"
+    return PlayableItem(
+      title: "stub-title",
+      author: "stub-author",
+      chapters: [
+        PlayableChapter(
+          title: "stub-chapter",
+          author: "stub-author",
+          start: 0,
+          duration: duration,
+          relativePath: path,
+          remoteURL: nil,
+          index: 0
+        )
+      ],
+      currentTime: currentTime,
+      duration: duration,
+      relativePath: path,
+      uuid: UUID().uuidString,
+      parentFolder: nil,
+      percentCompleted: 0,
+      lastPlayDate: nil,
+      isFinished: false,
+      isBoundBook: false
+    )
+  }
+}
