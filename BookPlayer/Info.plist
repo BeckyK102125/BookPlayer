@@ -451,6 +451,8 @@
 			<string>$(BP_BUNDLE_IDENTIFIER).playLastBook</string>
 		</dict>
 	</array>
+	<key>NSSupportsGroupActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
