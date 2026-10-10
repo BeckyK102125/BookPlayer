@@ -256,3 +256,37 @@ the ones in the repo.
 ### Handed on
 Device acceptance not started (see context.md). Temporary clone /private/tmp/bp-src removed;
 /private/tmp/bp-tools kept until the branch is merged or abandoned.
+
+## 2026-10-10 - Final fix wave after the whole-branch review (branch shareplay-listen-together, parent f2b926a3)
+Rulings R31 and R32 (ledger). Fixed in one pass, each with a fake-based unit test:
+- C1: the coordinator bridge now knows its role (new init parameter `role`, default `.listener`). The
+  sharer calls transitionToItem with a CMTimebase snapshot on the host clock (time = its book time,
+  rate = its rate when playing, else 0); before, both roles passed nil, which the SDK treats as paused
+  at 0:00, so a later play jumped the sharer to the start. Listeners still pass nil. The call goes
+  through ListenTogetherCoordinatorControlling.transitionToItem(withIdentifier:proposingTime:rate:) so
+  tests can see it; invalidate() uses the same call with a nil identifier.
+- I1: PieceTimeline.location(for:) picks the last piece starting at or before t + 1e-6 (clamped to
+  the end of the last piece; nil only for negative, NaN or empty). The old strict [start, end) lookup
+  returned nil in one-ULP seams between pieces, and the listener stalled. ListenerPlayer.advanceToNextPiece
+  now loads the next piece in book order by index at its own start (PieceTimeline.piece(after:)).
+- I2 (R31): ListenerPlayer's user actions emit their event BEFORE applying locally, so coordinateSeek /
+  coordinateRateChange reach the coordinator before a missing piece starts the stall suspension (calls
+  made while suspended only affect the local object, per AVPlaybackCoordinator.h).
+- I3: a speed change made while paused arrives only as an announcement; now the receiver also sets it
+  silently (ListenTogetherPlaybackTarget.applyRate; the sharer uses setSpeed with the echo guard).
+  Decision in SharePlaySessionService.silentRate(for:target:).
+- I4: SharerPlaybackTarget uses removeDuplicates().dropFirst(); the first value equal to the initial one
+  is no longer reported. testNoOpRemotePlayDoesNotSwallowLaterUserPause's setup was corrected to give
+  the publisher a current value that matches "already playing".
+- Cheap: "0 seconds" (listen_together_zero_seconds) instead of an empty string in the position value;
+  an incoming session while this device is preparing its own share is .busy; the listener cover is
+  shown from .listening with a "getting the book" screen (invitation title, banner with status and End,
+  listen_together_getting_book_message) until the manifest arrives, then the normal controls, same cover.
+  Two strings added to all 26 lproj (44 in total).
+- context.md corrected: iOS 18.0, R1-R32, string count, known limitations (I5 sharer killed mid-call,
+  speed saved in the sharer's library, sleep timer/CarPlay/lock screen on listeners, speed picker gaps).
+Evidence: RED run with the behaviour reverted (new APIs kept): 69 focused tests, 13 failures across the
+9 behaviour tests. GREEN focused: 69 tests, 0 failures. Full: xcodebuild ... -testPlan "Unit Tests"
+-only-testing:BookPlayerTests test -> "Executed 668 tests, with 0 failures", ** TEST SUCCEEDED **.
+Not device-tested; SharePlay timing (C1, I2) needs the two-device run.
+Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/final-fix-report.md

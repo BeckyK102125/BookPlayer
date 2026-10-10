@@ -18,4 +18,6 @@ protocol ListenTogetherPlaybackTarget: AnyObject {
   func applyPlay(at bookTime: TimeInterval, rate: Float)
   func applyPause(at bookTime: TimeInterval)
   func applySeek(to bookTime: TimeInterval)
+  /// Sets the speed without playing or reporting it (a speed change made elsewhere while paused).
+  func applyRate(_ rate: Float)
 }

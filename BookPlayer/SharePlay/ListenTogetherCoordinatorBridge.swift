@@ -10,6 +10,9 @@ protocol ListenTogetherCoordinatorControlling: AnyObject {
   func coordinateSeek(to bookTime: TimeInterval)
   /// Begins a stall-recovery suspension and returns a closure that ends it.
   func beginStallSuspension() -> () -> Void
+  /// Makes `identifier` the current item. With a `time`, proposes that the item is at `time` moving
+  /// at `rate` (0 when paused); with nil, the coordinator assumes paused at zero.
+  func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float)
 }
 
 /// Syncs one abstract "book time" timeline across a SharePlay session by routing
@@ -25,9 +28,12 @@ final class ListenTogetherCoordinatorBridge: NSObject {
   private var disposeBag = Set<AnyCancellable>()
   private var isInvalidated = false
 
+  /// `role` decides the initial timing: the sharer proposes where it really is (time and rate), so the
+  /// group starts there; a listener proposes nothing and adopts the group's timing.
   init(
     target: ListenTogetherPlaybackTarget,
     shareID: UUID,
+    role: SharePlaySessionService.Role = .listener,
     control: ListenTogetherCoordinatorControlling? = nil
   ) {
     self.target = target
@@ -39,12 +45,17 @@ final class ListenTogetherCoordinatorBridge: NSObject {
     } else {
       let coordinator = AVDelegatingPlaybackCoordinator(playbackControlDelegate: self)
       coordinator.suspensionReasonsThatTriggerWaiting = [.stallRecovery]
-      coordinator.transitionToItem(
-        withIdentifier: itemIdentifier,
-        proposingInitialTimingBasedOn: nil
-      )
       self.realCoordinator = coordinator
       self.control = DelegatingCoordinatorControl(coordinator: coordinator)
+    }
+    switch role {
+    case .sharer:
+      self.control.transitionToItem(
+        withIdentifier: itemIdentifier,
+        proposingTime: target.bookTime,
+        rate: target.isPlaying ? target.rate : 0)
+    case .listener:
+      self.control.transitionToItem(withIdentifier: itemIdentifier, proposingTime: nil, rate: 0)
     }
 
     target.localEvents
@@ -74,10 +85,7 @@ final class ListenTogetherCoordinatorBridge: NSObject {
     endStallSuspension?()
     endStallSuspension = nil
     disposeBag.removeAll()
-    realCoordinator?.transitionToItem(
-      withIdentifier: nil,
-      proposingInitialTimingBasedOn: nil
-    )
+    control.transitionToItem(withIdentifier: nil, proposingTime: nil, rate: 0)
   }
 
   // MARK: Command handling (main actor)
@@ -146,6 +154,23 @@ private final class DelegatingCoordinatorControl: ListenTogetherCoordinatorContr
   func beginStallSuspension() -> () -> Void {
     let suspension = coordinator.beginSuspension(for: .stallRecovery)
     return { suspension.end() }
+  }
+
+  func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float) {
+    var timebase: CMTimebase?
+    if let time, time.isFinite {
+      // A snapshot on the host clock: the coordinator reads its time and rate once.
+      if CMTimebaseCreateWithSourceClock(
+        allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase) == noErr,
+        let timebase
+      {
+        CMTimebaseSetTime(timebase, time: CMTime(seconds: max(0, time), preferredTimescale: 600))
+        CMTimebaseSetRate(timebase, rate: Float64(rate))
+      } else {
+        timebase = nil
+      }
+    }
+    coordinator.transitionToItem(withIdentifier: identifier, proposingInitialTimingBasedOn: timebase)
   }
 }
 

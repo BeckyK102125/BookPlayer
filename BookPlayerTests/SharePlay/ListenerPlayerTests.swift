@@ -125,4 +125,53 @@ final class ListenerPlayerTests: XCTestCase {
     if case let .seeked(to, _) = events[0] { XCTAssertEqual(to, 8, accuracy: 0.6) } else { XCTFail() }
     player.stop()
   }
+
+  func testAdvanceLoadsTheNextPieceByIndexAtItsOwnStart() throws {
+    // Piece 0 ends one ULP before piece 1 starts.
+    let seamed = SharedBookManifest(
+      shareID: UUID(), title: "T", author: "A", duration: 20,
+      chapters: [SharedChapter(title: "One", start: 0, duration: 20)],
+      pieces: [SharedPiece(index: 0, bookStart: 0, duration: (10.0).nextDown, byteSize: 1),
+               SharedPiece(index: 1, bookStart: 10, duration: 10, byteSize: 1)])
+    let player = ListenerPlayer(manifest: seamed)
+    var needed: [Int] = []
+    player.onNeedsPiece = { needed.append($0) }
+    player.pieceArrived(index: 0, url: try makePiece(0))
+    player.applySeek(to: 9)
+
+    player.advanceToNextPiece()
+
+    XCTAssertEqual(needed, [1])
+    XCTAssertEqual(player.bookTime, 10)
+    player.stop()
+  }
+
+  func testUserActionsAreReportedBeforeTheyApply() throws {
+    let player = ListenerPlayer(manifest: manifest())
+    var log: [String] = []
+    player.onNeedsPiece = { log.append("needs \($0)") }
+    player.localEvents.sink { event in
+      if case .seeked(let to, _) = event { log.append("seeked \(Int(to))") }
+      if case .played = event { log.append("played") }
+    }.store(in: &bag)
+
+    player.userJump(to: 15)
+    player.userJump(to: 2)
+    player.userTogglePlay()
+
+    XCTAssertEqual(log, ["seeked 15", "needs 1", "seeked 2", "needs 0", "played"])
+    player.stop()
+  }
+
+  func testApplyRateSetsSpeedWithoutReporting() {
+    let player = ListenerPlayer(manifest: manifest())
+    var events: [LocalPlaybackEvent] = []
+    player.localEvents.sink { events.append($0) }.store(in: &bag)
+
+    player.applyRate(1.5)
+
+    XCTAssertEqual(player.rate, 1.5)
+    XCTAssertTrue(events.isEmpty)
+    player.stop()
+  }
 }

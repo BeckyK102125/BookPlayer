@@ -195,4 +195,22 @@ final class SharePlayMenuTests: XCTestCase {
     XCTAssertFalse(
       MainCoordinator.shouldRepresentInvitation(answered: false, state: .listening(participants: 2, downloaded: 0)))
   }
+
+  func testListenerScreenShowsFromListeningBeforeTheBookArrives() {
+    typealias P = ListenTogetherPresentation
+    let listening = ListenTogetherState.listening(participants: 1, downloaded: 0)
+    XCTAssertTrue(P.showsListenerScreen(state: listening, hasListener: false, isCovered: false))
+    XCTAssertTrue(P.showsListenerScreen(state: listening, hasListener: true, isCovered: false))
+    XCTAssertFalse(P.showsListenerScreen(state: listening, hasListener: false, isCovered: true))
+    XCTAssertFalse(P.showsListenerScreen(state: .invitation(title: "T", author: "A"), hasListener: false, isCovered: false))
+    XCTAssertFalse(P.showsListenerScreen(state: .ended(reason: .normal), hasListener: false, isCovered: false))
+    XCTAssertFalse(P.showsListenerScreen(state: .sharing(participants: 2), hasListener: false, isCovered: false))
+  }
+
+  func testZeroTimeIsSpokenAsZeroSeconds() {
+    XCTAssertEqual(ListenerTimeText.spoken(0), "listen_together_zero_seconds".localized)
+    XCTAssertEqual(ListenerTimeText.spoken(0.3), "listen_together_zero_seconds".localized)
+    XCTAssertEqual(ListenerTimeText.spoken(30), VoiceOverService.secondsToMinutes(30))
+    XCTAssertNotEqual("listen_together_zero_seconds".localized, "listen_together_zero_seconds")
+  }
 }

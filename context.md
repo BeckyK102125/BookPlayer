@@ -8,12 +8,13 @@ a FaceTime call, the other listens to a copy that is deleted when the session en
 in sync. Everything must work with VoiceOver.
 - Spec: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md
 - Plan: docs/superpowers/plans/2026-10-10-shareplay-listen-together.md
-- Task-by-task ledger, briefs, reports, rulings R1-R29: .superpowers/sdd/2026-10-10-shareplay-listen-together/
+- Task-by-task ledger, briefs, reports, rulings R1-R32: .superpowers/sdd/2026-10-10-shareplay-listen-together/
 
 ## Branch and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork). upstream = github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream develop at eb19a92f. NOT pushed anywhere.
-- Only worktree, no uncommitted work after the verification-notes commit (this commit).
+- Only worktree. Last work: the final fix wave after the whole-branch review (this commit; parent
+  f2b926a3). No uncommitted work.
 - Never committed (gitignored): BuildConfiguration/Debug.xcconfig. Local copy only.
 - BookPlayer/Player/PlayerManager.swift is untouched (git diff eb19a92f --stat on it prints nothing).
 
@@ -41,13 +42,23 @@ Everything lives in BookPlayer/SharePlay/ (views in SharePlay/Views/), tests in 
   invitation sheet, the listener screen (title, banner, 30 s position slider, play/pause, chapters,
   speed, End) and the needs-FaceTime alert. MainCoordinator presents the invitation from the topmost
   view controller so open sheets cannot drop it (R28, R29); MainView sends Magic Tap to the listener (R19).
-- 24+ new listen_together_* strings in every *.lproj (R16).
+- 44 listen_together_* strings in every *.lproj (R16), English text in all of them.
+
+## Most recent work: final fix wave (2026-10-10, R31, R32)
+- C1: the sharer proposes its real time and rate to the coordinator (CMTimebase snapshot); listeners
+  propose nothing. I1: piece seams within 1e-6 s resolve to the next piece; the listener advances to the
+  next piece by index. I2 (R31): listener actions are reported before they are applied. I3: a speed
+  change made while paused is applied silently on the other devices. I4: removeDuplicates before
+  dropFirst in the sharer target. Plus: "0 seconds" in the position value, invitations ignored while
+  preparing, and the listener screen shown from Join with a "getting the book" state (title, status, End).
+- Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/final-fix-report.md
 
 ## Test evidence (2026-10-10)
 - Full unit run: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer
   -destination 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C'
   -testPlan "Unit Tests" -only-testing:BookPlayerTests test
-  Result: "Executed 651 tests, with 0 failures (0 unexpected)" then "** TEST SUCCEEDED **".
+  Result after the final fix wave: "Executed 668 tests, with 0 failures (0 unexpected)" then
+  "** TEST SUCCEEDED **" (651 before it, 17 tests added).
 - Release build: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -configuration Release
   -destination 'generic/platform=iOS Simulator' build  ->  ** BUILD SUCCEEDED **.
 - Baseline before this work was 572 tests, 0 failures.
@@ -71,7 +82,7 @@ Everything lives in BookPlayer/SharePlay/ (views in SharePlay/Views/), tests in 
 - "Invalid API Key" log lines in test output are pre-existing noise.
 
 ## Device and assistive-technology acceptance
-Status: NOT STARTED. No real-device run has happened. Needs two devices (iOS 17 or later) on a FaceTime
+Status: NOT STARTED. No real-device run has happened. Needs two devices (iOS 18.0 or later, the deployment target) on a FaceTime
 call, signed with a team and bundle ID that has the Group Activities capability (see decisions).
 
 Spec checklist, two devices, VoiceOver on, on both:
@@ -112,6 +123,13 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
 - While sharing, closing the player hides the status banner and End (a11y review M-1).
 - A failed piece load is retried only when new pieces arrive (the very last piece may not retry).
 - A pre-existing test leaves file.txt in the simulator app's Documents (see gotchas).
+- If the sharer's app is killed while the FaceTime call continues, listeners are not stopped; they wait
+  (review item I5, R32). Ending the call does end it.
+- Speed changes from anyone are applied to the sharer's own player, so the sharer's library saves that
+  speed for the book. A listener's own library speed is not affected.
+- Sleep timer, CarPlay and the lock screen on a listener act on the listener's own library book, not the
+  shared one (R26 family).
+- The listener's speed picker shows no checkmark when the sharer uses a speed that is not one of its presets.
 - Other deferred minor items are listed in the ledger (progress.md) under each task.
 
 ## Open problems and next steps (in order)

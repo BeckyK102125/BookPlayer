@@ -21,13 +21,26 @@ struct PieceTimeline {
 
   func url(forPiece index: Int) -> URL? { arrived[index] }
 
+  /// Piece boundaries come from float arithmetic, so a piece can end a hair before the next one
+  /// starts. Times are matched to the last piece starting at or before them (within a tolerance), so
+  /// such a seam belongs to the next piece instead of to no piece at all. Times past the end clamp to
+  /// the end of the last piece. Nil only for negative or NaN times, or an empty timeline.
   func location(for bookTime: TimeInterval) -> (piece: SharedPiece, offset: TimeInterval)? {
-    guard bookTime >= 0, let last = pieces.last else { return nil }
-    if let piece = pieces.first(where: { bookTime >= $0.bookStart && bookTime < $0.bookEnd }) {
-      return (piece, bookTime - piece.bookStart)
-    }
-    return bookTime >= last.bookEnd ? (last, last.duration) : nil
+    guard !bookTime.isNaN, bookTime >= 0, let first = pieces.first else { return nil }
+    let piece = pieces.last(where: { $0.bookStart <= bookTime + Self.seamTolerance }) ?? first
+    let offset = min(max(0, bookTime - piece.bookStart), piece.duration)
+    return (piece, offset)
   }
+
+  /// The piece after `index` in book order, if any.
+  func piece(after index: Int) -> SharedPiece? {
+    guard let position = pieces.firstIndex(where: { $0.index == index }), position + 1 < pieces.count else {
+      return nil
+    }
+    return pieces[position + 1]
+  }
+
+  static let seamTolerance: TimeInterval = 1e-6
 
   func isReady(at bookTime: TimeInterval) -> Bool {
     guard let piece = location(for: bookTime)?.piece else { return false }

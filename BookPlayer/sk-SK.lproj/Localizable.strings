@@ -546,3 +546,5 @@ Usilovne pracujeme na poskytovaní bezproblémového zážitku, ak je to možné
 "listen_together_speed_normal" = "Normal speed";
 "listen_together_remote_speed_normal" = "Speed changed to normal by another listener";
 "listen_together_position_hint" = "Swipe up or down to move 30 seconds.";
+"listen_together_zero_seconds" = "0 seconds";
+"listen_together_getting_book_message" = "Getting the book. The player controls appear when it is ready.";

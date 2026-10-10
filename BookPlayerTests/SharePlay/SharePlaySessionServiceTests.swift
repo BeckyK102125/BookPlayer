@@ -203,6 +203,33 @@ final class SharePlaySessionServiceTests: XCTestCase {
     let item = try makeSharedItem()
     let pending = try XCTUnwrap(service.beginPreparing(item))
     XCTAssertEqual(service.decision(forIncoming: pending), .ownShare)
+    XCTAssertEqual(service.decision(forIncoming: UUID()), .busy, "no invitation on top of our own share")
+    service.end()
     XCTAssertEqual(service.decision(forIncoming: UUID()), .invitation)
   }
+
+  func testSpeedChangedWhilePausedIsAppliedSilently() {
+    let target = SpeedTarget()
+    XCTAssertEqual(SharePlaySessionService.silentRate(for: .speedChanged(rate: 1.5), target: target), 1.5)
+    target.isPlaying = true
+    XCTAssertNil(SharePlaySessionService.silentRate(for: .speedChanged(rate: 1.5), target: target),
+                 "while playing the coordinator's play command carries the rate")
+    target.isPlaying = false
+    target.rate = 1.5
+    XCTAssertNil(SharePlaySessionService.silentRate(for: .speedChanged(rate: 1.5), target: target))
+    XCTAssertNil(SharePlaySessionService.silentRate(for: .paused, target: target))
+  }
+}
+
+@MainActor
+private final class SpeedTarget: ListenTogetherPlaybackTarget {
+  var bookTime: TimeInterval = 0
+  var isPlaying = false
+  var rate: Float = 1
+  var localEvents: AnyPublisher<LocalPlaybackEvent, Never> { Empty().eraseToAnyPublisher() }
+  func isReady(at bookTime: TimeInterval) -> Bool { true }
+  func applyPlay(at bookTime: TimeInterval, rate: Float) {}
+  func applyPause(at bookTime: TimeInterval) {}
+  func applySeek(to bookTime: TimeInterval) {}
+  func applyRate(_ rate: Float) { self.rate = rate }
 }

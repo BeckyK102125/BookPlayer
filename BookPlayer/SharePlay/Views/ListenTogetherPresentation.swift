@@ -13,9 +13,19 @@ struct ListenTogetherPresentation: ViewModifier {
   let listState: ListStateManager
   let playerState: PlayerState
 
-  struct Listener: Identifiable {
-    let player: ListenerPlayer
-    var id: ObjectIdentifier { ObjectIdentifier(player) }
+  /// One listener screen per session. Its identity stays the same when the book details arrive, so
+  /// the cover is not dismissed and presented again when the "getting the book" state is replaced.
+  struct ListenerScreen: Identifiable {
+    var id: Int { 0 }
+  }
+
+  /// Whether the listener screen is shown: from the moment this device is listening (before the book
+  /// details arrive, so a VoiceOver user always has the status and End), and while a listener player
+  /// exists; never while a cover it can't be presented over is still on screen.
+  static func showsListenerScreen(state: ListenTogetherState, hasListener: Bool, isCovered: Bool) -> Bool {
+    guard !isCovered else { return false }
+    if case .listening = state { return true }
+    return hasListener
   }
 
   private var isListening: Bool {
@@ -27,18 +37,20 @@ struct ListenTogetherPresentation: ViewModifier {
     // Read here (not only inside the binding) so the presentation re-evaluates when covers change.
     let covers = listState.coversOnScreen
     let isCovered = covers.contains(.player) || covers.contains(.mediaServers)
-    let listener = isCovered ? nil : service.listener.map(Listener.init(player:))
+    let screen = Self.showsListenerScreen(
+      state: service.state, hasListener: service.listener != nil, isCovered: isCovered
+    ) ? ListenerScreen() : nil
 
     content
       .fullScreenCover(
         item: Binding(
-          get: { listener },
+          get: { screen },
           // The cover only closes when the session ends (escape is ignored, there is no swipe).
           set: { _ in }
         ),
         onDismiss: { listState.coversOnScreen.remove(.listenTogether) }
-      ) { listener in
-        ListenerPlayerView(service: service, listener: listener.player)
+      ) { _ in
+        ListenTogetherListenerScreen(service: service)
           .onAppear { listState.coversOnScreen.insert(.listenTogether) }
       }
       .onChange(of: isListening, initial: true) { _, isListening in
@@ -47,6 +59,66 @@ struct ListenTogetherPresentation: ViewModifier {
         if playerState.isShowingPlayer { playerState.isShowingPlayer = false }
         if listState.activeIntegrationSheet != nil { listState.activeIntegrationSheet = nil }
       }
+  }
+}
+
+/// The listener cover's content: "getting the book" until the book details arrive, then the player.
+struct ListenTogetherListenerScreen: View {
+  @ObservedObject var service: SharePlaySessionService
+
+  var body: some View {
+    if let listener = service.listener {
+      ListenerPlayerView(service: service, listener: listener)
+    } else {
+      ListenerGettingBookView(service: service)
+    }
+  }
+}
+
+/// Shown between Join and the arrival of the book details. VoiceOver order: title (heading, first
+/// focus), status, End, then what happens next. Two-finger Z does nothing, as on the player screen.
+struct ListenerGettingBookView: View {
+  @ObservedObject var service: SharePlaySessionService
+  @StateObject private var theme = ThemeViewModel()
+  @AccessibilityFocusState private var isTitleFocused: Bool
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        Text(service.joinedTitle ?? "listen_together_title".localized)
+          .bpFont(.titleLarge)
+          .foregroundStyle(theme.primaryColor)
+          .multilineTextAlignment(.leading)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityAddTraits(.isHeader)
+          .accessibilityHeading(.h1)
+          .accessibilityFocused($isTitleFocused)
+        ListenTogetherBanner(service: service, onRemovedWhileFocused: { isTitleFocused = true })
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+          ProgressView()
+            .tint(theme.linkColor)
+            .accessibilityHidden(true)
+          Text("listen_together_getting_book_message".localized)
+            .bpFont(.body)
+            .foregroundStyle(theme.secondaryColor)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .padding(16)
+      .frame(maxWidth: 600, alignment: .leading)
+      .frame(maxWidth: .infinity)
+    }
+    .background(theme.systemBackgroundColor.ignoresSafeArea())
+    .environmentObject(theme)
+    // Escape is ignored on purpose: ending is only through the labelled End button.
+    .accessibilityAction(.escape) {}
+    .task {
+      // Wait for the cover to finish presenting; an earlier request is often lost.
+      try? await Task.sleep(for: .milliseconds(600))
+      isTitleFocused = true
+    }
   }
 }
 

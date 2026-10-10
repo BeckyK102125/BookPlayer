@@ -25,7 +25,7 @@ extension SharePlaySessionService {
 
     let target = SharerPlaybackTarget(playerManager: playerManager)
     sharerTarget = target
-    let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: shareID)
+    let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: shareID, role: .sharer)
     self.bridge = bridge
     if let activeSession { bridge.coordinate(with: activeSession) }
     observeLocalEvents(of: target)
@@ -116,7 +116,7 @@ extension SharePlaySessionService {
     guard role == .listener, listener == nil, manifest.shareID == shareID else { return }
     self.manifest = manifest
     let player = ListenerPlayer(manifest: manifest)
-    let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: manifest.shareID)
+    let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: manifest.shareID, role: .listener)
     player.onNeedsPiece = { [weak self] _ in self?.listenerNeedsPiece() }
     self.bridge = bridge
     setListener(player)
@@ -206,6 +206,9 @@ extension SharePlaySessionService {
       attachmentReceived(id: id, url: url)
     case .message(.action(let action)):
       announcer.announce(ListenTogetherAnnouncements.text(for: action))
+      if let target = playbackTarget, let rate = Self.silentRate(for: action, target: target) {
+        target.applyRate(rate)
+      }
     case .message(.sessionEnding), .invalidated:
       tearDown(reason: .normal)
     case .participantsChanged(let count):
@@ -241,6 +244,21 @@ extension SharePlaySessionService {
     } else if count < previous {
       announcer.announce(ListenTogetherAnnouncements.left())
     }
+  }
+
+  /// This device's playback target in the current session, whichever role it has.
+  var playbackTarget: ListenTogetherPlaybackTarget? {
+    if let listener { return listener }
+    return sharerTarget
+  }
+
+  /// A speed change is coordinated only while playing (the play command carries the rate). Made while
+  /// paused, it only arrives as an announcement: returns the rate to set silently then, else nil.
+  static func silentRate(for action: RemoteAction, target: ListenTogetherPlaybackTarget) -> Float? {
+    guard case .speedChanged(let rate) = action, !target.isPlaying, rate > 0,
+      abs(rate - target.rate) > 0.001
+    else { return nil }
+    return rate
   }
 
   /// The local user's own actions become messages, so the others hear an announcement.

@@ -33,14 +33,14 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
     self.now = now
 
     playerManager.isPlayingPublisher()
-      .dropFirst()
       .removeDuplicates()
+      .dropFirst()
       .sink { [weak self] playing in self?.handleIsPlaying(playing) }
       .store(in: &disposeBag)
 
     playerManager.currentSpeedPublisher()
-      .dropFirst()
       .removeDuplicates()
+      .dropFirst()
       .sink { [weak self] speed in self?.handleSpeed(speed) }
       .store(in: &disposeBag)
 
@@ -96,6 +96,12 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
   func applySeek(to bookTime: TimeInterval) {
     playerManager.jumpTo(bookTime, recordBookmark: false)
     sample(bookTime, at: now())
+  }
+
+  func applyRate(_ rate: Float) {
+    guard abs(rate - playerManager.currentSpeed) > 0.001 else { return }
+    expectedRate = (rate, now())
+    playerManager.setSpeed(rate)
   }
 
   private func handleIsPlaying(_ playing: Bool) {

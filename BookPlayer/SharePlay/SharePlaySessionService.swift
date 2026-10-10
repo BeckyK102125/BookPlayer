@@ -32,6 +32,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   @Published private(set) var state: ListenTogetherState = .idle
   @Published private(set) var listener: ListenerPlayer?
+  /// The title of the share this device joined, from the invitation; shown until the manifest arrives.
+  @Published private(set) var joinedTitle: String?
 
   // Collaborators. Internal (not private) so SharePlaySessionService+Session.swift can use them.
   let playerManager: PlayerManagerProtocol
@@ -199,6 +201,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       return
     }
     playerManager.pause()
+    joinedTitle = session.activity.title
     let transport = transportFactory(session, folder)
     activeSession = session
     session.join()
@@ -258,6 +261,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     bridge = nil
     listener?.stop()
     listener = nil
+    joinedTitle = nil
     sharerTarget = nil
     self.transport = nil
     activeSession = nil
@@ -286,7 +290,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     case cancelledShare
     /// Someone else's share: offer it.
     case invitation
-    /// Already in a session or offering one: ignore.
+    /// Already in a session, preparing a share or offering one: ignore.
     case busy
   }
 
@@ -294,7 +298,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func decision(forIncoming shareID: UUID) -> IncomingSessionDecision {
     if cancelledShareIDs.remove(shareID) != nil { return .cancelledShare }
     if shareID == pendingShareID, pendingItem != nil { return .ownShare }
-    return isInSession || pendingInvitation != nil ? .busy : .invitation
+    // While this device prepares its own share, someone else's is not offered on top of it.
+    return isInSession || isPreparing || pendingInvitation != nil ? .busy : .invitation
   }
 
   private func received(_ session: GroupSession<ListenTogetherActivity>) {

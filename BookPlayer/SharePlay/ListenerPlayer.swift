@@ -123,21 +123,33 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     if wasPlaying { player.playImmediately(atRate: rate) }
   }
 
+  /// Another participant changed the speed while playback is paused (so no play command carries it):
+  /// use it from the next play. Never reported back.
+  func applyRate(_ newRate: Float) {
+    rate = newRate
+    if isPlaying { player.rate = newRate }
+  }
+
   // MARK: Local user actions (reported)
+  //
+  // Each action is reported BEFORE it is applied locally. Applying it can find the piece missing, and
+  // the stall suspension that starts then makes the coordinator ignore commands for the group: a seek
+  // or play reported after that would only ever move this device.
 
   func userTogglePlay() {
     if isPlaying {
       // Use the real position, not the last 0.5 s tick, and don't re-seek.
       let position = currentPosition
+      subject.send(.paused(at: position))
       player.pause()
       isPlaying = false
       bookTime = position
-      subject.send(.paused(at: position))
     } else {
       // Reported even if the piece is missing: the group plays and the stall suspension
       // (started by onNeedsPiece) holds everyone until it arrives.
-      applyPlay(at: bookTime, rate: rate)
-      subject.send(.played(at: bookTime, rate: rate))
+      let position = bookTime
+      subject.send(.played(at: position, rate: rate))
+      applyPlay(at: position, rate: rate)
     }
   }
 
@@ -146,14 +158,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func userJump(to target: TimeInterval) {
     let from = bookTime
     let clamped = min(max(0, target), manifest.duration)
-    applySeek(to: clamped)
     subject.send(.seeked(to: clamped, from: from))
+    applySeek(to: clamped)
   }
 
   func userSetRate(_ newRate: Float) {
-    rate = newRate
-    if isPlaying { player.rate = newRate }
     subject.send(.rateChanged(newRate))
+    applyRate(newRate)
   }
 
   func stop() {
@@ -181,7 +192,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   @discardableResult
   private func load(at bookTime: TimeInterval, requestIfMissing: Bool = true) -> Bool {
     guard let location = timeline.location(for: bookTime) else { return false }
-    let piece = location.piece
+    return load(location.piece, offset: location.offset, bookTime: bookTime, requestIfMissing: requestIfMissing)
+  }
+
+  /// Loads `piece` and seeks to `offset` inside it; `bookTime` is the matching book position.
+  private func load(
+    _ piece: SharedPiece, offset: TimeInterval, bookTime: TimeInterval, requestIfMissing: Bool
+  ) -> Bool {
     self.bookTime = bookTime
     guard let url = timeline.url(forPiece: piece.index) else {
       player.replaceCurrentItem(with: nil)
@@ -204,7 +221,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     seekGeneration += 1
     let generation = seekGeneration
     player.seek(
-      to: CMTime(seconds: location.offset, preferredTimescale: 600),
+      to: CMTime(seconds: offset, preferredTimescale: 600),
       toleranceBefore: .zero, toleranceAfter: .zero
     ) { [weak self] _ in
       Task { @MainActor in
@@ -225,16 +242,15 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     return piece.bookStart + time.seconds
   }
 
-  private func advanceToNextPiece() {
-    guard let index = loadedPieceIndex,
-      let current = timeline.pieces.first(where: { $0.index == index }),
-      current.bookEnd < manifest.duration - 0.1
-    else {
+  /// The current piece played to its end: continue with the next piece in book order, from its own
+  /// start (not from this piece's end time, which float seams can put just before it). Internal for tests.
+  func advanceToNextPiece() {
+    guard let index = loadedPieceIndex, let next = timeline.piece(after: index) else {
       isPlaying = false
       return
     }
     // A missing next piece pauses us locally; the service decides what to tell the others.
-    if load(at: current.bookEnd), isPlaying {
+    if load(next, offset: 0, bookTime: next.bookStart, requestIfMissing: true), isPlaying {
       player.playImmediately(atRate: rate)
     } else {
       isPlaying = false

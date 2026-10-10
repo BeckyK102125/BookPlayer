@@ -14,6 +14,15 @@ enum ListenerSkip {
   }
 }
 
+/// A duration as VoiceOver reads it. `secondsToMinutes` returns an empty string under half a second,
+/// which would make the value read "Elapsed , remaining …".
+enum ListenerTimeText {
+  static func spoken(_ interval: TimeInterval) -> String {
+    let text = VoiceOverService.secondsToMinutes(interval)
+    return text.isEmpty ? "listen_together_zero_seconds".localized : text
+  }
+}
+
 /// The book position: one adjustable element. Swipe up or down moves 30 seconds, and VoiceOver reads
 /// "Elapsed …, remaining …" after each step. The visible bar and times are hidden from VoiceOver so the
 /// time is never read twice. The bar is read-only: dragging would send a seek for every tick.
@@ -51,8 +60,8 @@ struct ListenerPositionView: View {
     .accessibilityValue(
       String.localizedStringWithFormat(
         "listen_together_time_value".localized,
-        VoiceOverService.secondsToMinutes(elapsed),
-        VoiceOverService.secondsToMinutes(remaining)))
+        ListenerTimeText.spoken(elapsed),
+        ListenerTimeText.spoken(remaining)))
     .accessibilityAdjustableAction { direction in
       switch direction {
       case .increment: listener.userSkip(by: ListenerSkip.seconds)

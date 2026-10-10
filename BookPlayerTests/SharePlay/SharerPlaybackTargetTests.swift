@@ -90,8 +90,10 @@ final class SharerPlaybackTargetTests: XCTestCase {
   }
 
   func testNoOpRemotePlayDoesNotSwallowLaterUserPause() {
-    let target = makeTarget()
+    // Already playing: the publisher's current value says so too (I4 compares against it).
+    playing.value = true
     mock.underlyingIsPlaying = true
+    let target = makeTarget()
     target.applyPlay(at: 100, rate: 1)   // already playing: no echo expected
     playing.send(false)                  // genuine user pause
     XCTAssertEqual(events, [.paused(at: 100)])
@@ -139,5 +141,29 @@ final class SharerPlaybackTargetTests: XCTestCase {
     mock.currentItem?.currentTime = 103
     target.checkForSeek(now: start.addingTimeInterval(0.5))
     XCTAssertTrue(events.isEmpty)
+  }
+
+  func testFirstRedundantValuesAfterTheInitialOnesAreNotEvents() {
+    _ = makeTarget()
+    playing.send(false)   // same as the initial value
+    speed.send(1)         // same as the initial value
+    XCTAssertTrue(events.isEmpty)
+    playing.send(true)
+    XCTAssertEqual(events, [.played(at: 100, rate: 1)])
+  }
+
+  func testApplyRateSetsSpeedWithoutEcho() {
+    let target = makeTarget()
+    target.applyRate(1.75)
+    XCTAssertEqual(mock.setSpeedReceivedNewValue, 1.75)
+    XCTAssertEqual(mock.playCallsCount, 0)
+    speed.send(1.75)      // PlayerManager reports our own change
+    XCTAssertTrue(events.isEmpty)
+  }
+
+  func testApplyRateAtCurrentSpeedDoesNothing() {
+    let target = makeTarget()
+    target.applyRate(1)
+    XCTAssertEqual(mock.setSpeedCallsCount, 0)
   }
 }
