@@ -12,17 +12,25 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
   private nonisolated(unsafe) var seekTimer: Timer?
 
   /// State we just applied for a remote command; matching publisher output is our own echo.
-  private var expectedIsPlaying: Bool?
-  private var expectedRate: Float?
-  private var lastSample: (time: TimeInterval, date: Date)?
+  /// Expectations older than this are stale (the player never reacted) and must not swallow a real user action.
+  private static let expectationLifetime: TimeInterval = 1.5
+  private var expectedIsPlaying: (value: Bool, date: Date)?
+  private var expectedRate: (value: Float, date: Date)?
+  private var lastSample: (time: TimeInterval, date: Date, uuid: String?)?
+  private let now: () -> Date
 
   var localEvents: AnyPublisher<LocalPlaybackEvent, Never> { subject.eraseToAnyPublisher() }
   var bookTime: TimeInterval { playerManager.currentItem?.currentTime ?? 0 }
   var isPlaying: Bool { playerManager.isPlaying }
   var rate: Float { playerManager.currentSpeed }
 
-  init(playerManager: PlayerManagerProtocol, seekCheckInterval: TimeInterval = 0.5) {
+  init(
+    playerManager: PlayerManagerProtocol,
+    seekCheckInterval: TimeInterval = 0.5,
+    now: @escaping () -> Date = Date.init
+  ) {
     self.playerManager = playerManager
+    self.now = now
 
     playerManager.isPlayingPublisher()
       .dropFirst()
@@ -37,7 +45,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
       .store(in: &disposeBag)
 
     seekTimer = Timer.scheduledTimer(withTimeInterval: seekCheckInterval, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.checkForSeek(now: Date()) }
+      MainActor.assumeIsolated { if let self { self.checkForSeek(now: self.now()) } }
     }
 
     // Upstream PlayerManager keeps playing when headphones disconnect. During a session that would
@@ -58,46 +66,56 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
 
   func isReady(at bookTime: TimeInterval) -> Bool { true }   // the sharer has the whole book
 
+  private func sample(_ time: TimeInterval, at date: Date) {
+    lastSample = (time, date, playerManager.currentItem?.uuid)
+  }
+
   func applyPlay(at bookTime: TimeInterval, rate: Float) {
     if abs(rate - playerManager.currentSpeed) > 0.001 {
-      expectedRate = rate
+      expectedRate = (rate, now())
       playerManager.setSpeed(rate)
     }
     if abs(bookTime - self.bookTime) > 0.5 {
       playerManager.jumpTo(bookTime, recordBookmark: false)
     }
-    lastSample = (bookTime, Date())
-    expectedIsPlaying = true
+    sample(bookTime, at: now())
+    // Only expect an echo if the state will actually change.
+    expectedIsPlaying = playerManager.isPlaying ? nil : (true, now())
     playerManager.play()
   }
 
   func applyPause(at bookTime: TimeInterval) {
-    expectedIsPlaying = false
+    expectedIsPlaying = playerManager.isPlaying ? (false, now()) : nil
     playerManager.pause()
     if abs(bookTime - self.bookTime) > 0.5 {
       playerManager.jumpTo(bookTime, recordBookmark: false)
     }
-    lastSample = (bookTime, Date())
+    sample(bookTime, at: now())
   }
 
   func applySeek(to bookTime: TimeInterval) {
     playerManager.jumpTo(bookTime, recordBookmark: false)
-    lastSample = (bookTime, Date())
+    sample(bookTime, at: now())
   }
 
   private func handleIsPlaying(_ playing: Bool) {
-    if expectedIsPlaying == playing {
-      expectedIsPlaying = nil
+    let expected = expectedIsPlaying
+    expectedIsPlaying = nil
+    if let expected, expected.value == playing,
+      now().timeIntervalSince(expected.date) <= Self.expectationLifetime
+    {
       return
     }
-    expectedIsPlaying = nil
-    lastSample = (bookTime, Date())
+    sample(bookTime, at: now())
     subject.send(playing ? .played(at: bookTime, rate: rate) : .paused(at: bookTime))
   }
 
   private func handleSpeed(_ speed: Float) {
-    if let expected = expectedRate, abs(expected - speed) < 0.001 {
-      expectedRate = nil
+    let expected = expectedRate
+    expectedRate = nil
+    if let expected, abs(expected.value - speed) < 0.001,
+      now().timeIntervalSince(expected.date) <= Self.expectationLifetime
+    {
       return
     }
     subject.send(.rateChanged(speed))
@@ -106,11 +124,16 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
   /// PlayerManager has no seek publisher, so compare where we are with where we should be.
   func checkForSeek(now: Date) {
     let current = bookTime
-    defer { lastSample = (current, now) }
-    guard let last = lastSample else { return }
+    let uuid = playerManager.currentItem?.uuid
+    defer { lastSample = (current, now, uuid) }
+    // A different (or no) book is a new baseline, never a seek.
+    guard let last = lastSample, let uuid, last.uuid == uuid else { return }
     let elapsed = now.timeIntervalSince(last.date)
-    let expected = last.time + (isPlaying ? elapsed * Double(rate) : 0)
-    if abs(current - expected) > 2 {
+    let rate = Double(self.rate)
+    let advance = isPlaying ? elapsed * rate : 0
+    let threshold = max(2, 1.5 * rate)
+    // A lagging clock (stall, slow start) is not a seek; only backward jumps or forward overshoots are.
+    if current < last.time - 1 || current > last.time + advance + threshold {
       subject.send(.seeked(to: current, from: last.time))
     }
   }
