@@ -207,6 +207,16 @@ final class SharePlayMenuTests: XCTestCase {
     XCTAssertFalse(P.showsListenerScreen(state: .sharing(participants: 2), hasListener: false, isCovered: false))
   }
 
+  func testMagicTapNeverReachesTheLibraryBookInAListenerSession() {
+    typealias P = ListenTogetherPresentation
+    let listening = ListenTogetherState.listening(participants: 1, downloaded: 0)
+    XCTAssertEqual(P.magicTapTarget(state: listening, hasListener: false), .nothing)
+    XCTAssertEqual(P.magicTapTarget(state: listening, hasListener: true), .listener)
+    XCTAssertEqual(P.magicTapTarget(state: .idle, hasListener: false), .libraryPlayer)
+    XCTAssertEqual(P.magicTapTarget(state: .sharing(participants: 2), hasListener: false), .libraryPlayer)
+    XCTAssertEqual(P.magicTapTarget(state: .ended(reason: .normal), hasListener: false), .libraryPlayer)
+  }
+
   func testZeroTimeIsSpokenAsZeroSeconds() {
     XCTAssertEqual(ListenerTimeText.spoken(0), "listen_together_zero_seconds".localized)
     XCTAssertEqual(ListenerTimeText.spoken(0.3), "listen_together_zero_seconds".localized)

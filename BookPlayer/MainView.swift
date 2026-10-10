@@ -118,10 +118,12 @@ struct MainView: View {
     .listenTogetherPresentation(service: sharePlayService, listState: listState, playerState: playerState)
     .accessibilityAction(.magicTap) {
       // During Listen Together the shared book plays, not the paused library book.
-      if let listener = sharePlayService.listener {
-        listener.userTogglePlay()
-      } else {
-        playerManager.playPause()
+      switch ListenTogetherPresentation.magicTapTarget(
+        state: sharePlayService.state, hasListener: sharePlayService.listener != nil)
+      {
+      case .listener: sharePlayService.listener?.userTogglePlay()
+      case .nothing: break  // joined, book not here yet: the library book must stay paused
+      case .libraryPlayer: playerManager.playPause()
       }
     }
     .environment(\.tabBarContentHeight, tabBarContentHeight)

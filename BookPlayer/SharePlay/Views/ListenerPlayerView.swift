@@ -15,6 +15,9 @@ struct ListenerPlayerView: View {
   let service: SharePlaySessionService
   /// Not observed here: its time ticks twice a second, so only the small subviews observe it.
   let listener: ListenerPlayer
+  /// How long to wait before moving focus to the title: long for a fresh cover, short when this view
+  /// replaces the "getting the book" screen inside a cover that is already up.
+  var initialFocusDelay: Duration = .milliseconds(600)
 
   @StateObject private var theme = ThemeViewModel()
   @AccessibilityFocusState private var focus: ListenerFocus?
@@ -41,7 +44,7 @@ struct ListenerPlayerView: View {
     .accessibilityAction(.escape) {}
     .task {
       // Wait for the cover to finish presenting; an earlier request is often lost.
-      try? await Task.sleep(for: .milliseconds(600))
+      try? await Task.sleep(for: initialFocusDelay)
       focus = .title
     }
     .sheet(isPresented: $showingChapters, onDismiss: focusChapterAfterJump) {

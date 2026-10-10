@@ -139,6 +139,11 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
 3. Fix whatever the device run finds (most likely: layout and focus details, piece transitions).
 4. Decide whether to push the branch to the fork and whether to offer it upstream.
 
+## A11y residuals (2026-10-10)
+Magic Tap during getting-book and the getting-book to player focus delay are fixed (Notes.md, 2026-10-10).
+On device, verify: Magic Tap before the book arrives gives no audio; after the swap focus lands on the
+player heading once, from title, status and End.
+
 ## Decisions waiting on Becky
 - Push the branch to GitHub (origin, the fork)? Not pushed.
 - Signing team and bundle ID for device testing: choose them in BuildConfiguration/Debug.xcconfig (from

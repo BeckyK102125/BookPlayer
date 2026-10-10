@@ -28,6 +28,20 @@ struct ListenTogetherPresentation: ViewModifier {
     return hasListener
   }
 
+  /// Who a Magic Tap (two-finger double tap) reaches from MainView. While this device is in a listener
+  /// session the library book must never play: before the book details arrive there is nothing to play.
+  enum MagicTapTarget: Equatable {
+    case listener
+    case nothing
+    case libraryPlayer
+  }
+
+  static func magicTapTarget(state: ListenTogetherState, hasListener: Bool) -> MagicTapTarget {
+    if hasListener { return .listener }
+    if case .listening = state { return .nothing }
+    return .libraryPlayer
+  }
+
   private var isListening: Bool {
     if case .listening = service.state { return true }
     return service.listener != nil
@@ -65,12 +79,18 @@ struct ListenTogetherPresentation: ViewModifier {
 /// The listener cover's content: "getting the book" until the book details arrive, then the player.
 struct ListenTogetherListenerScreen: View {
   @ObservedObject var service: SharePlaySessionService
+  /// Set once the getting-book view has appeared, so the player that replaces it moves focus sooner
+  /// (the cover has been up for a while; the long wait is only for a fresh presentation).
+  @State private var cameFromGettingBook = false
 
   var body: some View {
     if let listener = service.listener {
-      ListenerPlayerView(service: service, listener: listener)
+      ListenerPlayerView(
+        service: service, listener: listener,
+        initialFocusDelay: cameFromGettingBook ? .milliseconds(150) : .milliseconds(600))
     } else {
       ListenerGettingBookView(service: service)
+        .onAppear { cameFromGettingBook = true }
     }
   }
 }
@@ -81,6 +101,7 @@ struct ListenerGettingBookView: View {
   @ObservedObject var service: SharePlaySessionService
   @StateObject private var theme = ThemeViewModel()
   @AccessibilityFocusState private var isTitleFocused: Bool
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     ScrollView {
@@ -94,8 +115,10 @@ struct ListenerGettingBookView: View {
           .accessibilityAddTraits(.isHeader)
           .accessibilityHeading(.h1)
           .accessibilityFocused($isTitleFocused)
-        ListenTogetherBanner(service: service, onRemovedWhileFocused: { isTitleFocused = true })
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        // The explanation comes right after the title so it is heard before the status and End.
+        (dynamicTypeSize.isAccessibilitySize
+          ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+          : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))) {
           ProgressView()
             .tint(theme.linkColor)
             .accessibilityHidden(true)
@@ -105,6 +128,7 @@ struct ListenerGettingBookView: View {
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
         }
+        ListenTogetherBanner(service: service, onRemovedWhileFocused: { isTitleFocused = true })
       }
       .padding(16)
       .frame(maxWidth: 600, alignment: .leading)
@@ -114,6 +138,8 @@ struct ListenerGettingBookView: View {
     .environmentObject(theme)
     // Escape is ignored on purpose: ending is only through the labelled End button.
     .accessibilityAction(.escape) {}
+    // Nothing to play yet; stops Magic Tap reaching the library player in MainView.
+    .accessibilityAction(.magicTap) {}
     .task {
       // Wait for the cover to finish presenting; an earlier request is often lost.
       try? await Task.sleep(for: .milliseconds(600))

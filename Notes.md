@@ -290,3 +290,15 @@ Evidence: RED run with the behaviour reverted (new APIs kept): 69 focused tests,
 -only-testing:BookPlayerTests test -> "Executed 668 tests, with 0 failures", ** TEST SUCCEEDED **.
 Not device-tested; SharePlay timing (C1, I2) needs the two-device run.
 Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/final-fix-report.md
+
+## 2026-10-10 - shareplay-listen-together - a11y residuals (final-a11y-check items 1-5)
+- Item 1 (Important): Magic Tap on "Getting the book" could start the paused library book. Added a no-op
+  .accessibilityAction(.magicTap) on ListenerGettingBookView and ListenTogetherPresentation.magicTapTarget(
+  state:hasListener:) (.listener / .nothing while .listening with no listener / .libraryPlayer); MainView
+  switches on it. Unit test testMagicTapNeverReachesTheLibraryBookInAListenerSession.
+- Item 2 (Important): ListenerPlayerView takes initialFocusDelay (default 600 ms); the listener screen passes
+  150 ms when it replaces the getting-book view (@State set in that view's onAppear). Heading still focused once.
+- Item 3: no separate change (ordering follows from item 2). Item 4: message moved above the banner (title,
+  explanation, status, End). Item 5: spinner/message use a VStack at accessibility Dynamic Type sizes.
+- Evidence: focused SharePlayMenuTests 15 tests, 0 failures; full suite "Executed 669 tests, with 0 failures",
+  ** TEST SUCCEEDED **. Not device-tested (VoiceOver swap focus on title/status/End still needs hardware).
