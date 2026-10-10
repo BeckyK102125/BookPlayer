@@ -23,6 +23,7 @@ final class ListenTogetherCoordinatorBridge: NSObject {
   private var realCoordinator: AVDelegatingPlaybackCoordinator?
   private var endStallSuspension: (() -> Void)?
   private var disposeBag = Set<AnyCancellable>()
+  private var isInvalidated = false
 
   init(
     target: ListenTogetherPlaybackTarget,
@@ -57,18 +58,19 @@ final class ListenTogetherCoordinatorBridge: NSObject {
 
   /// Begins a `.stallRecovery` suspension if not already suspended.
   func waitForPiece() {
-    guard endStallSuspension == nil else { return }
+    guard !isInvalidated, target != nil, endStallSuspension == nil else { return }
     endStallSuspension = control.beginStallSuspension()
   }
 
   /// Ends the stall suspension if the target is now ready at its current position.
   func pieceBecameAvailable() {
-    guard let target, target.isReady(at: target.bookTime) else { return }
+    if let target, !target.isReady(at: target.bookTime) { return }
     endStallSuspension?()
     endStallSuspension = nil
   }
 
   func invalidate() {
+    isInvalidated = true
     endStallSuspension?()
     endStallSuspension = nil
     disposeBag.removeAll()
@@ -81,20 +83,31 @@ final class ListenTogetherCoordinatorBridge: NSObject {
   // MARK: Command handling (main actor)
 
   func handlePlay(itemTime: TimeInterval, rate: Float) {
+    guard !isInvalidated else { return }
     target?.applyPlay(at: itemTime, rate: rate)
   }
 
-  func handlePause(itemTime: TimeInterval) {
+  /// A pause with `shouldBuffer` is also a request to buffer in anticipation of playback.
+  func handlePause(itemTime: TimeInterval, shouldBuffer: Bool = false) {
+    guard !isInvalidated else { return }
     target?.applyPause(at: itemTime)
+    if shouldBuffer { waitIfNotReady() }
   }
 
-  func handleSeek(itemTime: TimeInterval) {
+  /// A seek with `shouldBuffer` is also a request to buffer in anticipation of playback.
+  func handleSeek(itemTime: TimeInterval, shouldBuffer: Bool = false) {
+    guard !isInvalidated else { return }
     target?.applySeek(to: itemTime)
+    if shouldBuffer { waitIfNotReady() }
   }
 
   func handleBuffering() -> Bool {
-    guard let target else { return false }
+    guard !isInvalidated, let target else { return false }
     return target.isReady(at: target.bookTime)
+  }
+
+  private func waitIfNotReady() {
+    if !handleBuffering() { waitForPiece() }
   }
 
   // MARK: Local changes -> coordinator
@@ -142,11 +155,12 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     didIssue playCommand: AVDelegatingPlaybackCoordinatorPlayCommand,
     completionHandler: @escaping @Sendable () -> Void
   ) {
-    let time = playCommand.itemTime.seconds
+    let cmTime = playCommand.itemTime
+    let time: TimeInterval? = cmTime.isNumeric ? cmTime.seconds : nil
     let rate = playCommand.rate
     let matches = playCommand.expectedCurrentItemIdentifier == itemIdentifier
     Task { @MainActor in
-      if matches { self.handlePlay(itemTime: time, rate: rate) }
+      if matches, let time { self.handlePlay(itemTime: time, rate: rate) }
       completionHandler()
     }
   }
@@ -157,10 +171,11 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     completionHandler: @escaping @Sendable () -> Void
   ) {
     let matches = pauseCommand.expectedCurrentItemIdentifier == itemIdentifier
+    let shouldBuffer = pauseCommand.shouldBufferInAnticipationOfPlayback
     Task { @MainActor in
       if matches {
         // The pause command carries no time; hold at the target's own position.
-        self.handlePause(itemTime: self.target?.bookTime ?? 0)
+        self.handlePause(itemTime: self.target?.bookTime ?? 0, shouldBuffer: shouldBuffer)
       }
       completionHandler()
     }
@@ -171,10 +186,12 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     didIssue seekCommand: AVDelegatingPlaybackCoordinatorSeekCommand,
     completionHandler: @escaping @Sendable () -> Void
   ) {
-    let time = seekCommand.itemTime.seconds
+    let cmTime = seekCommand.itemTime
+    let time: TimeInterval? = cmTime.isNumeric ? cmTime.seconds : nil
+    let shouldBuffer = seekCommand.shouldBufferInAnticipationOfPlayback
     let matches = seekCommand.expectedCurrentItemIdentifier == itemIdentifier
     Task { @MainActor in
-      if matches { self.handleSeek(itemTime: time) }
+      if matches, let time { self.handleSeek(itemTime: time, shouldBuffer: shouldBuffer) }
       completionHandler()
     }
   }

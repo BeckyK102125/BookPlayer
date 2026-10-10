@@ -87,4 +87,67 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     bridge.waitForPiece()
     XCTAssertEqual(control.suspensionsBegun, 2)
   }
+
+  private var retained: [AnyObject] = []
+
+  private func makeBridge(ready: Bool) -> (ListenTogetherCoordinatorBridge, FakePlaybackTarget, FakeCoordinatorControl) {
+    let target = FakePlaybackTarget()
+    target.ready = ready
+    retained.append(target)
+    let control = FakeCoordinatorControl()
+    return (ListenTogetherCoordinatorBridge(target: target, shareID: UUID(), control: control), target, control)
+  }
+
+  func testSeekWithBufferingBeginsOneSuspensionWhenNotReady() {
+    let (bridge, target, control) = makeBridge(ready: false)
+    bridge.handleSeek(itemTime: 100, shouldBuffer: true)
+    bridge.handleSeek(itemTime: 101, shouldBuffer: true)
+    XCTAssertEqual(target.log, ["seek 100", "seek 101"])
+    XCTAssertEqual(control.suspensionsBegun, 1)
+  }
+
+  func testSeekWithoutBufferingBeginsNoSuspension() {
+    let (bridge, _, control) = makeBridge(ready: false)
+    bridge.handleSeek(itemTime: 100, shouldBuffer: false)
+    XCTAssertEqual(control.suspensionsBegun, 0)
+  }
+
+  func testPauseWithBufferingWhenReadyBeginsNoSuspension() {
+    let (bridge, _, control) = makeBridge(ready: true)
+    bridge.handlePause(itemTime: 5, shouldBuffer: true)
+    XCTAssertEqual(control.suspensionsBegun, 0)
+  }
+
+  func testPauseWithBufferingWhenNotReadyBeginsSuspension() {
+    let (bridge, _, control) = makeBridge(ready: false)
+    bridge.handlePause(itemTime: 5, shouldBuffer: true)
+    XCTAssertEqual(control.suspensionsBegun, 1)
+  }
+
+  func testNilTargetNeverBeginsSuspensionAndEndsExisting() {
+    let control = FakeCoordinatorControl()
+    var target: FakePlaybackTarget? = FakePlaybackTarget()
+    target?.ready = false
+    let bridge = ListenTogetherCoordinatorBridge(target: target!, shareID: UUID(), control: control)
+    bridge.waitForPiece()
+    XCTAssertEqual(control.suspensionsBegun, 1)
+    target = nil
+    bridge.pieceBecameAvailable()
+    XCTAssertEqual(control.suspensionsEnded, 1)
+    bridge.waitForPiece()
+    XCTAssertEqual(control.suspensionsBegun, 1)
+  }
+
+  func testInvalidatedBridgeIgnoresCommandsAndWaits() {
+    let (bridge, target, control) = makeBridge(ready: false)
+    bridge.waitForPiece()
+    bridge.invalidate()
+    XCTAssertEqual(control.suspensionsEnded, 1)
+    bridge.handlePlay(itemTime: 1, rate: 1)
+    bridge.handlePause(itemTime: 1, shouldBuffer: true)
+    bridge.handleSeek(itemTime: 1, shouldBuffer: true)
+    bridge.waitForPiece()
+    XCTAssertEqual(target.log, [])
+    XCTAssertEqual(control.suspensionsBegun, 1)
+  }
 }
