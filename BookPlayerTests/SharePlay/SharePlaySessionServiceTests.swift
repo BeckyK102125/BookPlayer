@@ -128,6 +128,9 @@ final class SharePlaySessionServiceTests: XCTestCase {
     let item = try makeSharedItem()
     Task { await service.beginSharing(with: transport, item: item) }
     await waitUntil { self.manifestCount(transport) >= 1 && !transport.uploads.isEmpty }
+    // The first participants event is the roster at subscribe time: only a baseline.
+    transport.emit(.participantsChanged(count: 2))
+    await waitUntil { service.state == .sharing(participants: 2) }
     let before = manifestCount(transport)
     transport.emit(.participantsChanged(count: 3))
     await waitUntil { self.manifestCount(transport) > before }
@@ -144,5 +147,43 @@ final class SharePlaySessionServiceTests: XCTestCase {
     await waitUntil { transport.left }
     XCTAssertEqual(service.state, .ended(reason: .sendFailed))
     XCTAssertTrue(transport.left)
+  }
+
+  func testFirstParticipantsEventIsOnlyABaseline() async {
+    let service = makeService(), transport = FakeTransport(), id = UUID()
+    Task { await service.beginListening(with: transport, shareID: id) }
+    await waitUntil { service.state != .idle }
+    transport.emit(.participantsChanged(count: 3))
+    await waitUntil { service.state == .listening(participants: 3, downloaded: 0) }
+    XCTAssertEqual(service.state, .listening(participants: 3, downloaded: 0))
+    XCTAssertEqual(posted, [])
+  }
+
+  func testParticipantCountOfZeroIsIgnored() async {
+    let service = makeService(), transport = FakeTransport(), id = UUID()
+    Task { await service.beginListening(with: transport, shareID: id) }
+    await waitUntil { service.state != .idle }
+    transport.emit(.participantsChanged(count: 2))
+    transport.emit(.participantsChanged(count: 0))
+    // A later real change proves the zero was processed (events are handled in order).
+    transport.emit(.participantsChanged(count: 3))
+    await waitUntil { service.state == .listening(participants: 3, downloaded: 0) }
+    XCTAssertEqual(service.state, .listening(participants: 3, downloaded: 0))
+    XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined()])
+  }
+
+  func testEndWhilePreparingCancelsTheShare() throws {
+    let service = makeService()
+    let item = try makeSharedItem()
+    XCTAssertNotNil(service.beginPreparing(item))
+    XCTAssertEqual(service.state, .preparing(title: item.title))
+    XCTAssertNil(service.beginPreparing(item), "a second share while preparing is ignored")
+
+    service.end()
+
+    XCTAssertEqual(service.state, .idle)
+    XCTAssertFalse(service.isPreparing)
+    XCTAssertEqual(posted, [])
+    XCTAssertNotNil(service.beginPreparing(item), "a new share can start after cancelling")
   }
 }

@@ -82,3 +82,15 @@ No -derivedDataPath used. No pre-existing failures.
   Task 1's activity title) into every *.lproj/Localizable.strings, as the repo does for new keys.
 - RED: tests failed to compile (cannot find ListenTogetherAnnouncer / SharePlaySessionService /
   TransportEvent). GREEN: 7 tests, 0 failures. Full suite: 634 tests, 0 failures.
+
+## 2026-10-10 - Task 9 fix round 1 (branch shareplay-listen-together)
+- R18: the first participantsChanged of a session is only a baseline (no joined/left
+  announcement, no manifest re-send); a count of 0 is ignored. GroupSession's
+  $activeParticipants publisher reports the current roster on subscribe.
+- end() while preparing cancels the pending share (back to .idle); a second startSharing while
+  preparing is ignored. startSharing re-checks the pending share after the system sheet.
+- Incoming pieces are moved into ShareStorage.defaultRoot/incoming/ (covered by cleanAll());
+  a failed final move deletes the loaded file.
+- Tests: 3 added (baseline, zero ignored, end while preparing). Focused 10/0; full suite 637/0.
+- Runner pitfall: in the full suite, "Test Suite 'Selected tests' passed" can appear before the
+  run is really over (495 tests); wait for "** TEST SUCCEEDED/FAILED **" instead.

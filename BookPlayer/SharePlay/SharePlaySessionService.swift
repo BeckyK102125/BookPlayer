@@ -49,6 +49,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var sharerTarget: SharerPlaybackTarget?
   var manifest: SharedBookManifest?
   var participantCount = 1
+  /// The first participants event of a session is the current roster, not a join or leave.
+  var hasParticipantBaseline = false
   /// Sharer: messages already sent for uploaded pieces, re-sent to late joiners.
   var uploadedPieceMessages: [ListenTogetherMessage] = []
   /// Listener: attachment id -> piece index, from `.pieceUploaded`.
@@ -110,25 +112,27 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     return BookSplitter.isShareable(item)
   }
 
+  /// A second call while one share is still being prepared is ignored.
   func startSharing(_ item: PlayableItem) async {
-    guard !isInSession else { return }
+    guard !isInSession, !isPreparing else { return }
     guard groupStateObserver.isEligibleForGroupSession else {
       state = .needsFaceTime
       return
     }
-    let shareID = UUID()
-    pendingShareID = shareID
-    pendingItem = item
-    state = .preparing(title: item.title)
+    guard let shareID = beginPreparing(item) else { return }
     let activity = ListenTogetherActivity(shareID: shareID, title: item.title, author: item.author)
 
-    switch await activity.prepareForActivation() {
+    let result = await activity.prepareForActivation()
+    // `end()` while the system sheet was up cancels the share.
+    guard pendingShareID == shareID else { return }
+    switch result {
     case .activationPreferred:
       do {
         _ = try await activity.activate()
         // The session arrives through `startObservingSessions()`.
       } catch {
         Self.logger.error("Listen Together: could not start SharePlay: \(error.localizedDescription)")
+        guard pendingShareID == shareID else { return }
         clearPendingShare()
         state = .ended(reason: .unavailable)
         scheduleReturnToIdle()
@@ -144,6 +148,20 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       clearPendingShare()
       state = .idle
     }
+  }
+
+  /// True from `startSharing` until our session arrives or the share is cancelled.
+  var isPreparing: Bool { pendingShareID != nil }
+
+  /// Records the share being prepared and shows `.preparing`. Returns nil if one is already
+  /// being prepared or a session is active. Test seam (no GroupSession needed).
+  func beginPreparing(_ item: PlayableItem) -> UUID? {
+    guard !isInSession, !isPreparing else { return nil }
+    let shareID = UUID()
+    pendingShareID = shareID
+    pendingItem = item
+    state = .preparing(title: item.title)
+    return shareID
   }
 
   func joinInvitation() {
@@ -177,6 +195,12 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   /// Ends Listen Together for this device. The sharer also tells everyone else it is over.
   func end() {
+    if isPreparing, !isInSession {
+      // Cancel: a session that arrives later is not started.
+      clearPendingShare()
+      state = .idle
+      return
+    }
     if pendingInvitation != nil, !isInSession {
       declineInvitation()
       return
@@ -217,6 +241,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     activeSession = nil
     manifest = nil
     participantCount = 1
+    hasParticipantBaseline = false
     uploadedPieceMessages = []
     pieceIndexByAttachment = [:]
     heldAttachments = [:]

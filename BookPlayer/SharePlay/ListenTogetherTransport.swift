@@ -29,9 +29,12 @@ struct PieceTransfer: Transferable {
     FileRepresentation(contentType: .audio) { piece in
       SentTransferredFile(piece.url)
     } importing: { received in
-      // The system deletes `received.file` after this returns, so move it somewhere we own.
-      let destination = FileManager.default.temporaryDirectory
-        .appendingPathComponent("ListenTogether-incoming-\(UUID().uuidString).\(received.file.pathExtension)")
+      // The system deletes `received.file` after this returns, so move it somewhere we own,
+      // inside the Listen Together root so launch cleanup (`ShareStorage.cleanAll()`) covers it.
+      let folder = ShareStorage.defaultRoot.appendingPathComponent("incoming", isDirectory: true)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      let destination = folder
+        .appendingPathComponent("\(UUID().uuidString).\(received.file.pathExtension)")
       try FileManager.default.moveItem(at: received.file, to: destination)
       return PieceTransfer(url: destination)
     }
@@ -112,12 +115,16 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     guard !isUploader else { return }
     for attachment in attachments where !seenAttachments.contains(attachment.id) {
       seenAttachments.insert(attachment.id)
+      var loaded: URL?
       do {
         let piece = try await attachment.load(PieceTransfer.self)
+        loaded = piece.url
         let destination = downloadFolder.appendingPathComponent(piece.url.lastPathComponent)
         try FileManager.default.moveItem(at: piece.url, to: destination)
         continuation.yield(.attachmentReceived(id: attachment.id, url: destination))
       } catch {
+        // Nothing may be left outside the folders the session cleans up.
+        if let loaded { try? FileManager.default.removeItem(at: loaded) }
         // Try again the next time the journal's attachment list changes.
         seenAttachments.remove(attachment.id)
         Self.logger.error("Listen Together: could not load a piece: \(error.localizedDescription)")

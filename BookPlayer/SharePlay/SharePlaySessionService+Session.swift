@@ -20,6 +20,7 @@ extension SharePlaySessionService {
     self.shareID = shareID
     self.transport = transport
     participantCount = 1
+    hasParticipantBaseline = false
     startEventLoop(on: transport)
 
     let target = SharerPlaybackTarget(playerManager: playerManager)
@@ -104,6 +105,7 @@ extension SharePlaySessionService {
     self.shareID = shareID
     self.transport = transport
     participantCount = 1
+    hasParticipantBaseline = false
     announcer.resetDownloadProgress()
     setState(.listening(participants: participantCount, downloaded: 0))
     startEventLoop(on: transport)
@@ -212,12 +214,18 @@ extension SharePlaySessionService {
   }
 
   private func participantsChanged(to count: Int, on transport: ListenTogetherTransport) async {
+    // A roster with nobody in it (not even us) is not a real change.
+    guard count > 0, role != nil else { return }
     let previous = participantCount
     participantCount = count
     switch role {
     case .sharer: setState(.sharing(participants: count))
-    case .listener: updateListeningState()
-    case nil: return
+    default: updateListeningState()
+    }
+    // The publisher reports the current roster on subscribe: that only sets the baseline.
+    guard hasParticipantBaseline else {
+      hasParticipantBaseline = true
+      return
     }
     if count > previous {
       announcer.announce(ListenTogetherAnnouncements.joined())
