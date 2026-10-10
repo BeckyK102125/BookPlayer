@@ -144,4 +144,44 @@ final class SharePlayMenuTests: XCTestCase {
       String.localizedStringWithFormat("listen_together_status_sharing".localized, 3))
     XCTAssertNil(ListenTogetherStatus.visibleText(for: .idle))
   }
+
+  // MARK: Fix round 1
+
+  func testInvitationIsAnnounced() {
+    let service = makeService()
+    service.showInvitation(title: "Moby-Dick", author: "Herman Melville")
+    XCTAssertEqual(service.state, .invitation(title: "Moby-Dick", author: "Herman Melville"))
+    XCTAssertEqual(posted, [
+      String.localizedStringWithFormat(
+        "listen_together_invitation_announcement".localized, "Moby-Dick", "Herman Melville")
+    ])
+    XCTAssertEqual(posted.first, "Listen Together invitation: Moby-Dick by Herman Melville")
+
+    service.showInvitation(title: "Untitled", author: "")
+    XCTAssertEqual(posted.last, "Listen Together invitation: Untitled")
+  }
+
+  func testDeclineDoesNothingWithoutPendingInvitation() {
+    let service = makeService()
+    service.setState(.sharing(participants: 2))
+    service.declineInvitation()
+    XCTAssertEqual(service.state, .sharing(participants: 2))
+  }
+
+  func testJoinLabelUsesTheHigherContrastColour() {
+    XCTAssertEqual(ListenTogetherContrast.ratio(.white, .black), 21, accuracy: 0.01)
+    let lightGray = UIColor(white: 0.85, alpha: 1)
+    XCTAssertEqual(ListenTogetherContrast.bestLabel(on: .white, from: [lightGray, .black]), .black)
+    let navy = UIColor(red: 0.05, green: 0.1, blue: 0.3, alpha: 1)
+    XCTAssertEqual(ListenTogetherContrast.bestLabel(on: navy, from: [.black, .white]), .white)
+  }
+
+  func testNormalSpeedIsNotReadAsOneTimes() {
+    XCTAssertEqual(ListenerExtrasRow.spokenRate(1), "listen_together_speed_normal".localized)
+    XCTAssertEqual(ListenerExtrasRow.spokenRate(1.5), "1.5 times")
+    XCTAssertEqual(
+      ListenTogetherAnnouncements.text(for: .speedChanged(rate: 1)),
+      "listen_together_remote_speed_normal".localized)
+    XCTAssertFalse(ListenTogetherAnnouncements.text(for: .speedChanged(rate: 1)).contains("1 times"))
+  }
 }

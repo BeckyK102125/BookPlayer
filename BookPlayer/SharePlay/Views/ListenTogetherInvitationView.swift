@@ -11,6 +11,7 @@ struct ListenTogetherInvitationView: View {
   let onDecline: () -> Void
 
   @EnvironmentObject private var theme: ThemeViewModel
+  @Environment(\.colorScheme) private var colorScheme
   @AccessibilityFocusState private var focus: Field?
 
   private enum Field {
@@ -42,7 +43,7 @@ struct ListenTogetherInvitationView: View {
         Button(action: onJoin) {
           Text("listen_together_join_button".localized)
             .bpFont(.body)
-            .foregroundStyle(theme.systemBackgroundColor)
+            .foregroundStyle(theme.labelColorOnLink(for: colorScheme))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, minHeight: 44)
             .padding(.vertical, 6)

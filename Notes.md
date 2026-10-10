@@ -129,3 +129,21 @@ No -derivedDataPath used. No pre-existing failures.
 - RED: SharePlayMenuTests failed to compile (no sharePlayService init arg, ListenTogetherStatus,
   acknowledgeNeedsFaceTime, endUnavailable). GREEN: 7/0. Full suite: 646 tests, 0 failures.
   The app was installed and launched in the iPhone 17 simulator: boots to the library, no crash.
+
+## 2026-10-10 - Task 10 fix round 1 (branch shareplay-listen-together, parent fb25638b)
+- R28: invitations are now presented by MainCoordinator (MainCoordinator+ListenTogether.swift) in a
+  UIHostingController from the topmost presented view controller, so open sheets/UIKit modals can't
+  drop them; dismissed when the state leaves .invitation; swipe-away declines
+  (presentationControllerDidDismiss). Join dismisses the invitation, then closes the player cover
+  through playerState, or otherwise dismisses everything above the main view. The service announces
+  each invitation (queued; new strings listen_together_invitation_announcement[_no_author]). The
+  SwiftUI invitation sheet and its Cover case were removed. ListenTogetherPresentation reads
+  coversOnScreen in body and clears the player/media servers when listening starts.
+- A-I1: banner remembers the last focused element and when focus was lost, and recovers whether the
+  focus reset arrives before or after the removal; End's confirm/cancel move focus to the status first.
+- A-I2: Join label colour chosen at runtime (ListenTogetherContrast); banner fill is systemBackgroundColor.
+- A-M2 "Normal speed" for 1 (menu and remote announcement); A-M3 position hint; declineInvitation()
+  guarded; needs-FaceTime alert acknowledged when the player disappears.
+- ListenTogetherStatus moved to its own file (banner under 250 lines).
+- Tests: 4 added (invitation announcement, guarded decline, contrast, normal speed). SharePlay tests
+  23/0; full suite 650/0. App boots in the simulator.

@@ -205,7 +205,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     Task { await self.beginListening(with: transport, shareID: shareID) }
   }
 
+  /// Does nothing unless an invitation is waiting.
   func declineInvitation() {
+    guard pendingInvitation != nil else { return }
     pendingInvitation?.leave()
     pendingInvitation = nil
     invitationBag.removeAll()
@@ -328,7 +330,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   private func offerInvitation(_ session: GroupSession<ListenTogetherActivity>) {
     pendingInvitation = session
-    state = .invitation(title: session.activity.title, author: session.activity.author)
+    showInvitation(title: session.activity.title, author: session.activity.author)
     // If the session goes away before the user answers, drop the invitation.
     session.$state
       .receive(on: DispatchQueue.main)
@@ -343,6 +345,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
         }
       }
       .store(in: &invitationBag)
+  }
+
+  /// Shows the invitation and announces it (queued), so a VoiceOver user hears it whatever is on
+  /// screen. Test seam.
+  func showInvitation(title: String, author: String) {
+    state = .invitation(title: title, author: author)
+    announcer.announce(ListenTogetherAnnouncements.invitation(title: title, author: author))
   }
 
   private func clearPendingShare() {

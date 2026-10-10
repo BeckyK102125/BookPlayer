@@ -700,6 +700,7 @@
 		9236C57F833C70652BDD1FA3 /* TabEditingEnvironmentKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDD933F7FDEDC1BF67EC567 /* TabEditingEnvironmentKey.swift */; };
 		9305492473601C69B999F588 /* VideoArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCD948B0DFDC349DADE2A3D8 /* VideoArtworkView.swift */; };
 		9586CECD8FB418C6CFB0A7DD /* IntegrationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C407B5BD19D3CF9CC64EC7 /* IntegrationLibraryView.swift */; };
+		97C948F5A17FE2D0AE64E80B /* MainCoordinator+ListenTogether.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FCC472897EEE5BFE1DF39A9 /* MainCoordinator+ListenTogether.swift */; };
 		98BA9BA4D6A94BC8BCCE5F8B /* IntegrationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D9D68F735D2519CDBC18495 /* IntegrationSettingsView.swift */; };
 		99329DB72F3AA8F6003F8E73 /* PlayControlsRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99329DB62F3AA8F6003F8E73 /* PlayControlsRowView.swift */; };
 		99329DBB2F3AAA61003F8E73 /* ListeningProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99329DBA2F3AAA61003F8E73 /* ListeningProgressView.swift */; };
@@ -916,6 +917,7 @@
 		CA3B408256F8458669106CF9 /* IntegrationConnectionViewModelProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D91D6855100BD1823B2674F /* IntegrationConnectionViewModelProtocol.swift */; };
 		CA9F864F2A6DEE78ABA47FCE /* ReleaseCheckUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D5C2F005506140825B22FE2 /* ReleaseCheckUITests.swift */; };
 		CCC7E1CC127610C3687B8A50 /* SortPreferencesResolving.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C6BC9E7E76B9BAB7A0D88D2 /* SortPreferencesResolving.swift */; };
+		CE2F416FBC351317E9B66FC9 /* ListenTogetherStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1647E4A3470C3311CD3B65 /* ListenTogetherStatus.swift */; };
 		D080B0A77D9844C3A0737170 /* IntegrationConnectionFormViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB91B577BC77F45EDB2AAAA /* IntegrationConnectionFormViewModel.swift */; };
 		D28B0280660CB8BB9026D6E4 /* LibraryOrganizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B44E32366381E513964E2594 /* LibraryOrganizer.swift */; };
 		D2B95B92F8F84F2FA4B41BF6 /* BookEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B33D03D266EF46B5B02FBF40 /* BookEntity.swift */; };
@@ -934,6 +936,7 @@
 		E67C43B68DF4A0065814E5D8 /* SharePlaySessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDB451CAD8F28EF933A6464 /* SharePlaySessionService.swift */; };
 		E69D485D82A6A4CB4A4EEA9B /* SharerPlaybackTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */; };
 		E936404280A9AD9DB48225E8 /* ListenTogetherCoordinatorBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */; };
+		EB504E3FBCC49961EA1C692A /* ListenTogetherContrast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5C4FE89FA7C5FCBE34E1EC /* ListenTogetherContrast.swift */; };
 		F2535BF980A548BFB9D3E8C1 /* VideoPiPCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EA56C448451F969BC0E2AB /* VideoPiPCoordinator.swift */; };
 		F50163BEFB92FB6B1B778C5E /* WindowHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BB8BFBB9A63469069F0D44A /* WindowHelper.swift */; };
 		F6348C04290CD2CE7BE3F015 /* IntegrationConnectionDataDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB8BD2F5EC900DC51D5D02D /* IntegrationConnectionDataDecodingTests.swift */; };
@@ -1394,6 +1397,7 @@
 		5C6BC9E7E76B9BAB7A0D88D2 /* SortPreferencesResolving.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SortPreferencesResolving.swift; sourceTree = "<group>"; };
 		5CBB29522163A17F00E3A9FF /* ZIPFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ZIPFoundation.framework; path = Carthage/Build/iOS/ZIPFoundation.framework; sourceTree = "<group>"; };
 		5F847DAE94054533AACF8D85 /* PlayBookIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayBookIntent.swift; sourceTree = "<group>"; };
+		5FCC472897EEE5BFE1DF39A9 /* MainCoordinator+ListenTogether.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "MainCoordinator+ListenTogether.swift"; path = "MainCoordinator+ListenTogether.swift"; sourceTree = "<group>"; };
 		620C73C7275DA00300D495AA /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.stringsdict; name = ar; path = ar.lproj/Localizable.stringsdict; sourceTree = "<group>"; };
 		620C73C8275DA00400D495AA /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/Localizable.strings; sourceTree = "<group>"; };
 		623E13D0C96857091397B5EF /* IntegrationServerAddressTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationServerAddressTests.swift; sourceTree = "<group>"; };
@@ -1718,6 +1722,7 @@
 		77144E6297065B6BE92BC220 /* PieceTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PieceTimeline.swift; path = PieceTimeline.swift; sourceTree = "<group>"; };
 		7A8030B619D18CA088DAA40A /* IntegrationConnectionPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationConnectionPayload.swift; sourceTree = "<group>"; };
 		7A823609A5B7EFC6D2D5D120 /* IntegrationLibraryItemProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationLibraryItemProtocol.swift; sourceTree = "<group>"; };
+		7B1647E4A3470C3311CD3B65 /* ListenTogetherStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherStatus.swift; path = ListenTogetherStatus.swift; sourceTree = "<group>"; };
 		7CEA2AC93A6D2CE0CD2359CB /* ImportPlacementPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ImportPlacementPrompt.swift; sourceTree = "<group>"; };
 		7DDD933F7FDEDC1BF67EC567 /* TabEditingEnvironmentKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabEditingEnvironmentKey.swift; sourceTree = "<group>"; };
 		808E351A8B30ABCBA9EC00EF /* IntegrationDetailsViewModelProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationDetailsViewModelProtocol.swift; sourceTree = "<group>"; };
@@ -1772,6 +1777,7 @@
 		99F3C2032F5FC76700AC91A2 /* MigrationPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationPlan.swift; sourceTree = "<group>"; };
 		99F3C2062F5FD40C00AC91A2 /* SchemaV2SyncTasksModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaV2SyncTasksModels.swift; sourceTree = "<group>"; };
 		99F3C2092F62285500AC91A2 /* ApiResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiResponse.swift; sourceTree = "<group>"; };
+		9C5C4FE89FA7C5FCBE34E1EC /* ListenTogetherContrast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherContrast.swift; path = ListenTogetherContrast.swift; sourceTree = "<group>"; };
 		9F00A5F9294F8BFE005EA316 /* ClearableTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClearableTextField.swift; sourceTree = "<group>"; };
 		9F00A5FB294F9B9A005EA316 /* ItemDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemDetailsView.swift; sourceTree = "<group>"; };
 		9F00A5FF295001C0005EA316 /* ItemDetailsArtworkSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemDetailsArtworkSectionView.swift; sourceTree = "<group>"; };
@@ -3933,6 +3939,7 @@
 				3CDB451CAD8F28EF933A6464 /* SharePlaySessionService.swift */,
 				C5474249B9288D664EFD6D2C /* SharePlaySessionService+Session.swift */,
 				FBD64FC9B522CCE6BFB070FD /* Views */,
+				5FCC472897EEE5BFE1DF39A9 /* MainCoordinator+ListenTogether.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -3993,6 +4000,8 @@
 				705F4099B7EB02022703FE8F /* ListenerChaptersView.swift */,
 				F3304989A21121766F853445 /* ListenerControls.swift */,
 				88044EE98BF36797D5F09C58 /* ListenerPlayerView.swift */,
+				7B1647E4A3470C3311CD3B65 /* ListenTogetherStatus.swift */,
+				9C5C4FE89FA7C5FCBE34E1EC /* ListenTogetherContrast.swift */,
 			);
 			name = Views;
 			path = Views;
@@ -5190,6 +5199,9 @@
 				485049AFA5B64601C3114B1D /* ListenerChaptersView.swift in Sources */,
 				DA40413196717260741F3914 /* ListenerControls.swift in Sources */,
 				B3F3409A898337F1CEDBC997 /* ListenerPlayerView.swift in Sources */,
+				CE2F416FBC351317E9B66FC9 /* ListenTogetherStatus.swift in Sources */,
+				EB504E3FBCC49961EA1C692A /* ListenTogetherContrast.swift in Sources */,
+				97C948F5A17FE2D0AE64E80B /* MainCoordinator+ListenTogether.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

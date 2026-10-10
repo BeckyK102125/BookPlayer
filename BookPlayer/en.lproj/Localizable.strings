@@ -541,3 +541,8 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_time_value" = "Elapsed %@, remaining %@";
 "listen_together_speed_title" = "Speed";
 "listen_together_speed_value" = "%@ times";
+"listen_together_invitation_announcement" = "Listen Together invitation: %@ by %@";
+"listen_together_invitation_announcement_no_author" = "Listen Together invitation: %@";
+"listen_together_speed_normal" = "Normal speed";
+"listen_together_remote_speed_normal" = "Speed changed to normal by another listener";
+"listen_together_position_hint" = "Swipe up or down to move 30 seconds.";

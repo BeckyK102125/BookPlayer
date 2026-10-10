@@ -47,6 +47,7 @@ struct ListenerPositionView: View {
     .contentShape(Rectangle())
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("listen_together_position_title".localized)
+    .accessibilityHint("listen_together_position_hint".localized)
     .accessibilityValue(
       String.localizedStringWithFormat(
         "listen_together_time_value".localized,
@@ -125,8 +126,10 @@ struct ListenerExtrasRow: View {
     rate.formatted(.number.precision(.fractionLength(0...2)))
   }
 
+  /// "Normal speed" for 1, otherwise "1.5 times" (never "1 times").
   static func spokenRate(_ rate: Float) -> String {
-    String.localizedStringWithFormat("listen_together_speed_value".localized, number(rate))
+    if rate == 1 { return "listen_together_speed_normal".localized }
+    return String.localizedStringWithFormat("listen_together_speed_value".localized, number(rate))
   }
 
   var body: some View {

@@ -1,86 +1,49 @@
 import BookPlayerKit
 import SwiftUI
 
-/// Presents the Listen Together invitation sheet and the listener screen from MainView.
+/// Presents the listener screen from MainView. (The invitation is presented by MainCoordinator from
+/// the topmost view controller, so no open screen can hide it.)
 ///
-/// SwiftUI can't present them over the player cover or the media servers sheet (it silently drops
-/// the presentation, and a blind user would never know). So those are closed first, and the
-/// invitation or listener screen is presented once they have finished leaving
-/// (`ListStateManager.coversOnScreen`). Both register in `coversOnScreen` like the player does.
+/// SwiftUI can't present a cover over the player cover or the media servers sheet (it silently drops
+/// the presentation). So when a listener session starts those are closed first, and the listener
+/// screen is presented once they have finished leaving (`ListStateManager.coversOnScreen`). The
+/// listener screen registers in `coversOnScreen` like the player does.
 struct ListenTogetherPresentation: ViewModifier {
   @ObservedObject var service: SharePlaySessionService
-  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   let listState: ListStateManager
   let playerState: PlayerState
-
-  struct Invitation: Identifiable {
-    let title: String
-    let author: String
-    var id: String { title + "\u{1F}" + author }
-  }
 
   struct Listener: Identifiable {
     let player: ListenerPlayer
     var id: ObjectIdentifier { ObjectIdentifier(player) }
   }
 
-  private var pendingInvitation: Invitation? {
-    guard case .invitation(let title, let author) = service.state else { return nil }
-    return Invitation(title: title, author: author)
-  }
-
-  /// True while something MainView presents (other than Listen Together) is on screen or leaving.
-  private var isCovered: Bool {
-    listState.coversOnScreen.contains(.player) || listState.coversOnScreen.contains(.mediaServers)
-  }
-
-  private var invitationBinding: Binding<Invitation?> {
-    Binding(
-      get: { isCovered ? nil : pendingInvitation },
-      set: { newValue in
-        // Swipe-down or two-finger Z on the sheet counts as Not Now. After Join there is no
-        // pending invitation any more, so nothing is declined.
-        if newValue == nil, service.hasPendingInvitation { service.declineInvitation() }
-      }
-    )
-  }
-
-  private var listenerBinding: Binding<Listener?> {
-    Binding(
-      get: {
-        guard !isCovered, !listState.coversOnScreen.contains(.listenTogetherInvitation),
-          let player = service.listener
-        else { return nil }
-        return Listener(player: player)
-      },
-      // The cover only closes when the session ends (escape is ignored, there is no swipe).
-      set: { _ in }
-    )
+  private var isListening: Bool {
+    if case .listening = service.state { return true }
+    return service.listener != nil
   }
 
   func body(content: Content) -> some View {
+    // Read here (not only inside the binding) so the presentation re-evaluates when covers change.
+    let covers = listState.coversOnScreen
+    let isCovered = covers.contains(.player) || covers.contains(.mediaServers)
+    let listener = isCovered ? nil : service.listener.map(Listener.init(player:))
+
     content
-      .sheet(item: invitationBinding, onDismiss: {
-        listState.coversOnScreen.remove(.listenTogetherInvitation)
-      }) { invitation in
-        ListenTogetherInvitationView(
-          title: invitation.title,
-          author: invitation.author,
-          onJoin: { service.joinInvitation() },
-          onDecline: { service.declineInvitation() }
-        )
-        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
-        .onAppear { listState.coversOnScreen.insert(.listenTogetherInvitation) }
-      }
-      .fullScreenCover(item: listenerBinding, onDismiss: {
-        listState.coversOnScreen.remove(.listenTogether)
-      }) { listener in
+      .fullScreenCover(
+        item: Binding(
+          get: { listener },
+          // The cover only closes when the session ends (escape is ignored, there is no swipe).
+          set: { _ in }
+        ),
+        onDismiss: { listState.coversOnScreen.remove(.listenTogether) }
+      ) { listener in
         ListenerPlayerView(service: service, listener: listener.player)
           .onAppear { listState.coversOnScreen.insert(.listenTogether) }
       }
-      .onChange(of: pendingInvitation != nil || service.listener != nil, initial: true) { _, wantsScreen in
-        guard wantsScreen else { return }
-        // Close what is in the way; the presentation follows once it has left.
+      .onChange(of: isListening, initial: true) { _, isListening in
+        guard isListening else { return }
+        // Close what is in the way; the listener screen follows once it has left.
         if playerState.isShowingPlayer { playerState.isShowingPlayer = false }
         if listState.activeIntegrationSheet != nil { listState.activeIntegrationSheet = nil }
       }

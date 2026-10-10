@@ -11,7 +11,7 @@ docs/superpowers/plans/ (the SharePlay Listen Together implementation plan).
 - origin: github.com/BeckyK102125/BookPlayer (Becky's fork). Nothing pushed yet.
 - upstream: github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream `develop` at eb19a92f. Only worktree.
-- Head: Task 10 commit ("this commit"), parent 0d8fe1a6. Clean after it.
+- Head: Task 10 fix round 1 ("this commit"), parent fb25638b. Clean after it.
 - Local only, not committed: BuildConfiguration/Debug.xcconfig (gitignored).
 
 ## Done so far
@@ -21,7 +21,7 @@ docs/superpowers/plans/ (the SharePlay Listen Together implementation plan).
   MainCoordinator/MainView. Views live in BookPlayer/SharePlay/Views/.
 
 ## Verification
-- Full unit suite (Unit Tests plan, -only-testing:BookPlayerTests): 646 tests, 0 failures.
+- Full unit suite (Unit Tests plan, -only-testing:BookPlayerTests): 650 tests, 0 failures.
 - App launches in the simulator to the library. SharePlay itself can't run in the simulator.
 - Destination: iPhone 17 simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C.
 - Helper for registering new files: /private/tmp/bp-tools/add_to_xcodeproj.py (may be removed by the
@@ -35,6 +35,8 @@ docs/superpowers/plans/ (the SharePlay Listen Together implementation plan).
 - Lock-screen and AirPods play/pause still control the library player during a listener session (R26).
 - Magic Tap while the speed menu is open may not reach the listener (system menu).
 - The ended banner is visible 3 s; the announcement carries the message.
+- While sharing, closing the player hides the status and End (a11y review M-1, follow-up).
+- Invitation over other screens and Join dismissing them need device verification.
 
 ## Next steps
 1. Controller review of Task 10, then any remaining plan tasks.

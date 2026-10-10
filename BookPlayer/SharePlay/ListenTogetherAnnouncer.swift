@@ -14,11 +14,19 @@ enum ListenTogetherAnnouncements {
       return String.localizedStringWithFormat(key.localized, amount)
     case .movedToChapter(let title):
       return String.localizedStringWithFormat("listen_together_remote_chapter".localized, title)
+    case .speedChanged(let rate) where rate == 1:
+      return "listen_together_remote_speed_normal".localized
     case .speedChanged(let rate):
       return String.localizedStringWithFormat(
         "listen_together_remote_speed".localized,
         rate.formatted(.number.precision(.fractionLength(0...2))))
     }
+  }
+
+  static func invitation(title: String, author: String) -> String {
+    author.isEmpty
+      ? String.localizedStringWithFormat("listen_together_invitation_announcement_no_author".localized, title)
+      : String.localizedStringWithFormat("listen_together_invitation_announcement".localized, title, author)
   }
 
   static func joined() -> String { "listen_together_joined".localized }

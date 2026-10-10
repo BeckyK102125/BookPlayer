@@ -35,7 +35,6 @@ final class ListStateManager {
   enum Cover: Hashable {
     case mediaServers
     case player
-    case listenTogetherInvitation
     case listenTogether
   }
 

@@ -32,6 +32,9 @@ class MainCoordinator: NSObject {
   let hardcoverService: HardcoverService
   let preferencesService: PreferencesSyncService
   let sharePlayService: SharePlaySessionService
+  /// The Listen Together invitation, presented from the topmost screen (MainCoordinator+ListenTogether).
+  weak var invitationController: UIViewController?
+  var listenTogetherSubscription: AnyCancellable?
 
   var playerState: PlayerState { AppServices.shared.playerState }
 
@@ -91,6 +94,7 @@ class MainCoordinator: NSObject {
     // No Listen Together session survives a relaunch: remove leftover files before watching for sessions.
     ShareStorage().cleanAll()
     sharePlayService.startObservingSessions()
+    bindListenTogether()
 
     accountService.loginIfUserExists(delegate: self)
 

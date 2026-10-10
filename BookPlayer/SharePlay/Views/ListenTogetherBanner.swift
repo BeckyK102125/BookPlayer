@@ -1,63 +1,6 @@
 import BookPlayerKit
 import SwiftUI
 
-/// The Listen Together status line: what the banner shows and what VoiceOver reads for each state.
-enum ListenTogetherStatus {
-  /// The text on screen; nil when no banner is shown.
-  static func visibleText(for state: ListenTogetherState) -> String? {
-    switch state {
-    case .preparing(let title):
-      return String.localizedStringWithFormat("listen_together_status_preparing".localized, title)
-    case .sharing(let participants):
-      return participants <= 1
-        ? "listen_together_status_sharing_waiting".localized
-        : String.localizedStringWithFormat("listen_together_status_sharing".localized, participants)
-    case .listening(let participants, let downloaded):
-      if downloaded < 1 {
-        return downloadingText(percent: Int((downloaded * 100).rounded(.down)))
-      }
-      return participants <= 1
-        ? "listen_together_status_listening_one".localized
-        : String.localizedStringWithFormat("listen_together_status_listening".localized, participants)
-    case .ended(.normal):
-      return "listen_together_ended".localized
-    case .ended(.sendFailed):
-      return "listen_together_send_failed".localized
-    case .ended(.unavailable):
-      return "listen_together_unavailable".localized
-    case .idle, .needsFaceTime, .invitation:
-      return nil
-    }
-  }
-
-  /// What VoiceOver reads. The download percent moves in 25 percent steps, in step with the
-  /// announcer, so the label does not change on every piece.
-  static func spokenText(for state: ListenTogetherState) -> String? {
-    if case .listening(_, let downloaded) = state, downloaded < 1 {
-      return downloadingText(percent: Int((downloaded * 4).rounded(.down)) * 25)
-    }
-    return visibleText(for: state)
-  }
-
-  /// The End button's hint; nil when there is nothing to end.
-  static func endHint(for state: ListenTogetherState) -> String? {
-    switch state {
-    case .preparing: return "listen_together_end_hint_preparing".localized
-    case .sharing: return "listen_together_end_hint_sharer".localized
-    case .listening: return "listen_together_end_hint_listener".localized
-    case .idle, .needsFaceTime, .invitation, .ended: return nil
-    }
-  }
-
-  static func isProblem(_ state: ListenTogetherState) -> Bool {
-    state == .ended(reason: .sendFailed) || state == .ended(reason: .unavailable)
-  }
-
-  private static func downloadingText(percent: Int) -> String {
-    String.localizedStringWithFormat("listen_together_status_downloading".localized, percent)
-  }
-}
-
 /// Shown at the top of the player and on the listener screen while Listen Together is preparing,
 /// running or has just ended. VoiceOver reads the status as one element and End as a second one.
 /// The service makes every announcement; this view never posts one.
@@ -71,11 +14,22 @@ struct ListenTogetherBanner: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AccessibilityFocusState private var focus: Field?
   @State private var isConfirmingEnd = false
+  /// Focus is reset by SwiftUI when its element goes away, often before the removal's onChange runs,
+  /// so the last focused element and when focus was lost are remembered.
+  @State private var lastFocus: Field?
+  @State private var focusLostAt: Date?
+  /// A removal seen before the focus reset arrived; handled when it does.
+  @State private var pendingRemoval: (kind: Removal, at: Date)?
   @ScaledMetric(relativeTo: .subheadline) private var iconSize: CGFloat = 18
 
   private enum Field {
     case status
     case end
+  }
+
+  private enum Removal {
+    case end
+    case banner
   }
 
   var body: some View {
@@ -87,21 +41,39 @@ struct ListenTogetherBanner: View {
       }
     }
     .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: visible != nil)
+    .onChange(of: focus) { old, new in
+      if let new {
+        lastFocus = new
+        focusLostAt = nil
+        return
+      }
+      focusLostAt = .now
+      // The element went away first and focus was reset afterwards.
+      if let pendingRemoval, Date.now.timeIntervalSince(pendingRemoval.at) < 1, let old {
+        self.pendingRemoval = nil
+        if pendingRemoval.kind == .banner || old == .end { recover(from: pendingRemoval.kind) }
+      }
+    }
     .onChange(of: visible == nil) { _, isGone in
-      if isGone, focus != nil { onRemovedWhileFocused?() }
+      guard isGone else { return }
+      removed(.banner, hadFocus: hadFocusJustNow(nil))
     }
     .onChange(of: ListenTogetherStatus.endHint(for: service.state) == nil) { _, endIsGone in
-      // The End button is about to go away: keep VoiceOver on the banner instead of losing focus.
-      if endIsGone, focus == .end { focus = .status }
+      guard endIsGone else { return }
       // The session ended some other way while the confirmation was up: nothing left to confirm.
-      if endIsGone { isConfirmingEnd = false }
+      isConfirmingEnd = false
+      removed(.end, hadFocus: hadFocusJustNow(.end))
     }
     .confirmationDialog(
       "listen_together_end_confirm_title".localized,
       isPresented: $isConfirmingEnd,
       titleVisibility: .visible
     ) {
-      Button("listen_together_end_button".localized, role: .destructive) { service.end() }
+      Button("listen_together_end_button".localized, role: .destructive) {
+        // Move off End first, so VoiceOver lands on the ended status instead of losing focus.
+        focus = .status
+        service.end()
+      }
       Button("cancel_button".localized, role: .cancel) {}
     } message: {
       if let hint = ListenTogetherStatus.endHint(for: service.state) {
@@ -163,8 +135,9 @@ struct ListenTogetherBanner: View {
     }
     .padding(12)
     .background(
+      // The theme's background: link-coloured text and outlines are designed against it.
       RoundedRectangle(cornerRadius: 12)
-        .fill(theme.secondarySystemBackgroundColor)
+        .fill(theme.systemBackgroundColor)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 12)
@@ -177,9 +150,35 @@ struct ListenTogetherBanner: View {
   /// (everyone stops, or the listener's copy is deleted), so that asks first.
   private func requestEnd() {
     if case .preparing = service.state {
+      focus = .status
       service.end()
     } else {
       isConfirmingEnd = true
+    }
+  }
+
+  /// Whether VoiceOver is, or was a moment ago, on `field` (any banner element when nil).
+  private func hadFocusJustNow(_ field: Field?) -> Bool {
+    if let focus { return field == nil || focus == field }
+    guard let focusLostAt, Date.now.timeIntervalSince(focusLostAt) < 1, let lastFocus else { return false }
+    return field == nil || lastFocus == field
+  }
+
+  private func removed(_ kind: Removal, hadFocus: Bool) {
+    if hadFocus {
+      recover(from: kind)
+    } else {
+      pendingRemoval = (kind, .now)
+    }
+  }
+
+  /// End went away: stay on the status. The banner went away: the host picks a target.
+  private func recover(from kind: Removal) {
+    focusLostAt = nil
+    lastFocus = nil
+    switch kind {
+    case .end: focus = .status
+    case .banner: onRemovedWhileFocused?()
     }
   }
 }
@@ -205,6 +204,8 @@ struct ListenTogetherNeedsFaceTimeAlert: ViewModifier {
       .onChange(of: isPresented) { _, shown in
         if !shown { service.acknowledgeNeedsFaceTime() }
       }
+      // The player closed before the alert showed: don't show it later, out of context.
+      .onDisappear { service.acknowledgeNeedsFaceTime() }
       .alert("listen_together_needs_facetime_title".localized, isPresented: $isPresented) {
         Button("ok_button".localized, role: .cancel) {}
       } message: {
