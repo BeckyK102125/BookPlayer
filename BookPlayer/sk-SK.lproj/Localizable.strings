@@ -552,3 +552,4 @@ Usilovne pracujeme na poskytovaní bezproblémového zážitku, ak je to možné
 "listen_together_first_share_title" = "People who join can only listen";
 "listen_together_first_share_message" = "They do not get a copy of the book. What they download is deleted when the session ends.";
 "listen_together_not_available_now" = "Not available yet";
+"listen_together_share_button" = "Share";

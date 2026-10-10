@@ -197,7 +197,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     showsFirstShareNote = true
   }
 
-  /// The note was read and dismissed: remembered on this device, then sharing starts.
+  /// Share was chosen on the note: remembered on this device, then sharing starts.
   func acknowledgeFirstShareNote() async {
     guard showsFirstShareNote else { return }
     showsFirstShareNote = false
@@ -207,8 +207,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     await startSharing(item)
   }
 
-  /// The player closed before the note was shown or answered: nothing is shared, and the note is
-  /// shown again next time.
+  /// Cancel (or two-finger Z) on the note, or the player closed before it was answered: nothing is
+  /// shared and nothing is remembered, so the note is shown again next time.
   func cancelFirstShareNote() {
     showsFirstShareNote = false
     firstShareNoteItem = nil

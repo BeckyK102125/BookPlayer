@@ -28,7 +28,8 @@ final class ListenTogetherFirstShareNoteTests: XCTestCase {
     PlayableItem.stub(currentTime: 0, duration: 10, fileURL: URL(fileURLWithPath: "/note-test.m4a"))
   }
 
-  func testNoteIsShownBeforeTheFirstShareOnly() async {
+  /// Share on the note: shares and saves the shown-once flag.
+  func testShareStartsSharingAndSavesTheFlag() async {
     let service = makeService()
     await service.chooseListenTogether(makeItem())
     XCTAssertTrue(service.showsFirstShareNote)
@@ -47,11 +48,16 @@ final class ListenTogetherFirstShareNoteTests: XCTestCase {
     XCTAssertEqual(laterService.state, .needsFaceTime, "shares straight away")
   }
 
-  func testNoteClosedWithThePlayerSharesNothingAndShowsAgain() async {
+  /// Cancel, two-finger Z and closing the player all call cancelFirstShareNote() (R34).
+  func testCancelSharesNothingSavesNothingAndShowsAgain() async {
     let service = makeService()
     await service.chooseListenTogether(makeItem())
     service.cancelFirstShareNote()
     XCTAssertFalse(service.showsFirstShareNote)
+    XCTAssertEqual(service.state, .idle)
+    XCTAssertFalse(defaults.bool(forKey: SharePlaySessionService.firstShareNoteSeenKey))
+    // A late Share tap after Cancel does nothing.
+    await service.acknowledgeFirstShareNote()
     XCTAssertEqual(service.state, .idle)
     XCTAssertFalse(defaults.bool(forKey: SharePlaySessionService.firstShareNoteSeenKey))
     await service.chooseListenTogether(makeItem())

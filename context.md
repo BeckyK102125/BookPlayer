@@ -14,8 +14,8 @@ in sync. Everything must work with VoiceOver.
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork). upstream = github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream develop at eb19a92f. NOT pushed anywhere.
 - Branch `listen-together-lock-screen` (Change C of addendum 1), from develop at e634f5c7 (which holds
-  the whole Listen Together work plus the guide and addendum 1). Last work: Change C fix round 1
-  (this commit; parent e09474bd, Change C). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
+  the whole Listen Together work plus the guide and addendum 1). Last work: Change C fix round 2
+  (this commit; parent 2d324abb, fix round 1). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
 - Never committed (gitignored): BuildConfiguration/Debug.xcconfig. Local copy only.
 - BookPlayer/Player/PlayerManager.swift is untouched (git diff eb19a92f --stat on it prints nothing).
 
@@ -41,7 +41,7 @@ screen), listener screen with a "getting the book" state, needs-FaceTime alert; 
   while playing, and again on didBecomeActive. At the end Now Playing is handed back by calling
   playerManager.pause() on the paused own book (re-publishes its info); with no own book it is cleared.
 - Listening-only wording: invitation sentence; a one-time note shown to the sharer BEFORE the first
-  share on the device starts (OK starts sharing). 48 listen_together_* strings. Chapter number zero-based.
+  share on the device starts (Share starts it; Cancel/Z does not, R34). 49 listen_together_* strings. Chapter number zero-based.
 - Guide: new "With the screen locked" section; the lock-screen known limitation removed.
 - Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/change-c-report.md
 
@@ -49,7 +49,7 @@ screen), listener screen with a "getting the book" state, needs-FaceTime alert; 
 Final fix wave (R31, R32) and a11y residuals: see Notes.md and final-fix-report.md.
 
 ## Test evidence (2026-10-10)
-- Change C fix round 1: full suite "Executed 693 tests, with 0 failures", ** TEST SUCCEEDED **.
+- Change C fix round 2: full suite "Executed 693 tests, with 0 failures", ** TEST SUCCEEDED **.
   Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
   'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
   -only-testing:BookPlayerTests test (669 before Change C).
@@ -109,7 +109,7 @@ Change C (addendum-a11y-guidance.md C and G), listener phone locked, VoiceOver o
 - End while locked (from either phone): wake: Now Playing is the own book or empty, never the shared one;
   lock-screen Play and AirPods then control the own book.
 - FaceTime-based session: the guide's Magic Tap warning matches what happens.
-- First-share note read in full, OK starts sharing, Z works; the 15 s refresh does not re-read the scrubber.
+- First-share note read in full, Share starts sharing, Cancel and Z do not; the 15 s refresh does not re-read the scrubber.
 - A11y residuals: Magic Tap before the book arrives gives no audio; after the getting-book swap focus
   lands on the player heading once.
 Also from the a11y guidance (task-10-a11y-guidance.md section 7): the spoken percent changes only at

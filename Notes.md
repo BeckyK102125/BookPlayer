@@ -372,3 +372,14 @@ Parent e09474bd. Ruling R33 and reviewer items CT-I1..I4, CT-M1..M7.
   the second chapter), FirstShareNote rewritten (note before sharing; cancel). Focused (+SharePlayMenuTests):
   39 tests, 0 failures, ** TEST SUCCEEDED **. Full: "Executed 693 tests, with 0 failures",
   ** TEST SUCCEEDED ** (694 before; net -1 test).
+
+## 2026-10-10 - listen-together-lock-screen - Change C fix round 2 (R34)
+Parent 2d324abb. Ruling R34: escape never starts an action. The first-share note now has two buttons:
+"Share" (new key listen_together_share_button, default action; calls acknowledgeFirstShareNote(): saves the
+shown-once flag and starts sharing) and "Cancel" (existing cancel_button, cancel role; two-finger Z picks it;
+calls cancelFirstShareNote(): nothing shared, flag not saved, note shown next time). Closing the player also
+cancels. export_button ("Share") not reused: it means export and its translations may differ.
+Tests: ListenTogetherFirstShareNoteTests renamed testShareStartsSharingAndSavesTheFlag /
+testCancelSharesNothingSavesNothingAndShowsAgain (+ a late Share after Cancel does nothing). Focused
+(note + SharePlayMenuTests): 17 tests, 0 failures, ** TEST SUCCEEDED **. Full: "Executed 693 tests, with
+0 failures", ** TEST SUCCEEDED **. 49 listen_together_* keys in all 26 Localizable.strings.

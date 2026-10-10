@@ -228,7 +228,8 @@ extension View {
 
 /// The one-time "listening only" note for the sharer, the first time they choose Listen Together on this
 /// device, before sharing starts (so it never interrupts the session's announcements). It waits a moment
-/// so it is not dropped while the More menu is still closing; OK records it as seen and starts sharing.
+/// so it is not dropped while the More menu is still closing. Share records it as seen and starts
+/// sharing; Cancel shares nothing and does not record it.
 struct ListenTogetherFirstShareNoteAlert: ViewModifier {
   @ObservedObject var service: SharePlaySessionService
   @State private var isPresented = false
@@ -248,9 +249,13 @@ struct ListenTogetherFirstShareNoteAlert: ViewModifier {
       // The player closed first: don't show the note later, out of context, and don't share.
       .onDisappear { service.cancelFirstShareNote() }
       .alert("listen_together_first_share_title".localized, isPresented: $isPresented) {
-        Button("ok_button".localized, role: .cancel) {
+        // R34: escape never starts an action. Share is the default; Cancel (and two-finger Z, which
+        // picks the cancel action) shares nothing and keeps the note for next time.
+        Button("listen_together_share_button".localized) {
           Task { await service.acknowledgeFirstShareNote() }
         }
+        .keyboardShortcut(.defaultAction)
+        Button("cancel_button".localized, role: .cancel) { service.cancelFirstShareNote() }
       } message: {
         Text("listen_together_first_share_message".localized)
       }
