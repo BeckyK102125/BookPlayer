@@ -300,6 +300,7 @@
 		5163037679ED3EE0D1866A8F /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FC8B923A5506F865253B97C /* AppServices.swift */; };
 		52AA441379FD94339FEECB55 /* SortPreferencesResolving.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C6BC9E7E76B9BAB7A0D88D2 /* SortPreferencesResolving.swift */; };
 		59384C1A0B33B9EB42AE4C75 /* ChaptersViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F496A2BF4CBFFC745C453D42 /* ChaptersViewModelTests.swift */; };
+		59714880A7421738FA3EF20C /* ListenTogetherCoordinatorBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53774A41BEDA59DAD779EEF8 /* ListenTogetherCoordinatorBridgeTests.swift */; };
 		5A589702CFB4A8F8EC55AC3F /* SortIntegrationHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF448F75392B02FC5451289 /* SortIntegrationHarness.swift */; };
 		5A9506FC8DAB858289E0EF89 /* IntegrationServerAddressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623E13D0C96857091397B5EF /* IntegrationServerAddressTests.swift */; };
 		5B1559A45658B195521CC454 /* SyncResponseFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6581B92E4D292C2AFC361A /* SyncResponseFixtures.swift */; };
@@ -919,6 +920,7 @@
 		E60060C58E5E4B24A431C381 /* LibraryOrganizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6291BA47A38D043A49CE7AA /* LibraryOrganizerTests.swift */; };
 		E645420CAE56A0B61D7BB6D3 /* ListenTogetherActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BF426FA3E0735F9DA5D5EE /* ListenTogetherActivity.swift */; };
 		E69D485D82A6A4CB4A4EEA9B /* SharerPlaybackTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */; };
+		E936404280A9AD9DB48225E8 /* ListenTogetherCoordinatorBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */; };
 		F2535BF980A548BFB9D3E8C1 /* VideoPiPCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EA56C448451F969BC0E2AB /* VideoPiPCoordinator.swift */; };
 		F50163BEFB92FB6B1B778C5E /* WindowHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BB8BFBB9A63469069F0D44A /* WindowHelper.swift */; };
 		F6348C04290CD2CE7BE3F015 /* IntegrationConnectionDataDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB8BD2F5EC900DC51D5D02D /* IntegrationConnectionDataDecodingTests.swift */; };
@@ -1090,6 +1092,7 @@
 
 /* Begin PBXFileReference section */
 		056B7A76F1A44CEC30562382 /* IntegrationQuickConnectViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationQuickConnectViews.swift; sourceTree = "<group>"; };
+		0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherCoordinatorBridge.swift; path = ListenTogetherCoordinatorBridge.swift; sourceTree = "<group>"; };
 		0EA09FE5A35CEA0B87F83EF3 /* PreferencesSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesSyncServiceTests.swift; sourceTree = "<group>"; };
 		0F5244AC8319CEA58743B9D6 /* SharerPlaybackTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharerPlaybackTargetTests.swift; path = SharerPlaybackTargetTests.swift; sourceTree = "<group>"; };
 		0FC8B923A5506F865253B97C /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
@@ -1364,6 +1367,7 @@
 		50234E53B2D3F444F124BF5B /* ShareStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShareStorage.swift; path = ShareStorage.swift; sourceTree = "<group>"; };
 		5126F120258E9F18009965DC /* URL+BookPlayer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "URL+BookPlayer.swift"; sourceTree = "<group>"; };
 		5265B16421BFC176BFFE4EA5 /* IntegrationHTTPClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationHTTPClient.swift; sourceTree = "<group>"; };
+		53774A41BEDA59DAD779EEF8 /* ListenTogetherCoordinatorBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherCoordinatorBridgeTests.swift; path = ListenTogetherCoordinatorBridgeTests.swift; sourceTree = "<group>"; };
 		53AE3D4C955A493470C8EAA9 /* QueryTimeSortSpikeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryTimeSortSpikeTests.swift; sourceTree = "<group>"; };
 		587EDC7DEA9D2985635F1161 /* IntegrationConnectionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationConnectionStore.swift; sourceTree = "<group>"; };
 		5A1940DDA23F0B56F6280694 /* PiecePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PiecePlanner.swift; path = PiecePlanner.swift; sourceTree = "<group>"; };
@@ -3897,6 +3901,7 @@
 				FBDF4E23AD17EC33CA5917E0 /* ListenTogetherPlaybackTarget.swift */,
 				440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */,
 				646948F68C4B3D542C9C2BC5 /* ListenerPlayer.swift */,
+				0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -3931,6 +3936,7 @@
 				5A524E32BCFD1FEC611BB09F /* PieceTimelineTests.swift */,
 				0F5244AC8319CEA58743B9D6 /* SharerPlaybackTargetTests.swift */,
 				AB54417EA4E89951D76F8D2D /* ListenerPlayerTests.swift */,
+				53774A41BEDA59DAD779EEF8 /* ListenTogetherCoordinatorBridgeTests.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -5125,6 +5131,7 @@
 				84544DF4BCA7595981C2F554 /* ListenTogetherPlaybackTarget.swift in Sources */,
 				E69D485D82A6A4CB4A4EEA9B /* SharerPlaybackTarget.swift in Sources */,
 				04DF4FC999D5E2228471F17F /* ListenerPlayer.swift in Sources */,
+				E936404280A9AD9DB48225E8 /* ListenTogetherCoordinatorBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5185,6 +5192,7 @@
 				9FEF4AC6BBA01D718A26165F /* PieceTimelineTests.swift in Sources */,
 				5B6240138ED61770638252F3 /* SharerPlaybackTargetTests.swift in Sources */,
 				30B244AF8BD15F6B913C7D60 /* ListenerPlayerTests.swift in Sources */,
+				59714880A7421738FA3EF20C /* ListenTogetherCoordinatorBridgeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

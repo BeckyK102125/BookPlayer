@@ -48,3 +48,16 @@ only iPhone 18 Pro/Pro Max; iPhone 17 exists on iOS 26.5). Used the id instead:
   same flags with test-without-building
   -> Executed 572 tests, with 0 failures (0 unexpected); ** TEST EXECUTE SUCCEEDED **
 No -derivedDataPath used. No pre-existing failures.
+
+## 2026-10-10 - Task 8: ListenTogetherCoordinatorBridge (branch shareplay-listen-together)
+- Added BookPlayer/SharePlay/ListenTogetherCoordinatorBridge.swift and
+  BookPlayerTests/SharePlay/ListenTogetherCoordinatorBridgeTests.swift (4 tests).
+- hostClockTime on the play command is deliberately ignored: starting a few tens of ms late is
+  inaudible for spoken audio and keeps PlayerManager untouched.
+- SDK differences from the brief: AVDelegatingPlaybackCoordinatorPauseCommand has no itemTime, so
+  handlePause uses the target's own bookTime; expectedCurrentItemIdentifier is non-optional String,
+  so it is compared directly (checked for all four commands, not just play).
+- Added a seam, ListenTogetherCoordinatorControlling (rate change, seek, begin stall suspension),
+  with the real AVDelegatingPlaybackCoordinator as default, so tests assert against a fake.
+- RED: tests failed to compile (cannot find ListenTogetherCoordinatorBridge). GREEN: 4 tests, 0
+  failures. Full suite: 621 tests, 0 failures.
