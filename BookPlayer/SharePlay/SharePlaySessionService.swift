@@ -35,7 +35,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// The title of the share this device joined, from the invitation; shown until the manifest arrives.
   @Published private(set) var joinedTitle: String?
   /// True when the sharer should see the one-time "listening only" note (first share on this device).
+  /// It is shown before sharing starts, so it never cuts off the session's announcements.
   @Published private(set) var showsFirstShareNote = false
+  /// The book to share once the first-share note has been read.
+  private var firstShareNoteItem: PlayableItem?
 
   // Collaborators. Internal (not private) so SharePlaySessionService+Session.swift can use them.
   let playerManager: PlayerManagerProtocol
@@ -127,7 +130,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Whether to offer "Listen Together" for `item` now. Hidden (not disabled) while a share is being
   /// prepared, a session is running or an invitation is waiting, because `startSharing` would do nothing.
   func canOfferSharing(_ item: PlayableItem?) -> Bool {
-    guard canShare(item), !isInSession, !isPreparing, pendingInvitation == nil else { return false }
+    guard canShare(item), !isInSession, !isPreparing, pendingInvitation == nil, !showsFirstShareNote
+    else { return false }
     switch state {
     case .idle, .needsFaceTime, .ended: return true
     case .preparing, .invitation, .sharing, .listening: return false
@@ -181,18 +185,33 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   // MARK: First-share note
 
-  /// Sharing has started: the first time on this device, the sharer is told that people who join can
-  /// only listen. Internal for tests and SharePlaySessionService+Session.swift.
-  func sharingStarted() {
-    guard !defaults.bool(forKey: Self.firstShareNoteSeenKey) else { return }
+  /// Listen Together was chosen in the More menu. The first time on this device the sharer first reads
+  /// that people who join can only listen; sharing starts when they dismiss it.
+  func chooseListenTogether(_ item: PlayableItem) async {
+    guard !defaults.bool(forKey: Self.firstShareNoteSeenKey) else {
+      await startSharing(item)
+      return
+    }
+    guard !showsFirstShareNote else { return }
+    firstShareNoteItem = item
     showsFirstShareNote = true
   }
 
-  /// The note was read and dismissed: never shown again on this device.
-  func acknowledgeFirstShareNote() {
+  /// The note was read and dismissed: remembered on this device, then sharing starts.
+  func acknowledgeFirstShareNote() async {
     guard showsFirstShareNote else { return }
     showsFirstShareNote = false
     defaults.set(true, forKey: Self.firstShareNoteSeenKey)
+    guard let item = firstShareNoteItem else { return }
+    firstShareNoteItem = nil
+    await startSharing(item)
+  }
+
+  /// The player closed before the note was shown or answered: nothing is shared, and the note is
+  /// shown again next time.
+  func cancelFirstShareNote() {
+    showsFirstShareNote = false
+    firstShareNoteItem = nil
   }
 
   /// True from `startSharing` until our session arrives or the share is cancelled.
@@ -285,8 +304,6 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     listener?.stop()
     listener = nil
     joinedTitle = nil
-    // Not seen before the session ended: shown at the next share instead.
-    showsFirstShareNote = false
     sharerTarget = nil
     self.transport = nil
     activeSession = nil

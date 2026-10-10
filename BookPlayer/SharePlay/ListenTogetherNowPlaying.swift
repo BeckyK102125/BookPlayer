@@ -63,7 +63,8 @@ enum ListenTogetherNowPlaying {
     }
     if !state.author.isEmpty { info[MPMediaItemPropertyAlbumTitle] = state.author }
     if let index = state.chapterIndex {
-      info[MPNowPlayingInfoPropertyChapterNumber] = index + 1
+      // Zero-based (MPNowPlayingInfoCenter.h).
+      info[MPNowPlayingInfoPropertyChapterNumber] = index
       info[MPNowPlayingInfoPropertyChapterCount] = state.chapters.count
     }
     info[MPMediaItemPropertyPlaybackDuration] = state.duration

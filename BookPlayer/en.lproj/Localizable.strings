@@ -548,6 +548,7 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_position_hint" = "Swipe up or down to move 30 seconds.";
 "listen_together_zero_seconds" = "0 seconds";
 "listen_together_getting_book_message" = "Getting the book. The player controls appear when it is ready.";
-"listen_together_invitation_listen_only" = "You can listen only during this session. The book is not saved on your iPhone.";
-"listen_together_first_share_title" = "Listening only";
-"listen_together_first_share_message" = "People who join can listen only during the session. They don't get a copy.";
+"listen_together_invitation_listen_only" = "You can only listen. The book is not saved on your device.";
+"listen_together_first_share_title" = "People who join can only listen";
+"listen_together_first_share_message" = "They do not get a copy of the book. What they download is deleted when the session ends.";
+"listen_together_not_available_now" = "Not available yet";

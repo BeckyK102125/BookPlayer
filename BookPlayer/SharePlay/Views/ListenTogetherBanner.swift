@@ -226,8 +226,9 @@ extension View {
   }
 }
 
-/// The one-time "listening only" note for the sharer, the first time they share on this device. It
-/// waits a moment so it does not collide with the system sharing sheet closing; OK records it as seen.
+/// The one-time "listening only" note for the sharer, the first time they choose Listen Together on this
+/// device, before sharing starts (so it never interrupts the session's announcements). It waits a moment
+/// so it is not dropped while the More menu is still closing; OK records it as seen and starts sharing.
 struct ListenTogetherFirstShareNoteAlert: ViewModifier {
   @ObservedObject var service: SharePlaySessionService
   @State private var isPresented = false
@@ -244,8 +245,12 @@ struct ListenTogetherFirstShareNoteAlert: ViewModifier {
           if service.showsFirstShareNote { isPresented = true }
         }
       }
+      // The player closed first: don't show the note later, out of context, and don't share.
+      .onDisappear { service.cancelFirstShareNote() }
       .alert("listen_together_first_share_title".localized, isPresented: $isPresented) {
-        Button("ok_button".localized, role: .cancel) { service.acknowledgeFirstShareNote() }
+        Button("ok_button".localized, role: .cancel) {
+          Task { await service.acknowledgeFirstShareNote() }
+        }
       } message: {
         Text("listen_together_first_share_message".localized)
       }

@@ -1,4 +1,5 @@
 @testable import BookPlayer
+@testable import BookPlayerKit
 import XCTest
 
 @MainActor
@@ -23,27 +24,37 @@ final class ListenTogetherFirstShareNoteTests: XCTestCase {
       defaults: defaults)
   }
 
-  func testNoteIsShownOnTheFirstShareOnly() {
-    let service = makeService()
-    XCTAssertFalse(service.showsFirstShareNote)
-    service.sharingStarted()
-    XCTAssertTrue(service.showsFirstShareNote)
-    service.acknowledgeFirstShareNote()
-    XCTAssertFalse(service.showsFirstShareNote)
-    XCTAssertTrue(defaults.bool(forKey: SharePlaySessionService.firstShareNoteSeenKey))
-
-    service.sharingStarted()
-    XCTAssertFalse(service.showsFirstShareNote, "second share")
-    let laterService = makeService()
-    laterService.sharingStarted()
-    XCTAssertFalse(laterService.showsFirstShareNote, "remembered on this device")
+  private func makeItem() -> PlayableItem {
+    PlayableItem.stub(currentTime: 0, duration: 10, fileURL: URL(fileURLWithPath: "/note-test.m4a"))
   }
 
-  func testNoteNotAcknowledgedIsShownAgain() {
+  func testNoteIsShownBeforeTheFirstShareOnly() async {
     let service = makeService()
-    service.sharingStarted()
-    let next = makeService()
-    next.sharingStarted()
-    XCTAssertTrue(next.showsFirstShareNote)
+    await service.chooseListenTogether(makeItem())
+    XCTAssertTrue(service.showsFirstShareNote)
+    XCTAssertEqual(service.state, .idle, "nothing shared (and nothing announced) before the note is read")
+
+    await service.acknowledgeFirstShareNote()
+    XCTAssertFalse(service.showsFirstShareNote)
+    XCTAssertTrue(defaults.bool(forKey: SharePlaySessionService.firstShareNoteSeenKey))
+    // Sharing started (no FaceTime call in the simulator, so it stops at needs-FaceTime).
+    XCTAssertEqual(service.state, .needsFaceTime)
+    service.acknowledgeNeedsFaceTime()
+
+    let laterService = makeService()
+    await laterService.chooseListenTogether(makeItem())
+    XCTAssertFalse(laterService.showsFirstShareNote, "remembered on this device")
+    XCTAssertEqual(laterService.state, .needsFaceTime, "shares straight away")
+  }
+
+  func testNoteClosedWithThePlayerSharesNothingAndShowsAgain() async {
+    let service = makeService()
+    await service.chooseListenTogether(makeItem())
+    service.cancelFirstShareNote()
+    XCTAssertFalse(service.showsFirstShareNote)
+    XCTAssertEqual(service.state, .idle)
+    XCTAssertFalse(defaults.bool(forKey: SharePlaySessionService.firstShareNoteSeenKey))
+    await service.chooseListenTogether(makeItem())
+    XCTAssertTrue(service.showsFirstShareNote)
   }
 }

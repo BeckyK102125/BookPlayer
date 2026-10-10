@@ -341,3 +341,34 @@ addendum-a11y-guidance.md section C.
 - Not device-tested. Open: announcements while locked may be silent (guidance C3 VERIFY); pause during a
   piece wait does nothing; interruption pauses the group (guidance D3).
 Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/change-c-report.md
+
+## 2026-10-10 - listen-together-lock-screen - Change C fix round 1 (review change-c-a11y-review.md)
+Parent e09474bd. Ruling R33 and reviewer items CT-I1..I4, CT-M1..M7.
+- R33: next/previous track during a listener session = userSkip(±30), not chapters (chapter helpers and
+  their tests removed). Guide bullet updated.
+- Skip settings (also CT-M4): at session end the router restores the LIVE user settings
+  (PlayerManager.forwardInterval/rewindInterval, !isForward/RewindChapterSkip, UserDefaults
+  seekProgressBarEnabled; injectable `userSettings` provider), not a start snapshot. Mid-session changes:
+  [30]/enabled/position re-applied on UIApplication.willResignActiveNotification. Why: PlayerManager's
+  static setters write the command centre directly AFTER UserDefaults (a defaults-change observer would be
+  overwritten), settings can only change while the app is active, and the lock screen / Control Center
+  are visible only after the app resigns active. Rejected: didBecomeActive (too late for the lock screen).
+- MPNowPlayingInfoPropertyChapterNumber is zero-based (MPNowPlayingInfoCenter.h:111): publish the index.
+- CT-I4: the first-share note now appears BEFORE sharing starts. More menu -> chooseListenTogether(item):
+  first time, note shown (state stays idle, menu item hidden); OK -> acknowledgeFirstShareNote() saves the
+  flag and calls startSharing. Player closes first -> cancelFirstShareNote(), nothing shared, shown next
+  time. sharingStarted() removed. No announcement can collide with it.
+- CT-M1/M2 wording: invitation "You can only listen. The book is not saved on your device."; note title
+  "People who join can only listen", message "They do not get a copy of the book. What they download is
+  deleted when the session ends." (reviewer's "Their copy is deleted" contradicted "no copy").
+- CT-M3: Magic Tap before the book arrives announces listen_together_not_available_now ("Not available
+  yet") and returns true. New key in all 26 Localizable.strings (48 listen_together_* keys).
+- Guide (CT-I1, I2, M7 + coordinator list): note moved to "Share a book" step 4; invitation sentence as a
+  Join step; "the book changes for everyone" plus a hedge that spoken messages may be silent while locked;
+  Magic Tap bullet; interruption on a listener pauses everyone; starting your own book switches the lock
+  screen; CarPlay line corrected. CT-I3 resolved by R33. CT-M5/M6: device checks only.
+- Tests: RemoteCommands (chapter tests replaced by one ±30 test; settings test reads live user settings;
+  new testUserSettingChangedMidSessionKeepsThirtyThenIsRestoredLive), NowPlaying (chapter number 1 for
+  the second chapter), FirstShareNote rewritten (note before sharing; cancel). Focused (+SharePlayMenuTests):
+  39 tests, 0 failures, ** TEST SUCCEEDED **. Full: "Executed 693 tests, with 0 failures",
+  ** TEST SUCCEEDED ** (694 before; net -1 test).

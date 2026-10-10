@@ -28,6 +28,9 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
   private var settings: FakeCommandSettings!
   private var sink: FakeNowPlayingSink!
   private var scheduled: [@MainActor () -> Void] = []
+  private var userSettings = UserRemoteCommandSettings(
+    forwardInterval: 15, rewindInterval: 45, isForwardChapterSkip: true, isRewindChapterSkip: false,
+    isSeekBarEnabled: false)
   private var router: ListenTogetherRemoteCommands!
   private var events: [LocalPlaybackEvent] = []
   private var bag = Set<AnyCancellable>()
@@ -49,6 +52,7 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
     events = []
     router = ListenTogetherRemoteCommands(
       settings: settings, nowPlayingSink: sink, now: { Date(timeIntervalSince1970: 0) },
+      userSettings: { [unowned self] in self.userSettings },
       schedulePositionApply: { [unowned self] action in self.scheduled.append(action) })
     router.attach(to: service)
   }
@@ -155,31 +159,13 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
     XCTAssertEqual(events.last, .seeked(to: 150, from: 180))
   }
 
-  func testNextAndPreviousTrackMoveByChapter() {
+  func testNextAndPreviousTrackSkipThirtySecondsEvenWithChapters() {
+    // R33: never a chapter jump (150 -> 300 would be the next chapter here).
     startListening(at: 150)
-    XCTAssertEqual(router.handle(.nextTrack), .success)
-    XCTAssertEqual(events.last, .seeked(to: 300, from: 150))
-    XCTAssertEqual(router.handle(.previousTrack), .success)
-    XCTAssertEqual(events.last, .seeked(to: 100, from: 300), "at a chapter's start: the chapter before")
-  }
-
-  func testNextAndPreviousTrackWithoutChaptersSkipThirtySeconds() {
-    startListening(chapters: [], at: 150)
     XCTAssertEqual(router.handle(.nextTrack), .success)
     XCTAssertEqual(events.last, .seeked(to: 180, from: 150))
     XCTAssertEqual(router.handle(.previousTrack), .success)
     XCTAssertEqual(events.last, .seeked(to: 150, from: 180))
-  }
-
-  func testChapterTargets() {
-    let book = manifest(chapters: threeChapters)
-    XCTAssertEqual(ListenTogetherRemoteCommands.nextChapterStart(in: book, at: 0), 100)
-    XCTAssertEqual(ListenTogetherRemoteCommands.nextChapterStart(in: book, at: 100), 300)
-    XCTAssertNil(ListenTogetherRemoteCommands.nextChapterStart(in: book, at: 500), "last chapter")
-    XCTAssertEqual(ListenTogetherRemoteCommands.previousChapterTarget(in: book, at: 150), 100, "into it: its start")
-    XCTAssertEqual(ListenTogetherRemoteCommands.previousChapterTarget(in: book, at: 101), 0, "near its start")
-    XCTAssertEqual(ListenTogetherRemoteCommands.previousChapterTarget(in: book, at: 1), 0, "first chapter")
-    XCTAssertNil(ListenTogetherRemoteCommands.previousChapterTarget(in: manifest(chapters: []), at: 50))
   }
 
   func testPositionBurstIsAppliedOnceWithTheLatestBookTime() {
@@ -203,7 +189,7 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
 
   // MARK: Skip settings and Now Playing hand-back
 
-  func testSkipIntervalsAreThirtyDuringTheSessionAndRestoredAfter() {
+  func testSkipIntervalsAreThirtyDuringTheSessionAndUserSettingsAfter() {
     service.setState(.listening(participants: 1, downloaded: 0))
     XCTAssertEqual(settings.skipForwardIntervals, [30])
     XCTAssertEqual(settings.skipBackwardIntervals, [30])
@@ -213,11 +199,31 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
 
     service.setState(.listening(participants: 2, downloaded: 0.5))
     service.setState(.ended(reason: .normal))
-    XCTAssertEqual(settings.skipForwardIntervals, [15])
-    XCTAssertEqual(settings.skipBackwardIntervals, [45])
+    // The user's settings: forward is chapter skip (disabled), back 45 s, no seek bar.
     XCTAssertFalse(settings.isSkipForwardEnabled)
     XCTAssertTrue(settings.isSkipBackwardEnabled)
+    XCTAssertEqual(settings.skipBackwardIntervals, [45])
     XCTAssertFalse(settings.isChangePositionEnabled)
+  }
+
+  func testUserSettingChangedMidSessionKeepsThirtyThenIsRestoredLive() {
+    service.setState(.listening(participants: 1, downloaded: 0))
+    // The user changes the forward skip to 10 s during the session: PlayerManager's setter writes
+    // the command centre directly.
+    userSettings.forwardInterval = 10
+    userSettings.isForwardChapterSkip = false
+    userSettings.isSeekBarEnabled = true
+    settings.skipForwardIntervals = [10]
+    NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+    XCTAssertEqual(settings.skipForwardIntervals, [30], "the lock screen still advertises 30 s")
+    XCTAssertTrue(settings.isSkipForwardEnabled)
+
+    service.setState(.ended(reason: .normal))
+    XCTAssertEqual(settings.skipForwardIntervals, [10], "the new setting, not the one from the start")
+    XCTAssertTrue(settings.isSkipForwardEnabled)
+    XCTAssertTrue(settings.isChangePositionEnabled)
+    NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+    XCTAssertEqual(settings.skipForwardIntervals, [10], "nothing re-applied after the session")
   }
 
   func testSharingDoesNotChangeSkipIntervals() {

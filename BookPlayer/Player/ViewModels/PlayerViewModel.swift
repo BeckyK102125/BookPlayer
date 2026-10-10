@@ -711,7 +711,7 @@ final class PlayerViewModel: ObservableObject {
         BPActionItem(
           title: "listen_together_title".localized,
           handler: { [weak sharePlayService] in
-            Task { await sharePlayService?.startSharing(item) }
+            Task { await sharePlayService?.chooseListenTogether(item) }
           }
         )
       )

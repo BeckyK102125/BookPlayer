@@ -24,7 +24,7 @@ final class ListenTogetherNowPlayingTests: XCTestCase {
     XCTAssertEqual(info[MPMediaItemPropertyTitle] as? String, "The Carpet-Bag")
     XCTAssertEqual(info[MPMediaItemPropertyArtist] as? String, "Moby Dick")
     XCTAssertEqual(info[MPMediaItemPropertyAlbumTitle] as? String, "Herman Melville")
-    XCTAssertEqual(info[MPNowPlayingInfoPropertyChapterNumber] as? Int, 2)
+    XCTAssertEqual(info[MPNowPlayingInfoPropertyChapterNumber] as? Int, 1, "zero-based")
     XCTAssertEqual(info[MPNowPlayingInfoPropertyChapterCount] as? Int, 2)
     XCTAssertEqual(info[MPMediaItemPropertyPlaybackDuration] as? Double, 300)
     XCTAssertEqual(info[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 150)

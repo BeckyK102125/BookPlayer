@@ -14,8 +14,8 @@ in sync. Everything must work with VoiceOver.
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork). upstream = github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream develop at eb19a92f. NOT pushed anywhere.
 - Branch `listen-together-lock-screen` (Change C of addendum 1), from develop at e634f5c7 (which holds
-  the whole Listen Together work plus the guide and addendum 1). Last work: Change C (this commit;
-  parent e634f5c7). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
+  the whole Listen Together work plus the guide and addendum 1). Last work: Change C fix round 1
+  (this commit; parent e09474bd, Change C). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
 - Never committed (gitignored): BuildConfiguration/Debug.xcconfig. Local copy only.
 - BookPlayer/Player/PlayerManager.swift is untouched (git diff eb19a92f --stat on it prints nothing).
 
@@ -32,16 +32,16 @@ screen), listener screen with a "getting the book" state, needs-FaceTime alert; 
 - ListenTogetherRemoteCommands (SharePlay/): the AppDelegate remote-command handlers (toggle, play, pause,
   skip fwd/back, next/previous track, seek end, change position) and AppDelegate Magic Tap ask it first.
   During a listener session (state .listening) they go to ListenerPlayer's user* methods; before the book
-  details arrive they return .noActionableNowPlayingItem; otherwise PlayerManager runs as before. No new
-  addTarget. Skip 30 s; next/previous = chapter (restart-current under 3 s rule), ±30 s without chapters;
-  position events coalesced 0.3 s. Skip preferredIntervals [30] + enabled, position command enabled while
-  listening; previous values restored after.
+  details arrive they return .noActionableNowPlayingItem (Magic Tap then says "Not available yet");
+  otherwise PlayerManager runs as before. No new addTarget. Skips and next/previous track ±30 s (R33);
+  position events coalesced 0.3 s. Skip preferredIntervals [30] + enabled and position enabled while
+  listening (re-applied at willResignActive); the user's live settings restored after.
 - ListenTogetherNowPlaying: pure builder (chapter / book / author, book-level times, rate 0 while paused or
   waiting for a piece, playbackState) and a publisher that publishes only on real changes plus every 15 s
   while playing, and again on didBecomeActive. At the end Now Playing is handed back by calling
   playerManager.pause() on the paused own book (re-publishes its info); with no own book it is cleared.
-- Listening-only wording: a sentence added to the invitation; a one-time note for the sharer on the first
-  share on the device (UserDefaults key listenTogetherFirstShareNoteSeen). 47 listen_together_* strings.
+- Listening-only wording: invitation sentence; a one-time note shown to the sharer BEFORE the first
+  share on the device starts (OK starts sharing). 48 listen_together_* strings. Chapter number zero-based.
 - Guide: new "With the screen locked" section; the lock-screen known limitation removed.
 - Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/change-c-report.md
 
@@ -49,24 +49,19 @@ screen), listener screen with a "getting the book" state, needs-FaceTime alert; 
 Final fix wave (R31, R32) and a11y residuals: see Notes.md and final-fix-report.md.
 
 ## Test evidence (2026-10-10)
-- Full unit run: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer
-  -destination 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C'
-  -testPlan "Unit Tests" -only-testing:BookPlayerTests test
-  Result after the final fix wave: "Executed 668 tests, with 0 failures (0 unexpected)" then
-  "** TEST SUCCEEDED **" (651 before it, 17 tests added).
+- Change C fix round 1: full suite "Executed 693 tests, with 0 failures", ** TEST SUCCEEDED **.
+  Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
+  'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
+  -only-testing:BookPlayerTests test (669 before Change C).
 - Release build: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -configuration Release
   -destination 'generic/platform=iOS Simulator' build  ->  ** BUILD SUCCEEDED **.
-- Baseline before this work was 572 tests, 0 failures.
-- SharePlay itself cannot run in the simulator (no FaceTime); the simulator only proves the app boots to
-  the library and nothing crashes.
+- SharePlay itself cannot run in the simulator (no FaceTime).
 
 ## Local environment gotchas
 - This Mac has Xcode 27; upstream CI uses Xcode 26.4. Xcode 27 resolves "iPhone 17" to nothing, so use
   the simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C (iPhone 17, iOS 26.5, machine specific).
-- xcodebuild prints an intermediate "Executed N tests" summary (512, 452, 457 ...) before the real one.
-  Wait for ** TEST SUCCEEDED ** or ** TEST FAILED ** and read the last "Executed" line before it.
-- xcodebuild test sometimes hangs after printing TEST SUCCEEDED: send output to a log, poll for the
-  result line, then kill the xcodebuild you started (pkill -f "xcodebuild -project BookPlayer.xcodeproj").
+- xcodebuild prints intermediate "Executed N tests" summaries; wait for ** TEST SUCCEEDED/FAILED **. It
+  can hang after that (or after "Selected tests failed"): log to a file, poll, then `pkill -x xcodebuild`.
 - Never pass -derivedDataPath (see ~/.claude/CLAUDE.md).
 - Project file editing: the project uses classic groups, so new files must be registered. Helper:
   /private/tmp/bp-tools/add_to_xcodeproj.py with /private/tmp/bp-tools/venv/bin/python (pbxproj 4.2.1).
@@ -104,17 +99,17 @@ Device-only items collected during the build:
 - Late joiner: joins mid-book, gets the right position, hears the remaining pieces in order.
 - Listener copy deleted after End, after leaving, and after a crash/force-quit.
 Change C (addendum-a11y-guidance.md C and G), listener phone locked, VoiceOver on:
-- Lock screen reads chapter, book, position, buttons; skip buttons say 30 seconds even with a 15 s or
-  chapter-skip own setting; play, pause, skip, scrubber, AirPods double and triple press move the shared
-  book (not the own book); the other phone hears one announcement per action.
+- Lock screen reads chapter, book, position, buttons; skips say 30 seconds whatever the own setting (also
+  changed mid-session); play, pause, skip, scrubber, AirPods (30 s) move only the shared book.
 - While waiting for a piece the lock-screen time stops. After unlock and re-lock the shared book is still
   shown (PlayerManager must not overwrite it).
 - Discord voice channel + Messages-started session, both phones locked: stays in sync; 5+ minute pause then
   Play from the lock screen; Discord and BookPlayer audio together (Start Speaking had a conflict before).
-- Are announcements from the other phone spoken while locked? Is "Listen Together ended" spoken?
+- Are announcements from the other phone, and "Listen Together ended", spoken while locked? (Guide hedges.)
 - End while locked (from either phone): wake: Now Playing is the own book or empty, never the shared one;
   lock-screen Play and AirPods then control the own book.
 - FaceTime-based session: the guide's Magic Tap warning matches what happens.
+- First-share note read in full, OK starts sharing, Z works; the 15 s refresh does not re-read the scrubber.
 - A11y residuals: Magic Tap before the book arrives gives no audio; after the getting-book swap focus
   lands on the player heading once.
 Also from the a11y guidance (task-10-a11y-guidance.md section 7): the spoken percent changes only at
@@ -129,12 +124,11 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
 - If the sharer switches to a different book mid-session, listeners keep the old book (R12).
 - While sharing, closing the player hides the status banner and End (a11y review M-1).
 - A failed piece load is retried only when new pieces arrive (the very last piece may not retry).
-- A pre-existing test leaves file.txt in the simulator app's Documents (see gotchas).
 - If the sharer's app is killed while the FaceTime call continues, listeners are not stopped; they wait
   (review item I5, R32). Ending the call does end it.
 - Speed changes from anyone are applied to the sharer's own player, so the sharer's library saves that
   speed for the book. A listener's own library speed is not affected.
-- Sleep timer and CarPlay on a listener act on the listener's own library book, not the shared one.
+- Sleep timer and CarPlay chapter buttons on a listener act on the own book, not the shared one.
 - Change C: Pause pressed while the group waits for a piece does nothing (the listener is already not
   playing); a Discord or Siri interruption pauses the shared book for everyone (ListenerPlayer reports it).
 - The listener's speed picker shows no checkmark when the sharer uses a speed that is not one of its presets.
@@ -147,7 +141,6 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
    Notes.md.
 3. Fix whatever the device run finds (most likely: layout and focus details, piece transitions).
 4. Decide whether to push the branch to the fork and whether to offer it upstream.
-
 
 ## Decisions waiting on Becky
 - Push the branch to GitHub (origin, the fork)? Not pushed.

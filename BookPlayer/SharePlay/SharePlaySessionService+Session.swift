@@ -56,7 +56,6 @@ extension SharePlaySessionService {
       })
     self.manifest = manifest
     setState(.sharing(participants: participantCount))
-    sharingStarted()
     await send(.manifest(manifest), on: transport)
 
     for piece in plan.uploadOrder(startingAt: item.currentTime) {

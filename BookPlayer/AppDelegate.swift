@@ -115,7 +115,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
   override func accessibilityPerformMagicTap() -> Bool {
     // During a Listen Together listener session Magic Tap plays and pauses the shared book.
     if let status = ListenTogetherRemoteCommands.shared.handle(.togglePlayPause) {
-      return status == .success
+      // Joined, book not here yet: say so; the user's own book must not start.
+      if status != .success {
+        UIAccessibility.post(notification: .announcement, argument: "listen_together_not_available_now".localized)
+      }
+      return true
     }
     guard
       let playerManager = AppServices.shared.coreServices?.playerManager,
