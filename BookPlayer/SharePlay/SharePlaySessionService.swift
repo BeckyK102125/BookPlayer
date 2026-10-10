@@ -34,12 +34,17 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   @Published private(set) var listener: ListenerPlayer?
   /// The title of the share this device joined, from the invitation; shown until the manifest arrives.
   @Published private(set) var joinedTitle: String?
+  /// True when the sharer should see the one-time "listening only" note (first share on this device).
+  @Published private(set) var showsFirstShareNote = false
 
   // Collaborators. Internal (not private) so SharePlaySessionService+Session.swift can use them.
   let playerManager: PlayerManagerProtocol
   let storage: ShareStorage
   let announcer: ListenTogetherAnnouncer
   let transportFactory: @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
+  /// Remembers, per device, that the first-share note was seen.
+  let defaults: UserDefaults
+  static let firstShareNoteSeenKey = "listenTogetherFirstShareNoteSeen"
   /// Pause between upload attempts. Test seam.
   var uploadRetryDelay: Duration = .seconds(1)
 
@@ -83,6 +88,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     playerManager: PlayerManagerProtocol,
     storage: ShareStorage = ShareStorage(),
     announcer: ListenTogetherAnnouncer? = nil,
+    defaults: UserDefaults = .standard,
     transportFactory: @escaping @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
       = { GroupSessionTransport(session: $0, downloadFolder: $1) }
   ) {
@@ -91,6 +97,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     // Built here rather than as a default argument, which would run outside the main actor.
     self.announcer = announcer ?? ListenTogetherAnnouncer()
     self.transportFactory = transportFactory
+    self.defaults = defaults
   }
 
   var isInSession: Bool { role != nil }
@@ -170,6 +177,22 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       clearPendingShare()
       state = .idle
     }
+  }
+
+  // MARK: First-share note
+
+  /// Sharing has started: the first time on this device, the sharer is told that people who join can
+  /// only listen. Internal for tests and SharePlaySessionService+Session.swift.
+  func sharingStarted() {
+    guard !defaults.bool(forKey: Self.firstShareNoteSeenKey) else { return }
+    showsFirstShareNote = true
+  }
+
+  /// The note was read and dismissed: never shown again on this device.
+  func acknowledgeFirstShareNote() {
+    guard showsFirstShareNote else { return }
+    showsFirstShareNote = false
+    defaults.set(true, forKey: Self.firstShareNoteSeenKey)
   }
 
   /// True from `startSharing` until our session arrives or the share is cancelled.
@@ -262,6 +285,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     listener?.stop()
     listener = nil
     joinedTitle = nil
+    // Not seen before the session ended: shown at the next share instead.
+    showsFirstShareNote = false
     sharerTarget = nil
     self.transport = nil
     activeSession = nil

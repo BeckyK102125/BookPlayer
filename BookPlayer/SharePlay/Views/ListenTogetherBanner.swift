@@ -225,3 +225,41 @@ extension View {
     }
   }
 }
+
+/// The one-time "listening only" note for the sharer, the first time they share on this device. It
+/// waits a moment so it does not collide with the system sharing sheet closing; OK records it as seen.
+struct ListenTogetherFirstShareNoteAlert: ViewModifier {
+  @ObservedObject var service: SharePlaySessionService
+  @State private var isPresented = false
+
+  func body(content: Content) -> some View {
+    content
+      .onChange(of: service.showsFirstShareNote, initial: true) { _, shows in
+        guard shows else {
+          isPresented = false
+          return
+        }
+        Task {
+          try? await Task.sleep(for: .milliseconds(600))
+          if service.showsFirstShareNote { isPresented = true }
+        }
+      }
+      .alert("listen_together_first_share_title".localized, isPresented: $isPresented) {
+        Button("ok_button".localized, role: .cancel) { service.acknowledgeFirstShareNote() }
+      } message: {
+        Text("listen_together_first_share_message".localized)
+      }
+  }
+}
+
+extension View {
+  /// Adds the sharer's one-time "listening only" note when Listen Together is available.
+  @ViewBuilder
+  func listenTogetherFirstShareNote(_ service: SharePlaySessionService?) -> some View {
+    if let service {
+      modifier(ListenTogetherFirstShareNoteAlert(service: service))
+    } else {
+      self
+    }
+  }
+}

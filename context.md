@@ -13,45 +13,40 @@ in sync. Everything must work with VoiceOver.
 ## Branch and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork). upstream = github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream develop at eb19a92f. NOT pushed anywhere.
-- Only worktree. Last work: the final fix wave after the whole-branch review (this commit; parent
-  f2b926a3). No uncommitted work.
+- Branch `listen-together-lock-screen` (Change C of addendum 1), from develop at e634f5c7 (which holds
+  the whole Listen Together work plus the guide and addendum 1). Last work: Change C (this commit;
+  parent e634f5c7). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
 - Never committed (gitignored): BuildConfiguration/Debug.xcconfig. Local copy only.
 - BookPlayer/Player/PlayerManager.swift is untouched (git diff eb19a92f --stat on it prints nothing).
 
 ## What is built
 Everything lives in BookPlayer/SharePlay/ (views in SharePlay/Views/), tests in BookPlayerTests/SharePlay/.
-- Capability: the Group Activities entitlement (both entitlements files) and NSSupportsGroupActivities in
-  Info.plist.
-- Models and activity: the shared-book description (manifest of pieces and chapters), the messages the
-  two sides exchange, and the GroupActivity that shows the title in the FaceTime sheet.
-- Share storage: a temporary folder per share and role, cleaned when a session ends and at every launch.
-- Piece planner and book splitter: a book is cut at file or chapter boundaries into pieces under the
-  SharePlay size limit (90 MB planned, 100 MB hard check) without re-encoding. Upload order starts at the
-  sharer's current position so the listener can start early.
-- Piece timeline: maps book time to the pieces received so far and says which piece is needed next.
-- Sharer playback target: watches the sharer's own player through its protocol and turns play, pause,
-  seek and speed into events. Detects manual seeks and ignores echoes of remote commands.
-- Listener player: the listener's own AVPlayer over the downloaded pieces. Handles gaps (holds everyone
-  until the piece arrives), piece changes, speed, audio session, route changes (headphone unplug).
-- Coordinator bridge: connects both sides to AVDelegatingPlaybackCoordinator so play, pause, seek and
-  rate stay in step; honours the buffering flag.
-- Session service and transport: the state machine (idle, preparing, sharing, invitation, listening,
-  ended), start, join, decline, end, late joiners, cancelled shares, error handling, and the queued
-  VoiceOver announcements (joined, left, skipped, speed, invitation, ended).
-- Interface: a "Listen Together" item in the More menu, a status banner with End in the player, an
-  invitation sheet, the listener screen (title, banner, 30 s position slider, play/pause, chapters,
-  speed, End) and the needs-FaceTime alert. MainCoordinator presents the invitation from the topmost
-  view controller so open sheets cannot drop it (R28, R29); MainView sends Magic Tap to the listener (R19).
-- 44 listen_together_* strings in every *.lproj (R16), English text in all of them.
+Group Activities entitlement and NSSupportsGroupActivities; manifest, messages and GroupActivity; per-share
+temporary storage (cleaned at end and at launch); piece planner and splitter (no re-encoding, under 90 MB);
+piece timeline; sharer playback target over PlayerManagerProtocol; listener AVPlayer over the pieces;
+coordinator bridge (AVDelegatingPlaybackCoordinator); session service state machine and announcements;
+UI: More-menu item, banner with End, invitation sheet (presented by MainCoordinator from the topmost
+screen), listener screen with a "getting the book" state, needs-FaceTime alert; Magic Tap to the listener.
 
-## Most recent work: final fix wave (2026-10-10, R31, R32)
-- C1: the sharer proposes its real time and rate to the coordinator (CMTimebase snapshot); listeners
-  propose nothing. I1: piece seams within 1e-6 s resolve to the next piece; the listener advances to the
-  next piece by index. I2 (R31): listener actions are reported before they are applied. I3: a speed
-  change made while paused is applied silently on the other devices. I4: removeDuplicates before
-  dropFirst in the sharer target. Plus: "0 seconds" in the position value, invitations ignored while
-  preparing, and the listener screen shown from Join with a "getting the book" state (title, status, End).
-- Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/final-fix-report.md
+## Most recent work: addendum 1 Change C (2026-10-10)
+- ListenTogetherRemoteCommands (SharePlay/): the AppDelegate remote-command handlers (toggle, play, pause,
+  skip fwd/back, next/previous track, seek end, change position) and AppDelegate Magic Tap ask it first.
+  During a listener session (state .listening) they go to ListenerPlayer's user* methods; before the book
+  details arrive they return .noActionableNowPlayingItem; otherwise PlayerManager runs as before. No new
+  addTarget. Skip 30 s; next/previous = chapter (restart-current under 3 s rule), ±30 s without chapters;
+  position events coalesced 0.3 s. Skip preferredIntervals [30] + enabled, position command enabled while
+  listening; previous values restored after.
+- ListenTogetherNowPlaying: pure builder (chapter / book / author, book-level times, rate 0 while paused or
+  waiting for a piece, playbackState) and a publisher that publishes only on real changes plus every 15 s
+  while playing, and again on didBecomeActive. At the end Now Playing is handed back by calling
+  playerManager.pause() on the paused own book (re-publishes its info); with no own book it is cleared.
+- Listening-only wording: a sentence added to the invitation; a one-time note for the sharer on the first
+  share on the device (UserDefaults key listenTogetherFirstShareNoteSeen). 47 listen_together_* strings.
+- Guide: new "With the screen locked" section; the lock-screen known limitation removed.
+- Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/change-c-report.md
+
+## Earlier work
+Final fix wave (R31, R32) and a11y residuals: see Notes.md and final-fix-report.md.
 
 ## Test evidence (2026-10-10)
 - Full unit run: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer
@@ -108,14 +103,26 @@ Device-only items collected during the build:
 - Headphone unplug on the sharer side, and on the listener side: both pause, the other side is told.
 - Late joiner: joins mid-book, gets the right position, hears the remaining pieces in order.
 - Listener copy deleted after End, after leaving, and after a crash/force-quit.
+Change C (addendum-a11y-guidance.md C and G), listener phone locked, VoiceOver on:
+- Lock screen reads chapter, book, position, buttons; skip buttons say 30 seconds even with a 15 s or
+  chapter-skip own setting; play, pause, skip, scrubber, AirPods double and triple press move the shared
+  book (not the own book); the other phone hears one announcement per action.
+- While waiting for a piece the lock-screen time stops. After unlock and re-lock the shared book is still
+  shown (PlayerManager must not overwrite it).
+- Discord voice channel + Messages-started session, both phones locked: stays in sync; 5+ minute pause then
+  Play from the lock screen; Discord and BookPlayer audio together (Start Speaking had a conflict before).
+- Are announcements from the other phone spoken while locked? Is "Listen Together ended" spoken?
+- End while locked (from either phone): wake: Now Playing is the own book or empty, never the shared one;
+  lock-screen Play and AirPods then control the own book.
+- FaceTime-based session: the guide's Magic Tap warning matches what happens.
+- A11y residuals: Magic Tap before the book arrives gives no audio; after the getting-book swap focus
+  lands on the player heading once.
 Also from the a11y guidance (task-10-a11y-guidance.md section 7): the spoken percent changes only at
 0/25/50/75; the position slider moves 30 s per swipe, the other side hears "skipped" once; Chapters sheet
 focus; Z gesture does nothing on the listener screen; the largest Dynamic Type in portrait and landscape;
 Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Keyboard Access.
 
 ## Known limitations
-- Lock-screen and AirPods play/pause still control the user's own library player during a listener
-  session, not the shared book (R26, out of scope this version).
 - Streamed books (AudiobookShelf, Jellyfin, cloud) and video cannot be shared. They are hidden or refused.
 - The sharer's exported pieces take about the book's size in tmp until the session ends.
 - End asks for confirmation (except while preparing). Becky to decide if it stays.
@@ -127,22 +134,20 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
   (review item I5, R32). Ending the call does end it.
 - Speed changes from anyone are applied to the sharer's own player, so the sharer's library saves that
   speed for the book. A listener's own library speed is not affected.
-- Sleep timer, CarPlay and the lock screen on a listener act on the listener's own library book, not the
-  shared one (R26 family).
+- Sleep timer and CarPlay on a listener act on the listener's own library book, not the shared one.
+- Change C: Pause pressed while the group waits for a piece does nothing (the listener is already not
+  playing); a Discord or Siri interruption pauses the shared book for everyone (ListenerPlayer reports it).
 - The listener's speed picker shows no checkmark when the sharer uses a speed that is not one of its presets.
 - Other deferred minor items are listed in the ledger (progress.md) under each task.
 
 ## Open problems and next steps (in order)
+0. Review and merge `listen-together-lock-screen`; Changes A and B of addendum 1 are still to do.
 1. Becky decides the three questions below.
 2. Set up signing for two devices, install, run the acceptance lists above, record results here and in
    Notes.md.
 3. Fix whatever the device run finds (most likely: layout and focus details, piece transitions).
 4. Decide whether to push the branch to the fork and whether to offer it upstream.
 
-## A11y residuals (2026-10-10)
-Magic Tap during getting-book and the getting-book to player focus delay are fixed (Notes.md, 2026-10-10).
-On device, verify: Magic Tap before the book arrives gives no audio; after the swap focus lands on the
-player heading once, from title, status and End.
 
 ## Decisions waiting on Becky
 - Push the branch to GitHub (origin, the fork)? Not pushed.

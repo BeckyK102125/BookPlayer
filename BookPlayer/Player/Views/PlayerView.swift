@@ -162,6 +162,7 @@ struct PlayerView: View {
     .buttonStyle(.plain)
     .bpAlert($viewModel.currentAlert)
     .listenTogetherNeedsFaceTimeAlert(viewModel.sharePlayService)
+    .listenTogetherFirstShareNote(viewModel.sharePlayService)
     .alert(
         "bookmark_note_action_title",
         isPresented: Binding(

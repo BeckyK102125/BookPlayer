@@ -94,6 +94,8 @@ class MainCoordinator: NSObject {
     // No Listen Together session survives a relaunch: remove leftover files before watching for sessions.
     ShareStorage().cleanAll()
     sharePlayService.startObservingSessions()
+    // Lock screen, Control Center and AirPods control the shared book during a listener session.
+    ListenTogetherRemoteCommands.shared.attach(to: sharePlayService)
     bindListenTogether()
 
     accountService.loginIfUserExists(delegate: self)

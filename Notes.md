@@ -302,3 +302,42 @@ Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/final-fix-report.m
   explanation, status, End). Item 5: spinner/message use a VStack at accessibility Dynamic Type sizes.
 - Evidence: focused SharePlayMenuTests 15 tests, 0 failures; full suite "Executed 669 tests, with 0 failures",
   ** TEST SUCCEEDED **. Not device-tested (VoiceOver swap focus on title/status/End still needs hardware).
+
+## 2026-10-10 - listen-together-lock-screen - addendum 1 Change C (lock screen, Control Center, AirPods)
+Branch listen-together-lock-screen from develop e634f5c7. Spec: addendum-1 Change C; binding guidance:
+addendum-a11y-guidance.md section C.
+- New BookPlayer/SharePlay/ListenTogetherRemoteCommands.swift: @MainActor router (static shared, weak
+  service, attached in MainCoordinator.init after startObservingSessions). Every existing AppDelegate
+  handler (toggle, play, pause, skip fwd/back, next/previous track, seek fwd/back endSeeking, change
+  position) and accessibilityPerformMagicTap ask `handle(_:)` first. No addTarget added (still 10).
+  Gate: service.state == .listening. Listener nil -> .noActionableNowPlayingItem (guidance C2; never
+  .success for nothing, never PlayerManager). play/pause idempotent. Skip ±30. next/previous track ->
+  next chapter start / current chapter start (or previous chapter within 3 s, same rule as PlayerManager);
+  no chapters or no next chapter -> ±30 (brief said chapters; guidance said ±30 - brief followed, flagged).
+  changePosition uses book time (no chapter offset) and is coalesced 0.3 s via an injectable scheduler.
+- Skip preferredIntervals [30] + enabled and changePlaybackPosition enabled on entering .listening;
+  previous values snapshotted and restored on leaving (ListenTogetherCommandSettings seam).
+- New ListenTogetherNowPlaying.swift: pure builder (title = chapter or book, artist = book or author,
+  album = author, chapter number/count, duration, elapsed in book time, rate 0 while paused or waiting
+  for a piece, default rate 1, media type audio, no artwork) + playbackState; shouldPublish() publishes on
+  play/pause/wait, rate, chapter, position jumps > 1.5 s (any change when paused) and every 15 s while
+  playing; republish on didBecomeActive with fresh values. Before the manifest: the invitation title, paused.
+- ListenerPlayer: @Published isWaitingForPiece (didSet of waitingPieceIndex).
+- Hand-back: PlayerManagerProtocol exposes no Now Playing call; pause() re-publishes the paused own book's
+  stored info (rate 0, .paused) and is called only when an own book is loaded and not playing. No own book:
+  nowPlayingInfo nil, .stopped. PlayerManager.swift untouched.
+- Wording: listen_together_invitation_listen_only appended to the invitation message; one-time sharer
+  alert (listen_together_first_share_title / _message) on PlayerView, shown 600 ms after the first
+  .sharing on the device, remembered on OK (UserDefaults.standard listenTogetherFirstShareNoteSeen, injected
+  `defaults`); a note not acknowledged before the session ends shows next time. 3 strings in Base + 26 lproj.
+- Guide: "With the screen locked" section, invitation/first-share wording, lock-screen limitation removed,
+  Magic Tap warnings kept.
+- Tests: ListenTogetherRemoteCommandsTests (17), ListenTogetherNowPlayingTests (6),
+  ListenTogetherFirstShareNoteTests (2). Timing-free (fixed clock, hand-run scheduler).
+  RED (mutation: router gate removed, waiting ignored in isActuallyPlaying, defaults check removed):
+  25 tests, 46 failures in 5 tests. GREEN focused: 25 tests, 0 failures, ** TEST SUCCEEDED **.
+- Process slip: rm /private/tmp/bp-tools/*.bak also deleted an older LP.bak left by an earlier task
+  (not tracked by git; ListenerPlayer.swift in git is intact).
+- Not device-tested. Open: announcements while locked may be silent (guidance C3 VERIFY); pause during a
+  piece wait does nothing; interruption pauses the group (guidance D3).
+Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/change-c-report.md

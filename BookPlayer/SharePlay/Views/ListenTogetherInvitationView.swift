@@ -19,10 +19,12 @@ struct ListenTogetherInvitationView: View {
     case heading
   }
 
+  /// One paragraph: who is sharing what, then that joining gives no copy of the book.
   private var message: String {
-    author.isEmpty
+    let invitation = author.isEmpty
       ? String.localizedStringWithFormat("listen_together_invitation_message_no_author".localized, title)
       : String.localizedStringWithFormat("listen_together_invitation_message".localized, title, author)
+    return invitation + " " + "listen_together_invitation_listen_only".localized
   }
 
   var body: some View {

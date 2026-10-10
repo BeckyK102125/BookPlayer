@@ -63,6 +63,10 @@ If you are not on a FaceTime call, BookPlayer tells you to start one first. Noth
 
 Your own book is paused when you join.
 
+The invitation also says: "You can listen only during this session. The book is not saved on your iPhone."
+
+The first time you share a book, BookPlayer shows a short note: "People who join can listen only during the session. They don't get a copy." Choose **OK**. It is not shown again on that iPhone.
+
 ## During the session
 
 Anyone can control playback, and it changes for everyone:
@@ -84,6 +88,23 @@ Your own actions are not announced back to you.
 
 If a listener's next part of the book has not finished downloading, everyone waits until it arrives. The listener hears "Waiting for the book to download". Download progress is announced at 25, 50, 75 and 100 percent.
 
+## With the screen locked
+
+While you are listening to someone else's book, the lock screen, Control Center, AirPods and headset buttons control the shared book, and everyone hears the change:
+
+- **Play** and **Pause** play and pause the shared book.
+- **Skip forward** and **Skip back** move 30 seconds. VoiceOver reads them as 30 second skips, whatever your own skip setting is.
+- **Next** and **Previous** (for example an AirPods double or triple press) move to the next chapter, or back to the start of the chapter. Pressed again near the start of a chapter, Previous goes to the chapter before. If the book has no chapters, they move 30 seconds.
+- The **position control** moves through the whole book. The time VoiceOver reads is the time in the whole book, so it can be several hours.
+
+The lock screen shows the shared book: the chapter title, then the book title and author, the time in the book and the whole book's length. It shows the book as paused while you wait for the next part of the book to download.
+
+Before you lock the phone, wait until you hear the book playing.
+
+If you hear silence after a call or Siri interrupted the book, press Play on the lock screen.
+
+When the session ends, the lock screen, Control Center and AirPods control your own book again. Pressing Play then starts your own book.
+
 ## End the session
 
 - Choose **End Listen Together** in the status line. BookPlayer asks you to confirm.
@@ -99,7 +120,6 @@ The listeners' copy of the book is temporary. It is deleted when the session end
 - **Streamed books cannot be shared.** Download them first. See "Before you start".
 - Listen Together works during a FaceTime call. Starting it from Messages is not available yet. Discord and other calling apps cannot carry SharePlay.
 - During the FaceTime call, Magic Tap ends the call instead of pausing. Use the Play or Pause button on the screen.
-- While you are listening to someone else's book, AirPods, lock screen and Control Center play and pause controls still control your own book, not the shared one. Use the controls on the Listen Together screen.
 - The sleep timer and CarPlay control your own book, not the shared one.
 - If the person sharing leaves the call but the call continues, listeners may keep waiting. Ending the session or the call stops it for everyone.
 - Speeds other than 0.75, 1, 1.25, 1.5, 1.75 and 2 times are not shown in the speed list.

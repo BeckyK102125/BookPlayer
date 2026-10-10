@@ -19,7 +19,11 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   private nonisolated(unsafe) var timeObserver: Any?
   private var loadedPieceIndex: Int?
   /// The piece we are currently waiting for; cleared when it arrives or another piece loads.
-  private var waitingPieceIndex: Int?
+  private var waitingPieceIndex: Int? {
+    didSet { if isWaitingForPiece != (waitingPieceIndex != nil) { isWaitingForPiece = waitingPieceIndex != nil } }
+  }
+  /// True while playback is held for a piece that has not arrived. The lock screen shows paused then.
+  @Published private(set) var isWaitingForPiece = false
   private var sessionConfigured = false
   /// True from issuing a seek until its completion handler runs; periodic ticks in between are stale.
   private var isSeeking = false

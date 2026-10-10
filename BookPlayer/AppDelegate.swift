@@ -113,6 +113,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
   }
 
   override func accessibilityPerformMagicTap() -> Bool {
+    // During a Listen Together listener session Magic Tap plays and pauses the shared book.
+    if let status = ListenTogetherRemoteCommands.shared.handle(.togglePlayPause) {
+      return status == .success
+    }
     guard
       let playerManager = AppServices.shared.coreServices?.playerManager,
       playerManager.currentItem != nil
@@ -142,6 +146,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
     // Play / Pause
     center.togglePlayPauseCommand.isEnabled = true
     center.togglePlayPauseCommand.addTarget { (_) -> MPRemoteCommandHandlerStatus in
+      if let status = ListenTogetherRemoteCommands.shared.handle(.togglePlayPause) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else {
         return .commandFailed
       }
@@ -159,6 +164,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
 
     center.playCommand.isEnabled = true
     center.playCommand.addTarget { (_) -> MPRemoteCommandHandlerStatus in
+      if let status = ListenTogetherRemoteCommands.shared.handle(.play) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else {
         return .commandFailed
       }
@@ -176,6 +182,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
 
     center.pauseCommand.isEnabled = true
     center.pauseCommand.addTarget { (_) -> MPRemoteCommandHandlerStatus in
+      if let status = ListenTogetherRemoteCommands.shared.handle(.pause) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else {
         return .commandFailed
       }
@@ -198,6 +205,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
       forKey: Constants.UserDefaults.seekProgressBarEnabled
     )
     center.changePlaybackPositionCommand.addTarget { remoteEvent in
+      // Listen Together: book time, without the chapter offset added below.
+      if ListenTogetherRemoteCommands.shared.isRouting {
+        guard let event = remoteEvent as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+        return ListenTogetherRemoteCommands.shared.handle(.changePosition(event.positionTime)) ?? .commandFailed
+      }
       guard
         let playerManager = AppServices.shared.coreServices?.playerManager,
         let currentItem = playerManager.currentItem,
@@ -228,6 +240,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
       center.skipForwardCommand.preferredIntervals = [NSNumber(value: PlayerManager.forwardInterval)]
     }
     center.skipForwardCommand.addTarget { (_) -> MPRemoteCommandHandlerStatus in
+      if let status = ListenTogetherRemoteCommands.shared.handle(.skipForward) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else { return .commandFailed }
 
       playerManager.forward()
@@ -235,6 +248,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
     }
 
     center.nextTrackCommand.addTarget { (_) -> MPRemoteCommandHandlerStatus in
+      if let status = ListenTogetherRemoteCommands.shared.handle(.nextTrack) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else { return .commandFailed }
 
       playerManager.forward()
@@ -248,6 +262,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
         return .success
       }
 
+      if let status = ListenTogetherRemoteCommands.shared.handle(.skipForward) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else { return .success }
 
       // End seeking
@@ -262,6 +277,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
       center.skipBackwardCommand.preferredIntervals = [NSNumber(value: PlayerManager.rewindInterval)]
     }
     center.skipBackwardCommand.addTarget { (_) -> MPRemoteCommandHandlerStatus in
+      if let status = ListenTogetherRemoteCommands.shared.handle(.skipBackward) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else { return .commandFailed }
 
       playerManager.rewind()
@@ -269,6 +285,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
     }
 
     center.previousTrackCommand.addTarget { (_) -> MPRemoteCommandHandlerStatus in
+      if let status = ListenTogetherRemoteCommands.shared.handle(.previousTrack) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else { return .commandFailed }
 
       playerManager.rewind()
@@ -283,6 +300,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
         return .success
       }
 
+      if let status = ListenTogetherRemoteCommands.shared.handle(.skipBackward) { return status }
       guard let playerManager = AppServices.shared.coreServices?.playerManager else { return .success }
 
       // End seeking
