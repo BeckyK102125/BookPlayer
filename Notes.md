@@ -147,3 +147,15 @@ No -derivedDataPath used. No pre-existing failures.
 - ListenTogetherStatus moved to its own file (banner under 250 lines).
 - Tests: 4 added (invitation announcement, guarded decline, contrast, normal speed). SharePlay tests
   23/0; full suite 650/0. App boots in the simulator.
+
+## 2026-10-10 - Task 10 fix round 2 (branch shareplay-listen-together, parent 633d76fa)
+- R29: if a screen beneath the invitation is closed in code, UIKit takes the invitation down without
+  presentationControllerDidDismiss. ListenTogetherInvitationHostingController reports viewDidDisappear
+  (when no longer presented); the coordinator re-presents it on the next main-loop turn from the topmost
+  non-dismissing controller if the state is still .invitation and the user did not answer
+  (shouldRepresentInvitation(answered:state:)), and declines if there is no window to present in.
+  The swipe-away decline now matches the presented controller by type (viewDidDisappear runs first and
+  clears the weak reference).
+- Join only calls mainController.dismiss when something is presented. Invitation view doc comment updated.
+- Tests: 1 added. SharePlay tests 24/0; full suite 651/0. One full run printed an early
+  "BookPlayerTests.xctest passed, 512 tests" summary; rerun waiting for ** TEST SUCCEEDED ** gave 651.

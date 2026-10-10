@@ -11,7 +11,7 @@ docs/superpowers/plans/ (the SharePlay Listen Together implementation plan).
 - origin: github.com/BeckyK102125/BookPlayer (Becky's fork). Nothing pushed yet.
 - upstream: github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream `develop` at eb19a92f. Only worktree.
-- Head: Task 10 fix round 1 ("this commit"), parent fb25638b. Clean after it.
+- Head: Task 10 fix round 2 ("this commit"), parent 633d76fa. Clean after it.
 - Local only, not committed: BuildConfiguration/Debug.xcconfig (gitignored).
 
 ## Done so far
@@ -21,7 +21,7 @@ docs/superpowers/plans/ (the SharePlay Listen Together implementation plan).
   MainCoordinator/MainView. Views live in BookPlayer/SharePlay/Views/.
 
 ## Verification
-- Full unit suite (Unit Tests plan, -only-testing:BookPlayerTests): 650 tests, 0 failures.
+- Full unit suite (Unit Tests plan, -only-testing:BookPlayerTests): 651 tests, 0 failures.
 - App launches in the simulator to the library. SharePlay itself can't run in the simulator.
 - Destination: iPhone 17 simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C.
 - Helper for registering new files: /private/tmp/bp-tools/add_to_xcodeproj.py (may be removed by the

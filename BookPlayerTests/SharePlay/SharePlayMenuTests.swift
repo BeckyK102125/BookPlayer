@@ -184,4 +184,15 @@ final class SharePlayMenuTests: XCTestCase {
       "listen_together_remote_speed_normal".localized)
     XCTAssertFalse(ListenTogetherAnnouncements.text(for: .speedChanged(rate: 1)).contains("1 times"))
   }
+
+  // MARK: Fix round 2
+
+  func testInvitationTakenDownWithoutAnswerIsShownAgain() {
+    let invitation = ListenTogetherState.invitation(title: "T", author: "A")
+    XCTAssertTrue(MainCoordinator.shouldRepresentInvitation(answered: false, state: invitation))
+    XCTAssertFalse(MainCoordinator.shouldRepresentInvitation(answered: true, state: invitation))
+    XCTAssertFalse(MainCoordinator.shouldRepresentInvitation(answered: false, state: .idle))
+    XCTAssertFalse(
+      MainCoordinator.shouldRepresentInvitation(answered: false, state: .listening(participants: 2, downloaded: 0)))
+  }
 }

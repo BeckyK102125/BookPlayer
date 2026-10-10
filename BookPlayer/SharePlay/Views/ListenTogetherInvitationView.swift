@@ -1,9 +1,10 @@
 import BookPlayerKit
 import SwiftUI
 
-/// Asks whether to join someone's Listen Together share. Presented as a sheet from MainView.
-/// VoiceOver order: heading, message, Join, Not Now. Swiping the sheet away or two-finger Z
-/// counts as Not Now (the presenter's binding declines).
+/// Asks whether to join someone's Listen Together share. Presented by MainCoordinator in a UIKit
+/// sheet from the topmost screen (MainCoordinator+ListenTogether.swift).
+/// VoiceOver order: heading, message, Join, Not Now. Two-finger Z calls `onDecline`; swiping the
+/// sheet away declines through the coordinator's presentation-controller delegate.
 struct ListenTogetherInvitationView: View {
   let title: String
   let author: String
