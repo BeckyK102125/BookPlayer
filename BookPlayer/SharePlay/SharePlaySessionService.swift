@@ -71,6 +71,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private var pendingShareID: UUID?
   private var pendingItem: PlayableItem?
   private var pendingInvitation: GroupSession<ListenTogetherActivity>?
+  /// Shares cancelled while preparing. If `activate()` was already in flight, their session can
+  /// still arrive; it is left, never offered as an invitation. Each id is removed once seen.
+  private var cancelledShareIDs = Set<UUID>()
   private var invitationBag = Set<AnyCancellable>()
   private var endedGeneration = 0
 
@@ -196,7 +199,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Ends Listen Together for this device. The sharer also tells everyone else it is over.
   func end() {
     if isPreparing, !isInSession {
-      // Cancel: a session that arrives later is not started.
+      // Cancel: a session that arrives later is left, not started or offered.
+      if let pendingShareID { cancelledShareIDs.insert(pendingShareID) }
       clearPendingShare()
       state = .idle
       return
@@ -257,29 +261,57 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   // MARK: Private
 
+  enum IncomingSessionDecision: Equatable {
+    /// The share this device is preparing.
+    case ownShare
+    /// A share this device cancelled while preparing: leave it.
+    case cancelledShare
+    /// Someone else's share: offer it.
+    case invitation
+    /// Already in a session or offering one: ignore.
+    case busy
+  }
+
+  /// What to do with a session that arrives. Removes a matched cancelled id. Test seam.
+  func decision(forIncoming shareID: UUID) -> IncomingSessionDecision {
+    if cancelledShareIDs.remove(shareID) != nil { return .cancelledShare }
+    if shareID == pendingShareID, pendingItem != nil { return .ownShare }
+    return isInSession || pendingInvitation != nil ? .busy : .invitation
+  }
+
   private func received(_ session: GroupSession<ListenTogetherActivity>) {
-    if let pendingShareID, session.activity.shareID == pendingShareID, let item = pendingItem {
-      // Our own session: start sharing.
-      clearPendingShare()
-      let folder: URL
-      do {
-        folder = try storage.folder(for: pendingShareID, role: .sharer)
-      } catch {
-        Self.logger.error("Listen Together: could not create the share folder: \(error.localizedDescription)")
-        session.leave()
-        state = .ended(reason: .unavailable)
-        scheduleReturnToIdle()
-        return
-      }
-      let transport = transportFactory(session, folder)
-      activeSession = session
-      session.join()
-      Task { await self.beginSharing(with: transport, item: item, shareID: pendingShareID) }
+    switch decision(forIncoming: session.activity.shareID) {
+    case .cancelledShare:
+      session.leave()
+      return
+    case .busy:
+      return
+    case .invitation:
+      offerInvitation(session)
+      return
+    case .ownShare:
+      break
+    }
+    // Our own session: start sharing.
+    guard let pendingShareID, let item = pendingItem else { return }
+    clearPendingShare()
+    let folder: URL
+    do {
+      folder = try storage.folder(for: pendingShareID, role: .sharer)
+    } catch {
+      Self.logger.error("Listen Together: could not create the share folder: \(error.localizedDescription)")
+      session.leave()
+      state = .ended(reason: .unavailable)
+      scheduleReturnToIdle()
       return
     }
+    let transport = transportFactory(session, folder)
+    activeSession = session
+    session.join()
+    Task { await self.beginSharing(with: transport, item: item, shareID: pendingShareID) }
+  }
 
-    // Someone else's session. Ignore new invitations while one is already active or offered.
-    guard !isInSession, pendingInvitation == nil else { return }
+  private func offerInvitation(_ session: GroupSession<ListenTogetherActivity>) {
     pendingInvitation = session
     state = .invitation(title: session.activity.title, author: session.activity.author)
     // If the session goes away before the user answers, drop the invitation.

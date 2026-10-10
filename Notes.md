@@ -94,3 +94,11 @@ No -derivedDataPath used. No pre-existing failures.
 - Tests: 3 added (baseline, zero ignored, end while preparing). Focused 10/0; full suite 637/0.
 - Runner pitfall: in the full suite, "Test Suite 'Selected tests' passed" can appear before the
   run is really over (495 tests); wait for "** TEST SUCCEEDED/FAILED **" instead.
+
+## 2026-10-10 - Task 9 fix round 2 (branch shareplay-listen-together)
+- A share cancelled while preparing could still deliver its session (activate() in flight) and
+  was offered back to the user as an invitation. Cancelled share ids are now remembered and such
+  a session is left. Incoming sessions are classified by decision(forIncoming:) (ownShare,
+  cancelledShare, invitation, busy). The set is not cleared when a new share starts (that would
+  bring the bug back); each id is removed when its session arrives.
+- Tests: 2 added. Focused 12/0; full suite 639/0.

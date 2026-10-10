@@ -186,4 +186,23 @@ final class SharePlaySessionServiceTests: XCTestCase {
     XCTAssertEqual(posted, [])
     XCTAssertNotNil(service.beginPreparing(item), "a new share can start after cancelling")
   }
+
+  func testSessionOfCancelledShareIsLeftNotOffered() throws {
+    let service = makeService()
+    let item = try makeSharedItem()
+    let cancelled = try XCTUnwrap(service.beginPreparing(item))
+    service.end()
+
+    XCTAssertEqual(service.decision(forIncoming: cancelled), .cancelledShare)
+    XCTAssertEqual(service.state, .idle)
+    XCTAssertEqual(service.decision(forIncoming: UUID()), .invitation, "other people's shares are still offered")
+  }
+
+  func testIncomingSessionDecisions() throws {
+    let service = makeService()
+    let item = try makeSharedItem()
+    let pending = try XCTUnwrap(service.beginPreparing(item))
+    XCTAssertEqual(service.decision(forIncoming: pending), .ownShare)
+    XCTAssertEqual(service.decision(forIncoming: UUID()), .invitation)
+  }
 }
