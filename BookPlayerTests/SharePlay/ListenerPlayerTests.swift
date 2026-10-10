@@ -1,4 +1,5 @@
 @testable import BookPlayer
+import AVFoundation
 import Combine
 import XCTest
 
@@ -97,13 +98,15 @@ final class ListenerPlayerTests: XCTestCase {
     player.pieceArrived(index: 0, url: try makePiece(0))
 
     player.applyPlay(at: 2, rate: 1)
+    XCTAssertEqual(player.bookTime, 2, accuracy: 0.001)   // the stale value
+    player.itemTimeProvider = { CMTime(seconds: 7, preferredTimescale: 600) }
     player.userTogglePlay()
 
     XCTAssertFalse(player.isPlaying)
     XCTAssertEqual(events.count, 1)
     guard case let .paused(at) = events[0] else { return XCTFail("expected paused") }
-    XCTAssertEqual(at, player.bookTime, accuracy: 0.0001)
-    XCTAssertEqual(at, 2, accuracy: 1.0)
+    XCTAssertEqual(at, 7, accuracy: 0.01)
+    XCTAssertEqual(player.bookTime, 7, accuracy: 0.01)
     player.stop()
   }
 

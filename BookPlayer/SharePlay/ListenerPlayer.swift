@@ -23,6 +23,8 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   private var sessionConfigured = false
   /// True from issuing a seek until its completion handler runs; periodic ticks in between are stale.
   private var isSeeking = false
+  /// Test seam: overrides the player's item time when computing the real position.
+  var itemTimeProvider: (() -> CMTime)?
   private var seekGeneration = 0
   private let subject = PassthroughSubject<LocalPlaybackEvent, Never>()
   private var disposeBag = Set<AnyCancellable>()
@@ -218,7 +220,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     guard player.currentItem != nil, let index = loadedPieceIndex,
       let piece = timeline.pieces.first(where: { $0.index == index })
     else { return bookTime }
-    let time = player.currentTime()
+    let time = itemTimeProvider?() ?? player.currentTime()
     guard time.isNumeric else { return bookTime }
     return piece.bookStart + time.seconds
   }
