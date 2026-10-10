@@ -48,7 +48,7 @@ People listening do not need their own copy of the book.
 1. Start a FaceTime call with the people you want to listen with.
 2. Open BookPlayer and open the book you want to share.
 3. In the player, choose **More**, then **Listen Together**.
-4. The first time you share on this iPhone, a note says "People who join can only listen. They do not get a copy of the book. What they download is deleted when the session ends." Choose **OK** to continue. The note is not shown again on that iPhone.
+4. The first time you share on this iPhone, a note says "People who join can only listen. They do not get a copy of the book. What they download is deleted when the session ends." Choose **Share** to continue. Choose **Cancel**, or use the two-finger scrub, to stop without sharing; the note then appears again next time. After you choose Share, the note is not shown again on that iPhone.
 5. BookPlayer prepares the book and invites everyone on the call. You hear "Preparing" while this happens.
 6. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing".
 
