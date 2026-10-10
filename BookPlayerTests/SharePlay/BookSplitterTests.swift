@@ -61,8 +61,8 @@ final class BookSplitterTests: XCTestCase {
       let relative = "BookSplitterTests-\(UUID())-\(name)"
       let url = DataManager.getProcessedFolderURL().appendingPathComponent(relative)
       if create {
-        try AudioFixture.makeM4A(seconds: 2, at: url)
         processedFiles.append(url)
+        try AudioFixture.makeM4A(seconds: 2, at: url)
       }
       chapters.append(PlayableChapter(
         title: "c\(i)", author: "a", start: Double(i) * 2, duration: 2,
@@ -90,6 +90,103 @@ final class BookSplitterTests: XCTestCase {
     XCTAssertFalse(BookSplitter.isShareable(item))
     XCTAssertThrowsError(try BookSplitter().sourceFiles(for: item)) {
       XCTAssertEqual($0 as? BookSplitterError, .noLocalFile)
+    }
+  }
+
+  // MARK: - sourceFiles layouts
+
+  private typealias ChapterSpec = (file: String, start: Double, duration: Double, offset: Double)
+
+  private func makeItem(specs: [ChapterSpec]) throws -> PlayableItem {
+    let prefix = "BookSplitterTests-\(UUID())-"
+    var created = Set<String>()
+    var chapters: [PlayableChapter] = []
+    for (i, spec) in specs.enumerated() {
+      let relative = prefix + spec.file
+      if created.insert(relative).inserted {
+        let url = DataManager.getProcessedFolderURL().appendingPathComponent(relative)
+        processedFiles.append(url)
+        try AudioFixture.makeM4A(seconds: 1, at: url)
+      }
+      chapters.append(PlayableChapter(
+        title: "c\(i)", author: "a", start: spec.start, duration: spec.duration,
+        relativePath: relative, remoteURL: nil, index: Int16(i + 1), chapterOffset: spec.offset))
+    }
+    return PlayableItem(
+      title: "t", author: "a", chapters: chapters, currentTime: 0,
+      duration: chapters.last.map(\.end) ?? 0, relativePath: chapters[0].relativePath,
+      uuid: UUID().uuidString, parentFolder: nil, percentCompleted: 0, lastPlayDate: nil,
+      isFinished: false, isBoundBook: false)
+  }
+
+  func testSingleFileWithSharedChaptersYieldsOneSourceFile() throws {
+    let item = try makeItem(specs: [
+      ("one.m4a", 100, 5, 0), ("one.m4a", 105, 7, 5), ("one.m4a", 112, 18, 12),
+    ])
+    let files = try BookSplitter().sourceFiles(for: item)
+    XCTAssertEqual(files.count, 1)
+    XCTAssertEqual(files[0].bookStart, 100)
+    XCTAssertEqual(files[0].duration, 30)
+  }
+
+  func testMixedLayoutYieldsFilesInBookOrder() throws {
+    let item = try makeItem(specs: [
+      ("a.m4a", 50, 10, 0), ("a.m4a", 60, 15, 10), ("b.m4a", 75, 25, 0),
+    ])
+    let files = try BookSplitter().sourceFiles(for: item)
+    XCTAssertEqual(files.count, 2)
+    XCTAssertEqual(files[0].bookStart, 50)
+    XCTAssertEqual(files[0].duration, 25)
+    XCTAssertEqual(files[1].bookStart, 75)
+    XCTAssertEqual(files[1].duration, 25)
+  }
+
+  // MARK: - Error paths
+
+  func testOversizedWholeFilePieceThrowsAndRemovesOutput() async throws {
+    let source = folder.appendingPathComponent("big.m4a")
+    XCTAssertTrue(FileManager.default.createFile(atPath: source.path, contents: nil))
+    let handle = try FileHandle(forWritingTo: source)
+    try handle.truncate(atOffset: 100_000_001)
+    try handle.close()
+    let piece = PlannedPiece(
+      index: 3, sourceIndex: 0, sourceStart: 0, duration: 5, bookStart: 0,
+      isWholeFile: true, estimatedBytes: 100_000_001)
+    let file = SourceFile(url: source, bookStart: 0, duration: 5, byteSize: 100_000_001)
+    do {
+      _ = try await BookSplitter().export(piece, from: [file], to: folder)
+      XCTFail("expected pieceTooLarge")
+    } catch {
+      XCTAssertEqual(error as? BookSplitterError, .pieceTooLarge(index: 3))
+    }
+    XCTAssertFalse(FileManager.default.fileExists(
+      atPath: folder.appendingPathComponent("piece-003.m4a").path))
+  }
+
+  func testOutOfRangeSourceIndexThrowsNoLocalFile() async throws {
+    let piece = PlannedPiece(
+      index: 0, sourceIndex: 2, sourceStart: 0, duration: 1, bookStart: 0,
+      isWholeFile: true, estimatedBytes: 1)
+    do {
+      _ = try await BookSplitter().export(piece, from: [], to: folder)
+      XCTFail("expected noLocalFile")
+    } catch {
+      XCTAssertEqual(error as? BookSplitterError, .noLocalFile)
+    }
+  }
+
+  func testNonAudioSourceRangeExportThrowsExportFailed() async throws {
+    let source = folder.appendingPathComponent("fake.m4a")
+    try Data("not audio".utf8).write(to: source)
+    let piece = PlannedPiece(
+      index: 4, sourceIndex: 0, sourceStart: 0, duration: 1, bookStart: 0,
+      isWholeFile: false, estimatedBytes: 1)
+    let file = SourceFile(url: source, bookStart: 0, duration: 5, byteSize: 9)
+    do {
+      _ = try await BookSplitter().export(piece, from: [file], to: folder)
+      XCTFail("expected exportFailed")
+    } catch {
+      XCTAssertEqual(error as? BookSplitterError, .exportFailed(index: 4))
     }
   }
 }
