@@ -62,15 +62,49 @@ final class ListenerPlayerTests: XCTestCase {
     player.stop()
   }
 
-  func testPlayInMissingPieceDoesNotReportLocalPlay() throws {
+  func testPlayInMissingPieceIsReportedAndRequestsPieceOnce() throws {
     let player = ListenerPlayer(manifest: manifest())
     var events: [LocalPlaybackEvent] = []
+    var needed: [Int] = []
+    player.onNeedsPiece = { needed.append($0) }
     player.localEvents.sink { events.append($0) }.store(in: &bag)
 
     player.userTogglePlay()
 
     XCTAssertFalse(player.isPlaying)
-    XCTAssertTrue(events.isEmpty)
+    XCTAssertEqual(events, [.played(at: 0, rate: 1)])
+    XCTAssertEqual(needed, [0])
+    player.stop()
+  }
+
+  func testPauseIntoMissingPieceDoesNotRequestPiece() throws {
+    let player = ListenerPlayer(manifest: manifest())
+    var needed: [Int] = []
+    player.onNeedsPiece = { needed.append($0) }
+    player.pieceArrived(index: 0, url: try makePiece(0))
+
+    player.applyPause(at: 15)
+
+    XCTAssertTrue(needed.isEmpty)
+    XCTAssertEqual(player.bookTime, 15, accuracy: 0.001)
+    player.stop()
+  }
+
+  func testUserPauseReportsRealPositionWithoutReseeking() throws {
+    let player = ListenerPlayer(manifest: manifest())
+    var events: [LocalPlaybackEvent] = []
+    player.localEvents.sink { events.append($0) }.store(in: &bag)
+    player.pieceArrived(index: 0, url: try makePiece(0))
+
+    player.applyPlay(at: 2, rate: 1)
+    player.userTogglePlay()
+
+    XCTAssertFalse(player.isPlaying)
+    XCTAssertEqual(events.count, 1)
+    guard case let .paused(at) = events[0] else { return XCTFail("expected paused") }
+    XCTAssertEqual(at, player.bookTime, accuracy: 0.0001)
+    XCTAssertEqual(at, 2, accuracy: 1.0)
+    player.stop()
   }
 
   func testRemoteCommandsDoNotEmitLocalEvents() throws {
