@@ -146,7 +146,8 @@ extension SharePlaySessionService {
     player.onNeedsPiece = { [weak self] _ in self?.listenerNeedsPiece() }
     // Play or pause while the group waits for this device's piece: nothing is sent; say why.
     player.onToggleWhileWaiting = { [weak self] in
-      self?.announcer.announce("listen_together_waiting_download".localized)
+      guard let self, self.waitingToggleLimiter.allows(at: Date()) else { return }
+      self.announcer.announce("listen_together_waiting_download".localized)
     }
     self.bridge = bridge
     setListener(player)

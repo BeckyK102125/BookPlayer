@@ -94,16 +94,20 @@ struct ListenTogetherPresentation: ViewModifier {
     return .libraryPlayer
   }
 
-  /// What Magic Tap says when it reaches nothing (joined, book not here yet): "Not available yet", the
-  /// same as the lock-screen path in AppDelegate. nil when it acted (W-I3).
+  /// What Magic Tap says when it reaches nothing (joined, book not here yet): "Waiting for the book.
+  /// Play is not available yet.", the same as the lock-screen path in AppDelegate. nil when it acted.
   static func magicTapAnnouncement(for target: MagicTapTarget) -> String? {
     target == .nothing ? "listen_together_not_available_now".localized : nil
   }
 
-  /// Says "Not available yet" (spoken at once: it answers the user's own gesture).
+  /// Repeated Magic Taps say it once per 2 seconds, so the speech doesn't stack.
+  @MainActor private static var notAvailableLimiter = ListenTogetherRepeatLimiter(interval: 2)
+
+  /// Says "Waiting for the book. Play is not available yet." Queued, so it doesn't cut off speech.
+  @MainActor
   static func announceNotAvailableYet() {
-    guard let text = magicTapAnnouncement(for: .nothing) else { return }
-    UIAccessibility.post(notification: .announcement, argument: text)
+    guard let text = magicTapAnnouncement(for: .nothing), notAvailableLimiter.allows(at: Date()) else { return }
+    ListenTogetherAnnouncer.postQueued(text)
   }
 
   private var isListening: Bool {

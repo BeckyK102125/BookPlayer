@@ -152,6 +152,13 @@ struct PlayerView: View {
     .onDisappear {
       viewModel.handleAutolockStatus(forceDisable: true)
     }
+    .task {
+      // Opened right after Leave on "Leave Listen Together to play this book?": land on the title
+      // once the cover has finished presenting (an earlier request is often lost).
+      guard ListenTogetherOwnBookFeedback.shared.consumePlayerTitleFocusRequest() else { return }
+      try? await Task.sleep(for: .milliseconds(600))
+      isMetaFocused = true
+    }
     .accessibilityAction(.escape) {
       dismiss()
     }

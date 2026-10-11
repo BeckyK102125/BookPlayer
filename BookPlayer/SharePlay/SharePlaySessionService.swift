@@ -94,6 +94,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var placedPieces = Set<Int>()
   /// True while the "waiting for the book" announcement has been made for the current wait.
   var announcedWaiting = false
+  /// Play/pause pressed again and again while held for a piece: "waiting" at most once per 3 s.
+  var waitingToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
   var localEventsBag = Set<AnyCancellable>()
   var eventLoop: Task<Void, Never>?
   /// Sharer: the export and upload pipeline. Cancelled by `tearDown`, so no export keeps running after End.
@@ -449,6 +451,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     pendingInvitation = nil
     invitationBag.removeAll()
     state = .idle
+  }
+
+  /// Leave was chosen on "Leave Listen Together to play this book?": the listener session ends with
+  /// `announcement` (one sentence in context) instead of the generic "ended". Listener only.
+  func leaveForOwnBook(announcement: String) {
+    guard role == .listener else { return }
+    tearDown(reason: .normal, announcement: announcement)
   }
 
   /// Ends Listen Together for this device. The sharer also tells everyone else it is over.

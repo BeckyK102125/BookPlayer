@@ -33,6 +33,12 @@ enum ListenTogetherAnnouncements {
   static func left() -> String { "listen_together_left".localized }
   static func ended() -> String { "listen_together_ended".localized }
 
+  /// Said once after Leave on "Leave Listen Together to play this book?" (instead of "ended").
+  static func leftForOwnBook(title: String?) -> String {
+    guard let title, !title.isEmpty else { return "listen_together_left_for_own_book".localized }
+    return String.localizedStringWithFormat("listen_together_left_for_own_book_playing".localized, title)
+  }
+
   static func download(percent: Int) -> String {
     String.localizedStringWithFormat("listen_together_download_progress".localized, percent)
   }
@@ -65,5 +71,19 @@ final class ListenTogetherAnnouncer {
   static func postQueued(_ text: String) {
     let queued = NSAttributedString(string: text, attributes: [.accessibilitySpeechQueueAnnouncement: true])
     UIAccessibility.post(notification: .announcement, argument: queued)
+  }
+}
+
+/// Lets a repeated message through at most once per `interval`, so repeated taps don't stack speech.
+struct ListenTogetherRepeatLimiter {
+  let interval: TimeInterval
+  private var last: Date?
+
+  init(interval: TimeInterval) { self.interval = interval }
+
+  mutating func allows(at now: Date) -> Bool {
+    if let last, now.timeIntervalSince(last) < interval { return false }
+    last = now
+    return true
   }
 }

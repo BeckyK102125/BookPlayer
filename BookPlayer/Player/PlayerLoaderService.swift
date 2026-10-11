@@ -21,29 +21,30 @@ final class PlayerLoaderService: @unchecked Sendable {
   var playerManager: PlayerManagerProtocol!
   /// Asked before a book starts playing through this service. The main app sets it (Listen Together:
   /// during a listener session it asks "Leave Listen Together to play this book?"). nil means play.
-  @ObservationIgnored var playbackStartGate: (@MainActor () async -> Bool)?
+  /// The argument is the title of the book that would start (nil when unknown).
+  @ObservationIgnored var playbackStartGate: (@MainActor (_ bookTitle: String?) async -> Bool)?
 
   init() {}
 
   /// Whether a book may start playing now (see `playbackStartGate`).
   @MainActor
-  func mayStartPlayback() async -> Bool {
+  func mayStartPlayback(bookTitle: String? = nil) async -> Bool {
     guard let playbackStartGate else { return true }
-    return await playbackStartGate()
+    return await playbackStartGate(bookTitle)
   }
 
   /// Play/pause for the book that is already loaded. Starting it goes through `mayStartPlayback()`;
   /// pausing never asks.
   @MainActor
   func playPauseLoadedBook() async {
-    if !playerManager.isPlaying, !(await mayStartPlayback()) { return }
+    if !playerManager.isPlaying, !(await mayStartPlayback(bookTitle: playerManager.currentItem?.title)) { return }
     playerManager.playPause()
   }
 
   /// Plays the book that is already loaded, if `mayStartPlayback()` allows it.
   @MainActor
   func playLoadedBook() async {
-    guard await mayStartPlayback() else { return }
+    guard await mayStartPlayback(bookTitle: playerManager.currentItem?.title) else { return }
     playerManager.play()
   }
 
@@ -76,7 +77,11 @@ final class PlayerLoaderService: @unchecked Sendable {
       throw BPPlayerError.fileMissing(relativePath: relativePath)
     }
 
-    if autoplay, !(await mayStartPlayback()) { return false }
+    if autoplay,
+      !(await mayStartPlayback(bookTitle: libraryService?.getSimpleItem(with: relativePath)?.title))
+    {
+      return false
+    }
 
     // Only load if loaded book is a different one
     if playerManager.hasLoadedBook() == true,

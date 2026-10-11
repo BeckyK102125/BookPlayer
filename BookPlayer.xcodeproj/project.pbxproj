@@ -902,6 +902,7 @@
 		B3F3409A898337F1CEDBC997 /* ListenerPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88044EE98BF36797D5F09C58 /* ListenerPlayerView.swift */; };
 		B759C623225F1797DDA0A16D /* ImportPlacementModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8126A7C769E7B3304A16427B /* ImportPlacementModelTests.swift */; };
 		B7F1E4A9D2C5B8F0A6E3C12A /* IntegrationImageSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4D9C8B6E5F1D2A7C4E9B81B /* IntegrationImageSizing.swift */; };
+		B8644B51B04F1894C3618CF9 /* ListenTogetherOwnBookFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B44D7F9F39E6BD63EB7BB0 /* ListenTogetherOwnBookFeedback.swift */; };
 		BB37FB74C092BB59BE0D00B9 /* ImportPlacementPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CEA2AC93A6D2CE0CD2359CB /* ImportPlacementPrompt.swift */; };
 		C318DDBC20A48D4700C3A17B /* BPMarqueeLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C318DDBB20A48D4700C3A17B /* BPMarqueeLabel.swift */; };
 		C355470197EC9D4CCF2EE597 /* ListenTogetherNowPlayingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF34F3FB3220FF00FA75BFA /* ListenTogetherNowPlayingTests.swift */; };
@@ -935,6 +936,7 @@
 		D8886C9E9E2A183454C625CC /* VideoFullscreenViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78387C7EDD9105363712F34 /* VideoFullscreenViewController.swift */; };
 		DA40413196717260741F3914 /* ListenerControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3304989A21121766F853445 /* ListenerControls.swift */; };
 		DCFC79BEBAEA628FB13F33A1 /* BPFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ACFA02FA31A0CB0438C5228 /* BPFont.swift */; };
+		DFF146D99B7396A6685E66F9 /* ListenTogetherLeaveAlertTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9A64EBB8FD73F4A099D0CD6 /* ListenTogetherLeaveAlertTests.swift */; };
 		E101E3603ACF4DB50AA0037B /* JellyfinQuickConnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8DAE18EF12485AD3509B2D /* JellyfinQuickConnectTests.swift */; };
 		E25B40E7827FFB7EC41EF252 /* ListenTogetherRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AF8478D8CF5C6D6C0B4EA68 /* ListenTogetherRowTests.swift */; };
 		E4B1479AA355D14A51E7A5BA /* ListenTogetherModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6D407BA130758014DD199A /* ListenTogetherModelsTests.swift */; };
@@ -1963,9 +1965,11 @@
 		E24A406CBA9A9BB233AA898F /* ShareStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShareStorageTests.swift; path = ShareStorageTests.swift; sourceTree = "<group>"; };
 		E4D25EF2A5FFF30CF12F2C21 /* PreferencesSyncService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PreferencesSyncService.swift; sourceTree = "<group>"; };
 		E55F466D61AE62A69DE4D371 /* BPNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BPNavigation.swift; sourceTree = "<group>"; };
+		E9A64EBB8FD73F4A099D0CD6 /* ListenTogetherLeaveAlertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherLeaveAlertTests.swift; path = ListenTogetherLeaveAlertTests.swift; sourceTree = "<group>"; };
 		EABE4B5EA7D2EFB6A9A25686 /* SharePlayMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharePlayMenuTests.swift; path = SharePlayMenuTests.swift; sourceTree = "<group>"; };
 		EC10E1E47E1F6982D8F6A552 /* AudiobookShelfOIDCFlowTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudiobookShelfOIDCFlowTests.swift; sourceTree = "<group>"; };
 		EC40E520F644AFA46DAD76B0 /* AudioMetadataServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioMetadataServiceTests.swift; sourceTree = "<group>"; };
+		F0B44D7F9F39E6BD63EB7BB0 /* ListenTogetherOwnBookFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherOwnBookFeedback.swift; path = ListenTogetherOwnBookFeedback.swift; sourceTree = "<group>"; };
 		F1E6918C51C370C2E89B24F9 /* PreferencesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PreferencesAPI.swift; sourceTree = "<group>"; };
 		F3304989A21121766F853445 /* ListenerControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenerControls.swift; path = ListenerControls.swift; sourceTree = "<group>"; };
 		F42A47E2A560078DA63EA6CF /* ListenTogetherInvitationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherInvitationView.swift; path = ListenTogetherInvitationView.swift; sourceTree = "<group>"; };
@@ -3963,6 +3967,7 @@
 				B58A4B1BB464553A1C9B8C80 /* ListenTogetherNowPlaying.swift */,
 				9C124416B3D56E1670259CD0 /* ListenTogetherRemoteCommands.swift */,
 				6A804239A874E24B3265C5BC /* ListenTogetherSharingSheet.swift */,
+				F0B44D7F9F39E6BD63EB7BB0 /* ListenTogetherOwnBookFeedback.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -4007,6 +4012,7 @@
 				0AF8478D8CF5C6D6C0B4EA68 /* ListenTogetherRowTests.swift */,
 				087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */,
 				00D74752827A36453D67F129 /* ListenTogetherOwnPlaybackTests.swift */,
+				E9A64EBB8FD73F4A099D0CD6 /* ListenTogetherLeaveAlertTests.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -5236,6 +5242,7 @@
 				3B7B45D3B5FBE61A2654CA39 /* ListenTogetherRemoteCommands.swift in Sources */,
 				557B4782BCBE7FAE57F53E3B /* ListenTogetherStatusRow.swift in Sources */,
 				971F4B6C84E05907DECA84D7 /* ListenTogetherSharingSheet.swift in Sources */,
+				B8644B51B04F1894C3618CF9 /* ListenTogetherOwnBookFeedback.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5306,6 +5313,7 @@
 				E25B40E7827FFB7EC41EF252 /* ListenTogetherRowTests.swift in Sources */,
 				A1AE458AACC76CD32490D4A0 /* ListenTogetherSharingSheetTests.swift in Sources */,
 				87A24E72A051ABE36243474C /* ListenTogetherOwnPlaybackTests.swift in Sources */,
+				DFF146D99B7396A6685E66F9 /* ListenTogetherLeaveAlertTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

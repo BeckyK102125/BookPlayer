@@ -403,10 +403,12 @@ class CarPlayManager: NSObject {
       let alertPresenter: AlertPresenter = self
       do {
         let coreServices = try await AppServices.shared.awaitCoreServices()
-        try await AppServices.shared.loadAndKeepAlive(
+        let loaded = try await AppServices.shared.loadAndKeepAlive(
           relativePath: relativePath,
           playerLoaderService: coreServices.playerLoaderService
         )
+        // Declined during a Listen Together listener session (R38): stay where we are.
+        guard loaded else { return }
         /// Avoid trying to show the now playing screen if it's already shown
         if self.interfaceController?.topTemplate != CPNowPlayingTemplate.shared {
           self.interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true, completion: nil)

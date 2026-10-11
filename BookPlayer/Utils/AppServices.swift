@@ -167,24 +167,29 @@ final class AppServices: BPLogger {
 
   // MARK: - Background Playback
 
-  /// Loads a book and keeps the app alive via a background task until playback starts.
+  /// Loads a book and keeps the app alive via a background task until playback starts. Returns false
+  /// when the load was declined (Listen Together, R38): nothing loaded, nothing recorded for the widget.
+  @discardableResult
   func loadAndKeepAlive(
     relativePath: String,
     playerLoaderService: PlayerLoaderService
-  ) async throws {
+  ) async throws -> Bool {
     var bgTaskID: UIBackgroundTaskIdentifier = .invalid
     bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "streaming-playback") {
       UIApplication.shared.endBackgroundTask(bgTaskID)
       bgTaskID = .invalid
     }
 
+    let previousWidgetPath = UserDefaults.sharedDefaults.string(
+      forKey: Constants.UserDefaults.sharedWidgetNowPlayingPath)
     UserDefaults.sharedDefaults.set(
       relativePath,
       forKey: Constants.UserDefaults.sharedWidgetNowPlayingPath
     )
 
+    let loaded: Bool
     do {
-      try await playerLoaderService.loadPlayer(relativePath, autoplay: true)
+      loaded = try await playerLoaderService.loadPlayer(relativePath, autoplay: true)
     } catch {
       UserDefaults.sharedDefaults.removeObject(
         forKey: Constants.UserDefaults.sharedWidgetNowPlayingPath
@@ -196,12 +201,25 @@ final class AppServices: BPLogger {
       throw error
     }
 
+    guard loaded else {
+      // Declined: the widget keeps showing what it showed before.
+      UserDefaults.sharedDefaults.set(
+        previousWidgetPath,
+        forKey: Constants.UserDefaults.sharedWidgetNowPlayingPath
+      )
+      if bgTaskID != .invalid {
+        UIApplication.shared.endBackgroundTask(bgTaskID)
+      }
+      return false
+    }
+
     Task { @MainActor [bgTaskID] in
       await playerLoaderService.playerManager.awaitCurrentLoad()
       if bgTaskID != .invalid {
         UIApplication.shared.endBackgroundTask(bgTaskID)
       }
     }
+    return true
   }
 
   // MARK: - Factory Methods

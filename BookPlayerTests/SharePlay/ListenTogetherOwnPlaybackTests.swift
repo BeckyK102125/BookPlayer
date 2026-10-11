@@ -47,7 +47,7 @@ final class ListenTogetherOwnPlaybackTests: XCTestCase {
 
   // MARK: PlayerLoaderService gate
 
-  private func makeLoader(isPlaying: Bool, gate: (@MainActor () async -> Bool)?) -> (PlayerLoaderService, PlayerManagerProtocolMock) {
+  private func makeLoader(isPlaying: Bool, gate: (@MainActor (String?) async -> Bool)?) -> (PlayerLoaderService, PlayerManagerProtocolMock) {
     let playerManager = PlayerManagerProtocolMock()
     playerManager.underlyingIsPlaying = isPlaying
     let loader = PlayerLoaderService()
@@ -66,7 +66,7 @@ final class ListenTogetherOwnPlaybackTests: XCTestCase {
 
   func testDeclinedGateStartsNothing() async {
     var asked = 0
-    let (loader, playerManager) = makeLoader(isPlaying: false, gate: { asked += 1; return false })
+    let (loader, playerManager) = makeLoader(isPlaying: false, gate: { _ in asked += 1; return false })
     await loader.playLoadedBook()
     await loader.playPauseLoadedBook()
     XCTAssertEqual(asked, 2)
@@ -77,14 +77,14 @@ final class ListenTogetherOwnPlaybackTests: XCTestCase {
   /// Pausing never asks.
   func testPauseNeverAsks() async {
     var asked = 0
-    let (loader, playerManager) = makeLoader(isPlaying: true, gate: { asked += 1; return false })
+    let (loader, playerManager) = makeLoader(isPlaying: true, gate: { _ in asked += 1; return false })
     await loader.playPauseLoadedBook()
     XCTAssertEqual(asked, 0)
     XCTAssertEqual(playerManager.playPauseCallsCount, 1)
   }
 
   func testAllowedGatePlays() async {
-    let (loader, playerManager) = makeLoader(isPlaying: false, gate: { true })
+    let (loader, playerManager) = makeLoader(isPlaying: false, gate: { _ in true })
     await loader.playPauseLoadedBook()
     XCTAssertEqual(playerManager.playPauseCallsCount, 1)
   }
@@ -119,4 +119,88 @@ final class ListenTogetherOwnPlaybackTests: XCTestCase {
       M.invitationPresentationStep(presented: false, attempt: 3, state: .listening(participants: 1, downloaded: 0)),
       .notNeeded)
   }
+
+  // MARK: Fix round 2
+
+  /// The gate is told which book would start (for "Playing <title>" after Leave).
+  func testGateReceivesTheLoadedBooksTitle() async {
+    var titles: [String?] = []
+    let (loader, playerManager) = makeLoader(isPlaying: false, gate: { titles.append($0); return true })
+    playerManager.currentItem = PlayableItem.stub(currentTime: 0, duration: 10)
+    await loader.playLoadedBook()
+    XCTAssertEqual(titles, [playerManager.currentItem?.title])
+  }
+
+  func testLeftForOwnBookAnnouncementNamesTheBook() {
+    XCTAssertEqual(
+      ListenTogetherAnnouncements.leftForOwnBook(title: "Moby Dick"),
+      String.localizedStringWithFormat("listen_together_left_for_own_book_playing".localized, "Moby Dick"))
+    XCTAssertEqual(ListenTogetherAnnouncements.leftForOwnBook(title: nil), "listen_together_left_for_own_book".localized)
+  }
+
+  /// I-2: Leave ends the listener session with one announcement in context, not the generic "ended".
+  func testLeaveForOwnBookEndsTheListenerSessionWithOneAnnouncement() {
+    var posted: [String] = []
+    let service = SharePlaySessionService(
+      playerManager: PlayerManagerProtocolMock(),
+      storage: ShareStorage(root: FileManager.default.temporaryDirectory.appendingPathComponent("OwnTests-\(UUID())")),
+      announcer: ListenTogetherAnnouncer(post: { posted.append($0) }))
+    let transport = FakeTransport()
+    service.startListening(with: transport, shareID: UUID())
+
+    service.leaveForOwnBook(announcement: "You left Listen Together. Playing T.")
+
+    XCTAssertFalse(service.isInSession)
+    XCTAssertTrue(transport.left)
+    XCTAssertEqual(posted, ["You left Listen Together. Playing T."])
+  }
+
+  func testLeaveForOwnBookDoesNothingForASharerOrIdle() {
+    let service = SharePlaySessionService(playerManager: PlayerManagerProtocolMock())
+    service.leaveForOwnBook(announcement: "x")
+    XCTAssertEqual(service.state, .idle)
+  }
+
+  // MARK: R39 refusal feedback
+
+  func testRefusalIsSpokenAndNotifiedAtMostEvery30Seconds() {
+    var clock = Date(timeIntervalSince1970: 1_000)
+    var notifications = 0
+    var posted: [String] = []
+    let feedback = ListenTogetherOwnBookFeedback()
+    feedback.now = { clock }
+    feedback.postNotification = { notifications += 1 }
+    let announcer = ListenTogetherAnnouncer(post: { posted.append($0) })
+
+    feedback.refused(announcer: announcer)
+    clock += 10
+    feedback.refused(announcer: announcer)
+    clock += 25
+    feedback.refused(announcer: announcer)
+
+    XCTAssertEqual(posted, Array(repeating: "listen_together_own_book_blocked".localized, count: 3))
+    XCTAssertEqual(notifications, 2, "one notification per 30 seconds")
+  }
+
+  func testPlayerTitleFocusRequestIsUsedOnceAndExpires() {
+    var clock = Date(timeIntervalSince1970: 1_000)
+    let feedback = ListenTogetherOwnBookFeedback()
+    feedback.now = { clock }
+    XCTAssertFalse(feedback.consumePlayerTitleFocusRequest())
+    feedback.requestPlayerTitleFocus()
+    XCTAssertTrue(feedback.consumePlayerTitleFocusRequest())
+    XCTAssertFalse(feedback.consumePlayerTitleFocusRequest(), "used once")
+    feedback.requestPlayerTitleFocus()
+    clock += 11
+    XCTAssertFalse(feedback.consumePlayerTitleFocusRequest(), "stale after 10 s")
+  }
+
+  func testRepeatLimiter() {
+    var limiter = ListenTogetherRepeatLimiter(interval: 2)
+    let start = Date(timeIntervalSince1970: 0)
+    XCTAssertTrue(limiter.allows(at: start))
+    XCTAssertFalse(limiter.allows(at: start.addingTimeInterval(1.9)))
+    XCTAssertTrue(limiter.allows(at: start.addingTimeInterval(2)))
+  }
 }
+

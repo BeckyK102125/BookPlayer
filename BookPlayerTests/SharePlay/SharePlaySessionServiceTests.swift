@@ -318,6 +318,7 @@ final class SharePlaySessionServiceTests: XCTestCase {
     posted = []
 
     listener.userTogglePlay()
+    listener.userTogglePlay()   // pressed again straight away: not said twice (3 s limit)
 
     XCTAssertEqual(posted, ["listen_together_waiting_download".localized])
     XCTAssertTrue(transport.sent.isEmpty)

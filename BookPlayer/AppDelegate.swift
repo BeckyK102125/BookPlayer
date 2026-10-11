@@ -117,7 +117,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, BPLogger {
     if let status = ListenTogetherRemoteCommands.route(.togglePlayPause) {
       // Joined, book not here yet: say so; the user's own book must not start.
       if status != .success {
-        UIAccessibility.post(notification: .announcement, argument: "listen_together_not_available_now".localized)
+        ListenTogetherPresentation.announceNotAvailableYet()
       }
       return true
     }

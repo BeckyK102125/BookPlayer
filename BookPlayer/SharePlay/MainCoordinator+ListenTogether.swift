@@ -12,8 +12,8 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
     sharePlayService.sharingSheetPresenter = self
     // R38: starting the user's own book during a listener session asks first (one gate for the
     // library, search, CarPlay, Siri and widget paths that go through PlayerLoaderService).
-    playerLoaderService.playbackStartGate = { [weak self] in
-      await self?.confirmOwnPlayback() ?? true
+    playerLoaderService.playbackStartGate = { [weak self] bookTitle in
+      await self?.confirmOwnPlayback(bookTitle: bookTitle) ?? true
     }
     listenTogetherSubscription = sharePlayService.$state
       .receive(on: DispatchQueue.main)
@@ -252,8 +252,7 @@ enum ListenTogetherOwnPlayback {
   }
 }
 
-/// The Leave / Cancel question. Taken down without an answer (a screen beneath it closed) counts as
-/// Cancel, so the caller never waits forever.
+/// The Leave / Cancel alert. It reports when it has left the screen; see `ListenTogetherLeaveQuestion`.
 final class ListenTogetherLeaveAlertController: UIAlertController {
   var onDisappear: (() -> Void)?
 
@@ -263,9 +262,58 @@ final class ListenTogetherLeaveAlertController: UIAlertController {
   }
 }
 
+/// Builds the "Leave Listen Together to play this book?" alert and reports one answer.
+///
+/// C1 (fix round 2): UIKit runs a UIAlertAction's handler in the alert's dismissal completion, which
+/// comes AFTER `viewDidDisappear`. So leaving the screen must not answer Cancel at once, or Leave would
+/// be read as Cancel. The disappearance answers Cancel only after a short delay, and only if no action
+/// answered first (the alert was taken down without an answer, e.g. a screen beneath it closed).
+@MainActor
+enum ListenTogetherLeaveQuestion {
+  /// How long after the alert leaves the screen an unanswered alert counts as Cancel.
+  static let unansweredCancelDelay: TimeInterval = 0.3
+
+  /// Delivers the first answer only.
+  @MainActor
+  final class Once {
+    private var onAnswer: ((ListenTogetherOwnPlayback.Answer) -> Void)?
+    init(_ onAnswer: @escaping (ListenTogetherOwnPlayback.Answer) -> Void) { self.onAnswer = onAnswer }
+    func answer(_ answer: ListenTogetherOwnPlayback.Answer) {
+      guard let onAnswer else { return }
+      self.onAnswer = nil
+      onAnswer(answer)
+    }
+  }
+
+  static func makeAlert(
+    onAnswer: @escaping (ListenTogetherOwnPlayback.Answer) -> Void
+  ) -> ListenTogetherLeaveAlertController {
+    let once = Once(onAnswer)
+    let alert = ListenTogetherLeaveAlertController(
+      title: "listen_together_leave_to_play_title".localized,
+      message: "listen_together_leave_to_play_message".localized,
+      preferredStyle: .alert)
+    // No preferredAction: a habitual double-tap must never pick the destructive Leave.
+    alert.addAction(UIAlertAction(title: "listen_together_leave_button".localized, style: .destructive) { _ in
+      MainActor.assumeIsolated { once.answer(.leave) }
+    })
+    // The cancel style is what VoiceOver's escape (two-finger scrub) triggers.
+    alert.addAction(UIAlertAction(title: "cancel_button".localized, style: .cancel) { _ in
+      MainActor.assumeIsolated { once.answer(.cancel) }
+    })
+    alert.onDisappear = {
+      DispatchQueue.main.asyncAfter(deadline: .now() + unansweredCancelDelay) {
+        MainActor.assumeIsolated { once.answer(.cancel) }
+      }
+    }
+    return alert
+  }
+}
+
 extension MainCoordinator {
-  /// The PlayerLoaderService gate: true when the user's own book may start now.
-  func confirmOwnPlayback() async -> Bool {
+  /// The PlayerLoaderService gate: true when the user's own book may start now. `bookTitle` is the book
+  /// that would start, for the announcement after Leave.
+  func confirmOwnPlayback(bookTitle: String?) async -> Bool {
     let canAsk = UIApplication.shared.applicationState == .active && topmostPresenter() != nil
     switch ListenTogetherOwnPlayback.decision(
       isListenerSession: sharePlayService.isListenerSession, canAsk: canAsk)
@@ -274,12 +322,22 @@ extension MainCoordinator {
       return true
     case .refuse:
       SharePlaySessionService.logger.info("Listen Together: own book not started during a listener session")
+      ListenTogetherOwnBookFeedback.shared.refused(announcer: sharePlayService.announcer)
       return false
     case .ask:
+      // A second request while the question is up (a double double-tap) is ignored: one alert only.
+      guard !isAskingToLeaveListenTogether else { return false }
+      isAskingToLeaveListenTogether = true
       let answer = await askToLeaveListenTogether()
+      isAskingToLeaveListenTogether = false
       let outcome = ListenTogetherOwnPlayback.outcome(
         of: answer, isListenerSession: sharePlayService.isListenerSession)
-      if outcome.endsSession { sharePlayService.end() }
+      if outcome.endsSession {
+        // I-2: one announcement in context instead of the generic "ended", then the player opens
+        // with VoiceOver on the book's title.
+        sharePlayService.leaveForOwnBook(announcement: ListenTogetherAnnouncements.leftForOwnBook(title: bookTitle))
+        ListenTogetherOwnBookFeedback.shared.requestPlayerTitleFocus()
+      }
       return outcome.plays
     }
   }
@@ -287,25 +345,10 @@ extension MainCoordinator {
   private func askToLeaveListenTogether() async -> ListenTogetherOwnPlayback.Answer {
     guard let top = topmostPresenter() else { return .cancel }
     return await withCheckedContinuation { continuation in
-      var resume: ((ListenTogetherOwnPlayback.Answer) -> Void)?
-      resume = { answer in
-        resume = nil
-        continuation.resume(returning: answer)
-      }
-      let alert = ListenTogetherLeaveAlertController(
-        title: "listen_together_leave_to_play_title".localized,
-        message: "listen_together_leave_to_play_message".localized,
-        preferredStyle: .alert)
-      alert.addAction(UIAlertAction(title: "listen_together_leave_button".localized, style: .destructive) { _ in
-        resume?(.leave)
-      })
-      // The cancel style is what VoiceOver's escape (two-finger scrub) triggers.
-      alert.addAction(UIAlertAction(title: "cancel_button".localized, style: .cancel) { _ in
-        resume?(.cancel)
-      })
-      alert.onDisappear = { resume?(.cancel) }
+      let alert = ListenTogetherLeaveQuestion.makeAlert { continuation.resume(returning: $0) }
       top.present(alert, animated: true)
-      if alert.presentingViewController == nil { resume?(.cancel) }
+      // Refused presentation: nothing on screen, so nothing will answer.
+      if alert.presentingViewController == nil { alert.onDisappear?() }
     }
   }
 }

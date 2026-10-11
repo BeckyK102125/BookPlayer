@@ -599,3 +599,49 @@ concurrency-audit.md (A-I1, A-I2, M1-M9, 2 strict diagnostics), Change B re-revi
   test now clears onNeedsPiece. Device check added. Strict concurrency (complete, local build in default
   DerivedData, not committed): the 2 audit diagnostics are gone; 2 new ones from this wave's main-hop helpers
   fixed with @Sendable; 0 left in SharePlay files.
+
+## 2026-10-10 - listen-together-messages - fix round 2 (wave-2 reviews: C1, a11y I-1..I-3, minors)
+Parent ab5df6f7. Inputs: wave-2 code review (C1 + minors), fix-wave-2-a11y-review.md, ruling R39.
+- C1: Leave on "Leave Listen Together to play this book?" resolved as Cancel: UIKit runs a UIAlertAction
+  handler in the alert's dismissal completion, AFTER viewDidDisappear, and viewDidDisappear answered
+  Cancel at once. New ListenTogetherLeaveQuestion.makeAlert: a MainActor `Once` box delivers the first
+  answer; a disappearance answers Cancel only after 0.3 s (asyncAfter), so the handler wins. Evidence:
+  hosted ListenTogetherLeaveAlertTests presents the real alert from a key window, dismisses it and runs the
+  Leave handler in the completion (as UIKit does), records the order ["disappear", "handler"] and gets
+  [.leave]; Cancel and no-answer (-> .cancel after the delay) also tested; no preferredAction on Leave.
+- Second Leave alert ignored while one is up (MainCoordinator.isAskingToLeaveListenTogether).
+- R39 / a11y I-1: refusal (question can't be shown) is never silent: ListenTogetherOwnBookFeedback (new
+  file) posts the queued announcement "You're in Listen Together. Unlock to play your own book." and, only
+  when notification permission was already granted (authorized/provisional/ephemeral), a local
+  notification "Your book did not start" / "You are in Listen Together. Open BookPlayer and choose the book,
+  then choose Leave.", at most once per 30 s. BookPlayer has never requested notification permission, so in
+  practice only the announcement happens (and VoiceOver may not speak it while locked). No permission
+  prompt added. Siri dialog / CarPlay alert not built (listed as an open decision).
+- a11y I-2: the gate now receives the book's title (PlayerLoaderService passes it). Leave calls
+  SharePlaySessionService.leaveForOwnBook(announcement:) = tearDown with "You left Listen Together. Playing
+  <title>." instead of "Listen Together ended" (one announcement), then requests player-title focus;
+  PlayerView consumes the request (10 s lifetime) and focuses the title 600 ms after it appears. Cancel:
+  nothing announced, focus stays.
+- a11y I-3: "listen_together_not_available_now" = "Waiting for the book. Play is not available yet.",
+  queued (ListenTogetherAnnouncer.postQueued), at most once per 2 s; AppDelegate's lock-screen path uses
+  the same helper. Toggle-while-waiting "Waiting for the book to download" at most once per 3 s
+  (ListenTogetherRepeatLimiter).
+- Cheap a11y minors: M-1 prompt message "You will leave Listen Together on this iPhone. The others keep
+  listening."; M-5 "saved on your iPhone/their device for this session only" in invitation, first-share
+  message and guide; End hint "Leaves Listen Together and deletes the downloaded book.". Not done: M-2,
+  M-3 (key rename / naming the book), M-4 immediate post and percent.
+- Code minors: AppServices.loadAndKeepAlive returns false on a declined load and restores the widget's
+  previous now-playing path; CarPlayManager.playItem doesn't push Now Playing after a decline.
+- Docs: guide (heard texts, Leave announcement, Magic Tap wording, ignored-invitations limitation);
+  context.md (R27 decided, R39, Known limitations: invitations ignored during own sheet/20 s wait,
+  play?showPlayer=true deep link can open the own player; decisions updated).
+- New strings (Base + 25 lproj, English): listen_together_own_book_blocked, _notification_title,
+  _notification_body, listen_together_left_for_own_book, listen_together_left_for_own_book_playing.
+- Tests: ListenTogetherLeaveAlertTests (4, new, hosted), ListenTogetherOwnPlaybackTests +7 (title to gate,
+  left announcement, leaveForOwnBook, refusal feedback + 30 s limit, focus request, repeat limiter),
+  toggle-while-waiting test presses twice. Focused 18 SharePlay classes: 202/0. Full: first run crashed in
+  pre-existing InsertBooksTests.testInsertExistingBookFromPlaylistIntoLibrary (CoreData flake, seen before);
+  rerun "Executed 774 tests, with 0 failures", ** TEST SUCCEEDED **. One earlier full run failed the
+  no-answer alert test (fixed 0.6 s wait too short under full-suite load): waits are now bounded polls.
+- TSan (18 SharePlay classes, -enableThreadSanitizer YES): "Executed 202 tests, with 0 failures",
+  ** TEST SUCCEEDED **, 0 ThreadSanitizer warnings, no restarts. Strict concurrency not re-run this round.

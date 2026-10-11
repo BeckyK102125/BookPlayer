@@ -535,7 +535,7 @@ Vi jobber hardt for å gi deg en sømløs opplevelse. Hvis mulig, kontakt oss p�
 "listen_together_started_late_announcement" = "Listen Together started.";
 "listen_together_join_hint" = "Pauses your current book and starts listening together.";
 "listen_together_end_hint_sharer" = "Ends Listen Together for everyone.";
-"listen_together_end_hint_listener" = "Leaves Listen Together. The book downloaded for this session is deleted.";
+"listen_together_end_hint_listener" = "Leaves Listen Together and deletes the downloaded book.";
 "listen_together_end_hint_preparing" = "Cancels sharing.";
 "listen_together_end_confirm_title" = "End Listen Together?";
 "listen_together_status_sharing_waiting" = "Listen Together, waiting for others, sharing";
@@ -551,10 +551,10 @@ Vi jobber hardt for å gi deg en sømløs opplevelse. Hvis mulig, kontakt oss p�
 "listen_together_position_hint" = "Swipe up or down to move 30 seconds.";
 "listen_together_zero_seconds" = "0 seconds";
 "listen_together_getting_book_message" = "Getting the book. The player controls appear when it is ready.";
-"listen_together_invitation_listen_only" = "You can only listen. The book is downloaded for this session only and deleted when it ends.";
+"listen_together_invitation_listen_only" = "You can only listen. The book is saved on your iPhone for this session only and deleted when it ends.";
 "listen_together_first_share_title" = "People who join can only listen";
-"listen_together_first_share_message" = "The book is downloaded to their device for this session only and deleted when it ends. It is never added to their library.";
-"listen_together_not_available_now" = "Not available yet";
+"listen_together_first_share_message" = "The book is saved on their device for this session only and deleted when it ends. It is never added to their library.";
+"listen_together_not_available_now" = "Waiting for the book. Play is not available yet.";
 "listen_together_share_button" = "Share";
 "listen_together_row_hint_listener" = "Opens the Listen Together player.";
 "listen_together_row_hint_sharer" = "Opens the player, where you can end Listen Together.";
@@ -565,5 +565,10 @@ Vi jobber hardt for å gi deg en sømløs opplevelse. Hvis mulig, kontakt oss p�
 "listen_together_row_value_waiting" = "waiting for the book, %@";
 "listen_together_row_value_downloading" = "getting the book, %d percent";
 "listen_together_leave_to_play_title" = "Leave Listen Together to play this book?";
-"listen_together_leave_to_play_message" = "Listen Together ends on this iPhone. The others keep listening.";
+"listen_together_leave_to_play_message" = "You will leave Listen Together on this iPhone. The others keep listening.";
 "listen_together_leave_button" = "Leave";
+"listen_together_own_book_blocked" = "You're in Listen Together. Unlock to play your own book.";
+"listen_together_own_book_blocked_notification_title" = "Your book did not start";
+"listen_together_own_book_blocked_notification_body" = "You are in Listen Together. Open BookPlayer and choose the book, then choose Leave.";
+"listen_together_left_for_own_book" = "You left Listen Together.";
+"listen_together_left_for_own_book_playing" = "You left Listen Together. Playing %@.";

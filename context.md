@@ -38,44 +38,51 @@ session only and deleted when it ends; playback stays in sync; everything works 
 - R16 new strings in every lproj (English); R17/R18 late joiners and participant baseline.
 - R19 Magic Tap to the listener; R20 menu item hidden mid-session; R21/R28/R29 invitation from the
   topmost screen, re-presented if taken down; R22 needs-FaceTime acknowledge; R23 fixed 30 s skips;
-  R24 no menu icon; R26 superseded by Change C; R27 End asks for confirmation (open decision).
+  R24 no menu icon; R26 superseded by Change C; R27 End asks for confirmation once (decided: it stays).
 - R32 final fix wave; R33 AirPods next/previous = 30 s; R34 first-share note Share/Cancel.
 - R35 escape on the listener screen goes back to the library, session continues (supersedes R25,
   approved by Becky); R36 listener hides the own mini player, Listen Together row (approved with R35).
 - R37 sharing-sheet watchdogs, 20 s wait, late share accepted when idle.
 - R38 own book during a listener session asks "Leave Listen Together to play this book?" (fix wave 2).
+- R39 when that question can't be shown, the refusal is never silent: queued "You're in Listen
+  Together. Unlock to play your own book." plus a local notification only if permission already exists.
 - Standing rule: VoiceOver two-finger scrub/escape is always cancel or back; never starts or ends.
 
-## Most recent work: fix wave 2 (2026-10-10)
+## Most recent work: fix round 2 (2026-10-10, on top of fix wave 2)
+- C1: the Leave alert answered Cancel because UIKit runs action handlers after viewDidDisappear; an
+  unanswered disappearance now counts as Cancel only after 0.3 s (hosted XCTest proves the UIKit order).
+- R39 refusal feedback; Leave says "You left Listen Together. Playing <title>." (instead of "ended") and
+  the player opens with VoiceOver on the title; one Leave alert at a time; Magic Tap before the book says
+  "Waiting for the book. Play is not available yet." (queued, once per 2 s); toggle-while-waiting said at
+  most once per 3 s; declined loads don't touch the widget path or push CarPlay Now Playing; wording
+  "saved on your iPhone for this session only" everywhere; shorter End hint.
+
+## Fix wave 2 (2026-10-10)
 Whole-branch review + concurrency audit fixes, one wave (report: fix-wave-2-report.md):
 - R38 gate: PlayerLoaderService.playbackStartGate (set by MainCoordinator). loadPlayer(autoplay: true)
   and the loaded-book paths (widget toggle, deep links, playLastBook) ask during a listener session:
   Leave ends the session then plays; Cancel/escape plays nothing. Background/locked/CarPlay-locked:
-  refused silently. Pure decision ListenTogetherOwnPlayback; callers don't open the player on Cancel.
-- Sheet watchdog (120 s) re-checks instead of releasing while the sheet is still presented.
-- Magic Tap before the book arrives says "Not available yet" in the app too (MainView, getting-book).
+  refused (R39 feedback since fix round 2). Pure decision ListenTogetherOwnPlayback; callers don't open the player on Cancel.
+- Sheet watchdog waits while the sheet is open; Magic Tap before the book answers in the app too.
 - Invitation presentation retried every 0.5 s up to 20 times (cold launch from Messages, refused
   present), then declined.
-- Minors: toggle while the group is held for our piece sends nothing and says "Waiting..."; "Listen
-  Together started" after every sheet share (once); a replaced late share is cancelled; "didn't start"
-  not spoken over an invitation; listen-only wording unified (invitation, End hint, first-share note,
-  guide); AppDelegate remote commands go through ListenTogetherRemoteCommands.route (explicit main hop).
+- Minors: toggle-while-waiting, "started" after sheet shares, replaced late share cancelled, explicit
+  main hop for AppDelegate remote commands, unified listen-only wording.
 - Concurrency audit: A-I1 sharer PlayerManager sinks hop to the main queue; A-I2 session setup is
   synchronous with the join (no lost End, no leaked joined session); M1 owned upload task; M2 2 s limit on
   the end message; M3 ordered outbox; M4 SharerPlaybackTarget.stop(); M6 weak controller + strict
   diagnostic fixed; M9 coordinator commands in FIFO order. Not done: M5, M7, M8 (see report).
 
-## Test evidence (2026-10-10, fix wave 2)
+## Test evidence (2026-10-10, fix round 2)
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
--only-testing:BookPlayerTests test (plus `-only-testing:BookPlayerTests/<Class>` for each of the 17
-SharePlay classes for the focused and TSan runs).
-- SharePlay classes (17): Executed 191 tests, 0 failures, ** TEST SUCCEEDED **.
-- Full suite: Executed 763 tests, 0 failures, ** TEST SUCCEEDED ** (was 733).
-- Thread Sanitizer, SharePlay classes: 191/0, 0 ThreadSanitizer warnings. Caveat: ending a real stall
-  suspension aborts inside CoreMedia under TSan only (report concern 1; device check).
-- Strict concurrency (complete, local build only): 0 diagnostics in SharePlay files.
-- SharePlay cannot run in the simulator (no FaceTime/Messages sessions). Before this wave: 733/0.
+-only-testing:BookPlayerTests test (focused/TSan: `-only-testing:BookPlayerTests/<Class>` for the 18
+SharePlay classes, TSan adds `-enableThreadSanitizer YES`).
+- SharePlay classes (18): 202 tests, 0 failures. Full suite: 774 tests, 0 failures, ** TEST SUCCEEDED **
+  (first full run crashed in the known pre-existing InsertBooksTests CoreData flake; rerun clean).
+- TSan, SharePlay classes: 202 tests, 0 failures, 0 ThreadSanitizer warnings, no aborts.
+- Strict concurrency: last checked at fix wave 2 (0 in SharePlay files); not re-run for round 2.
+- Ending a real stall suspension aborts inside CoreMedia under TSan only (wave-2 report, concern 1).
 
 ## Local environment gotchas
 - Xcode 27 here, CI uses 26.4. Use the simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C.
@@ -94,11 +101,14 @@ Priority checks (new or risky):
 1. Paused + locked: pause from one phone, lock both, wait 5+ minutes, Play from the lock screen. Test from
    EACH side (sharer paused, listener paused). If iOS suspends the paused app the session may drop
    (architectural if so; whole-branch I4).
-2. R38: during a listener session double-tap an own book: question heard, Leave ends and plays, Cancel
-   and two-finger scrub keep the session and play nothing. Siri/widget while locked: nothing plays.
+2. R38: during a listener session double-tap an own book (library, Search, deep link): question heard,
+   Leave ends, says "You left Listen Together. Playing <title>." once (no "ended" on top) and focus lands
+   on the player's title; Cancel and two-finger scrub keep the session, play nothing, focus stays on the
+   row. Siri/widget/CarPlay while locked: nothing plays; is "Unlock to play your own book" heard?
 3. Cold launch from the Messages invitation: the invitation screen appears (W-I5 retries), announced.
 4. Sharing sheet left open over 2 minutes: nothing announced; close it: released within ~2 s / next check.
-5. Magic Tap before the book arrives, in the app and locked: "Not available yet".
+5. Magic Tap before the book arrives, in the app and locked: "Waiting for the book. Play is not
+   available yet." once, not stacked on repeated taps.
 6. Join then End at once; End as the sharer with no network: the other phone sees the end, this phone
    leaves within ~2 s.
 7. Lock-screen and AirPods commands, Magic Tap: run on main (Main Thread Checker) during a session.
@@ -115,7 +125,12 @@ session time; refused presentation leaves presentingViewController nil); contras
 - If the sharer's app is killed while the call continues, listeners wait (I5, R32).
 - Speed changes are saved in the sharer's library for that book.
 - Sleep timer and CarPlay chapter buttons on a listener act on the own book.
-- Own book cannot start from Siri/widget/CarPlay while locked during a listener session (R38 refuse).
+- Own book cannot start from Siri/widget/CarPlay while locked during a listener session (R38/R39
+  refuse; spoken when possible; notification only if permission exists, which BookPlayer never asks).
+- Invitations from other people are ignored while your own share's sharing sheet is up or its 20 s wait
+  is running.
+- The `play?showPlayer=true` deep link can open your own player screen during a listener session (its
+  Play is not gated).
 - In-app paths that call PlayerManager directly (player screen Play, mini player) are not gated; they are
   hidden or closed during a listener session (R21, R36).
 - The listener's speed picker shows no checkmark for a non-preset sharer speed.
@@ -131,5 +146,5 @@ session time; refused presentation leaves presentingViewController nil); contras
 
 ## Decisions waiting on Becky
 - TestFlight: record whether a TestFlight build is wanted (and under which bundle ID) or device installs only.
-- Keep the End confirmation dialog, or end immediately (R27)?
-- R38 refuse-when-locked behaviour (silent): acceptable, or should Siri/CarPlay say something?
+- Siri dialog / CarPlay alert for the R39 refusal (not built: would need intent result dialogs and a
+  CarPlay alert template)?

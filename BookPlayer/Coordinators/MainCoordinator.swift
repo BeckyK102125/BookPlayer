@@ -39,6 +39,8 @@ class MainCoordinator: NSObject {
   var invitationPresentationGeneration = 0
   /// Apple's sharing sheet while it is up, so the service's watchdog can tell it is still open (W-I2).
   weak var sharingSheetController: UIViewController?
+  /// True while "Leave Listen Together to play this book?" is on screen (one alert at a time).
+  var isAskingToLeaveListenTogether = false
 
   var playerState: PlayerState { AppServices.shared.playerState }
 
