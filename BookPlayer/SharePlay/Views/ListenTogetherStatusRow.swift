@@ -149,9 +149,14 @@ struct ListenTogetherStatusRow: View {
   var body: some View {
     let role = ListenTogetherRow.role(state: service.state, hasListener: service.listener != nil)
     let value = ListenTogetherRow.value(
-      state: service.state, joinedTitle: service.joinedTitle, listener: snapshot,
+      state: service.state, joinedTitle: service.joinedTitle, listener: snapshot.map { snapshot in
+        // Own copy: never "waiting for the book" (final review I1).
+        var shown = snapshot
+        if service.isUsingOwnCopy { shown.isWaiting = false }
+        return shown
+      },
       sharerTitle: playerManager.currentItem?.title,
-      sharerPresence: service.isSharerGraceRunning ? .away : (service.notice == .waitingForSharer ? .quiet : .present),
+      sharerPresence: service.isSharerGraceRunning ? .away : (service.notice == .waitingForSharer && service.isListenerPlaying ? .quiet : .present),
       isRetryingSend: service.notice == .retryingSend)
     Group {
       if let role, let value {

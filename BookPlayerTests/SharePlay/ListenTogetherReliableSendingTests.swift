@@ -411,6 +411,24 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     XCTAssertEqual(uploadedIndexes(transport), [0, 1, 2, 3, 4, 0, 1, 2, 3, 4])
   }
 
+  /// Final review M5: a request that arrives while the manifest is still being sent (no send order yet)
+  /// is kept and honoured once the order exists.
+  func testAnEarlyPieceRequestIsHonoured() async throws {
+    let service = makeService(), transport = FakeTransport()
+    transport.holdSends = true
+    let item = try makeHourLongItem()
+    let sending = Task { await service.beginSharing(with: transport, item: item) }
+    await waitUntil { service.manifest != nil }
+    XCTAssertNil(service.pieceScheduler, "the manifest is still being sent")
+    transport.emit(.message(.needPiece(index: 3)))
+    await waitUntil { service.pendingPieceRequests.contains(3) }
+    XCTAssertTrue(service.pendingPieceRequests.contains(3))
+    transport.releaseSends()
+    await sending.value
+    XCTAssertEqual(uploadedIndexes(transport).first, 3, "the early request goes first")
+    XCTAssertTrue(service.pendingPieceRequests.isEmpty)
+  }
+
   func testListenerAsksForTheMissingPieceAndTheSharerSendsItFirst() async throws {
     // Listener side: a missing piece is requested from the sharer.
     let listenerService = makeService(), listenerTransport = FakeTransport(), id = UUID()

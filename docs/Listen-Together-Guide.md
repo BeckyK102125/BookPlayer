@@ -103,6 +103,8 @@ If Listen Together isn't available at all, a message says "Listen Together isn't
 7. Playback starts in sync with everyone else.
 8. To leave the Listen Together screen without ending it, use the two-finger scrub. You go back to your library and the book keeps playing for everyone. A **Listen Together** row stays just above the tab bar. VoiceOver reads it, for example, as "Listen Together, playing, Moby Dick". Choose it to come back to the player.
 
+If your copy can't be played during the session (for example you deleted or moved it), BookPlayer tries it again a few times. If it still can't be played, you leave Listen Together on your iPhone only and a message says "Your copy of this book can't be played right now. You left Listen Together." Choose OK. The others keep listening.
+
 If your copy was moved or deleted between the invitation and Join, BookPlayer gets the book from the person sharing instead (or, if they only listen with people who have the book, tells you "Your copy can't be used" and you don't join).
 
 Your own book is paused when you join. While you listen together your own mini player is hidden, so you cannot start your own book by accident.

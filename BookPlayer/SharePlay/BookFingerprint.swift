@@ -75,14 +75,17 @@ struct BookFingerprint: Codable, Equatable, Sendable {
     let bytes = [UInt8](head)
     if bytes[0] == 0x49, bytes[1] == 0x44, bytes[2] == 0x33 {  // "ID3"
       guard bytes[6...9].allSatisfy({ $0 < 0x80 }) else { return nil }
+      // Synchsafe: at most 2^28 - 1, so the sum can't overflow; compared without adding to fileSize.
       let size = bytes[6...9].reduce(UInt64(0)) { ($0 << 7) | UInt64($1) }
       let footer: UInt64 = (bytes[5] & 0x10) != 0 ? 10 : 0
-      let offset = 10 + size + footer
-      return offset < fileSize ? offset : nil
+      let (offset, overflow) = (10 + footer).addingReportingOverflow(size)
+      return !overflow && offset < fileSize ? offset : nil
     }
     guard String(bytes: bytes[4..<8], encoding: .ascii) == "ftyp" else { return nil }
     var position: UInt64 = 0
-    while position + 8 <= fileSize {
+    // Final review M1: every bound is written as a subtraction from what is left of the file, so a
+    // corrupt 64-bit atom size (up to UInt64.max) can never overflow and trap.
+    while position < fileSize, fileSize - position >= 8 {
       guard (try? handle.seek(toOffset: position)) != nil,
         let header = try? handle.read(upToCount: 8), header.count == 8
       else { return nil }
@@ -97,7 +100,7 @@ struct BookFingerprint: Codable, Equatable, Sendable {
       } else if size == 0 {
         size = fileSize - position
       }
-      guard size >= headerLength, position + size <= fileSize else { return nil }
+      guard size >= headerLength, size <= fileSize - position else { return nil }
       if type == "mdat" { return size > headerLength ? position + headerLength : nil }
       position += size
     }

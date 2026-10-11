@@ -615,3 +615,4 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_sharer_quiet" = "Can't reach the person sharing. The book keeps playing.";
 "listen_together_row_value_sharer_quiet" = "can't reach the person sharing, %@";
 "listen_together_row_value_sharing_retrying" = "couldn't send part of the book, trying again, %@";
+"listen_together_own_copy_unplayable" = "Your copy of this book can't be played right now. You left Listen Together.";

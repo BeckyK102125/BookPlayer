@@ -980,3 +980,29 @@ Parent 282f27c4. Inputs: reliable-sending-task-B-code-rereview-1.md, -a11y-rerev
   failures when recording was unconditional. Green: 24 SharePlay classes 398/0; full "Executed 970 tests,
   with 0 failures", ** TEST SUCCEEDED ** (two earlier full runs hung after the results and were killed);
   TSan 398/0, 0 warnings (same pre-existing CoreData performance-checker line).
+
+## 2026-10-11 - listen-together-own-copy - final whole-branch review fixes
+Parent 27d86fd2. Inputs: final-branch-review-2026-10-11.md, final-fix-round.md (rulings).
+- I1 (own copy can't be played): `listenerPieceFailed` branches for own copy (`ownCopyFileFailed`). After the
+  5/10/20 s back-off the own file is armed again (`pieceArrived`) if it still exists with its matched size
+  (`ownFileIsUsable`); if it is gone, or on the 3rd failure (`ownCopyFailureLimit`), this phone leaves with
+  `EndReason.ownCopyFailed` and one alert `ownCopyUnplayable` "Your copy of this book can't be played right
+  now. You left Listen Together." (new key, Base + all lproj; waits for the cover, Speak covers it). Own
+  copy never gets "Waiting for the book" (no announcement, status, caption, toggle line or row value).
+  The others' stall ends when this phone leaves (bridge invalidated).
+- M1: BookFingerprint MP4 walk uses `fileSize - position` bounds (loop `position < fileSize`, remaining >= 8;
+  `size >= headerLength, size <= fileSize - position`); ID3 offset uses addingReportingOverflow.
+- M2: new `isListenerPlaying` mirror; the silence line shows only while the book plays (row too); before the
+  manifest "Getting the book N percent" stays.
+- M5: `.needPiece` before the scheduler exists goes to `pendingPieceRequests`, requested when the send order
+  is made. M6: during the roster grace a message ends the grace only if the sharer's id is in the roster.
+  M9: `sessionGeneration` in the delivery; a background ending whose notification check outlives a new
+  session is dropped. M10: session timers capture the transport weakly.
+- M11: context.md rewritten (TestFlight build 1 done, build 2 pending Becky, R40/R41, device list).
+- Guide: own-copy failure line.
+- Parked: M3 (update both phones; protocol version later), M4 (late-join burst; device check with 100+
+  files), M7 (endNotice unused outside the service), M8 (two notification-permission checks).
+- TDD: red with the fixes reverted: 94 tests (Messages, OwnCopy, early-request test), 17 failures; the M1
+  test crashed the test process with the old bound. Green: 24 SharePlay classes 406/0; full "Executed 978
+  tests, with 0 failures", ** TEST SUCCEEDED **; TSan 406/0, 0 ThreadSanitizer warnings (same pre-existing
+  CoreData performance-checker line).

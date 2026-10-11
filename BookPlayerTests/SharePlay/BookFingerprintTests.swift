@@ -312,6 +312,28 @@ final class BookFingerprintTests: XCTestCase {
     XCTAssertEqual(BookFingerprint.sampleHash(of: url), sha(bytes))
   }
 
+  /// Final review M1: a 64-bit atom size near UInt64.max (once overflowed and trapped), and files cut
+  /// short inside an atom header: never a crash, the file start is hashed.
+  func testHugeOrTruncatedAtomsNeverCrash() throws {
+    for size in [UInt64.max, UInt64.max - 7, UInt64(Int64.max)] {
+      let bytes = ftyp + be32(1) + Data("moov".utf8) + be64(size) + Data(repeating: 4, count: 500)
+      let url = try write(bytes, "huge-\(size).m4a")
+      XCTAssertEqual(BookFingerprint.sampleHash(of: url), sha(bytes), "size \(size)")
+    }
+    let truncatedLarge = ftyp + be32(1) + Data("mdat".utf8) + Data([0, 0, 0])
+    let a = try write(truncatedLarge, "truncated-large.m4a")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: a), sha(truncatedLarge))
+    let truncatedHeader = ftyp + Data([0, 0, 0, 20, 0x6D])
+    let b = try write(truncatedHeader, "truncated-header.m4a")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: b), sha(truncatedHeader))
+    let tooSmall = ftyp + be32(4) + Data("moov".utf8) + Data(repeating: 1, count: 100)
+    let c = try write(tooSmall, "too-small.m4a")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: c), sha(tooSmall), "a size below the header is rejected")
+    let id3Truncated = Data("ID3".utf8) + Data([4, 0, 0, 0x7F, 0x7F, 0x7F, 0x7F]) + Data(repeating: 1, count: 50)
+    let d = try write(id3Truncated, "id3-truncated.mp3")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: d), sha(id3Truncated), "a tag longer than the file")
+  }
+
   private func id3(bodySize: Int, footer: Bool) -> Data {
     func synchsafe(_ value: Int) -> Data {
       Data([UInt8((value >> 21) & 0x7F), UInt8((value >> 14) & 0x7F), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])

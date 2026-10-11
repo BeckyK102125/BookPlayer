@@ -486,7 +486,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
 
   func testSharerWaitOnlyDuringTheGraceAndQuietOtherwise() {
     let state = ListenTogetherState.listening(participants: 2, downloaded: 1)
-    var conditions = ListenTogetherStatusConditions(notice: .waitingForSharer)
+    var conditions = ListenTogetherStatusConditions(notice: .waitingForSharer, isListenerPlaying: true)
     var line = try! XCTUnwrap(ListenTogetherStatus.line(for: state, conditions: conditions))
     XCTAssertEqual(line.text, "Can't reach the person sharing. The book keeps playing.", "silence only (a11y I4)")
     XCTAssertNil(line.detail)
@@ -837,5 +837,61 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertTrue(tracker.isListenerCoverOnScreen, "not forced early by the first wait's start time")
     timers.advance(by: .milliseconds(1400))  // 2 s after the second ending was queued
     XCTAssertFalse(tracker.isListenerCoverOnScreen)
+  }
+
+  // MARK: Final review fixes
+
+  /// M2: before the book arrives, or while nothing plays, silence never claims the book keeps playing.
+  func testNoQuietLineBeforeTheBookOrWhilePaused() async {
+    let downloading = ListenTogetherState.listening(participants: 2, downloaded: 0.25)
+    let line = ListenTogetherStatus.line(for: downloading, conditions: .init(notice: .waitingForSharer))
+    XCTAssertEqual(line?.text, ListenTogetherStatus.visibleText(for: downloading), "getting the book N percent")
+    let paused = ListenTogetherState.listening(participants: 2, downloaded: 1)
+    XCTAssertEqual(
+      ListenTogetherStatus.line(for: paused, conditions: .init(notice: .waitingForSharer))?.text,
+      ListenTogetherStatus.visibleText(for: paused))
+    XCTAssertEqual(
+      ListenTogetherStatus.line(for: paused, conditions: .init(notice: .waitingForSharer, isListenerPlaying: true))?.text,
+      "Can't reach the person sharing. The book keeps playing.")
+
+    let service = makeService(), transport = FakeTransport()
+    service.startListening(with: transport, shareID: UUID())
+    timers.advance(by: .seconds(20))
+    XCTAssertEqual(service.notice, .waitingForSharer)
+    XCTAssertEqual(
+      ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text,
+      ListenTogetherStatus.visibleText(for: service.state), "no manifest yet: still getting the book")
+  }
+
+  /// M6: a late heartbeat during the grace doesn't end it; the sharer back in the roster does.
+  func testALateHeartbeatDoesNotEndTheGrace() async {
+    let (service, transport, _) = await startListeningWithManifest()
+    let me = UUID(), sharer = UUID()
+    transport.emit(.sharerParticipant(id: sharer))
+    transport.emit(.participantsChanged(count: 2, ids: [me, sharer]))
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.isSharerGraceRunning }
+    transport.emit(.message(.heartbeat))
+    transport.emit(.message(.action(.resumed)))   // a marker: everything before it has been handled
+    await waitUntil { posted.contains("listen_together_remote_resumed".localized) }
+    XCTAssertTrue(service.isSharerGraceRunning, "a heartbeat alone doesn't prove the sharer is back")
+    transport.emit(.participantsChanged(count: 2, ids: [me, sharer]))
+    await waitUntil { !service.isSharerGraceRunning }
+    XCTAssertFalse(service.isSharerGraceRunning)
+  }
+
+  /// M9: a background ending still waiting for the notification check is dropped by a new session.
+  func testABackgroundEndingFromAnEarlierSessionIsDropped() async {
+    let delivery = makeDelivery(active: false)
+    var release: CheckedContinuation<Bool, Never>?
+    delivery.postNotification = { _, _ in await withCheckedContinuation { release = $0 } }
+    var closed = 0
+    delivery.deliver(.sharerEnded) { closed += 1 }
+    await waitUntil { release != nil }
+    delivery.dropPendingAlerts()   // a new invitation or session
+    release?.resume(returning: false)
+    await waitUntil { closed == 1 }
+    XCTAssertEqual(closed, 1)
+    XCTAssertNil(delivery.alerts.next, "never shown in the next session")
   }
 }

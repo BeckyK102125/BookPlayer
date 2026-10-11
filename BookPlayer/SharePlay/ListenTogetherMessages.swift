@@ -18,6 +18,8 @@ enum ListenTogetherUserMessage: Hashable {
   case connectionEnded
   /// Sharer: the same, not caused by their own End.
   case connectionEndedSharer
+  /// Listener with their own copy: it can't be played, so this phone left (final review I1).
+  case ownCopyUnplayable
   /// Sharer: the book couldn't be prepared at all; the session ends (E14).
   case prepareFailed
   /// Listen Together isn't available (E12).
@@ -50,7 +52,7 @@ enum ListenTogetherUserMessage: Hashable {
   var kind: Kind {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .prepareFailed, .unavailable, .didntStart:
+      .ownCopyUnplayable, .prepareFailed, .unavailable, .didntStart:
       return .alert
     case .waitingForSharer, .retryingSend, .waitingForBook:
       return .status
@@ -69,6 +71,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerCouldNotPrepare: return "listen_together_sharer_could_not_prepare".localized
     case .connectionEnded: return "listen_together_connection_ended".localized
     case .connectionEndedSharer: return "listen_together_connection_ended_sharer".localized
+    case .ownCopyUnplayable: return "listen_together_own_copy_unplayable".localized
     case .prepareFailed: return "listen_together_prepare_failed".localized
     case .unavailable: return "listen_together_unavailable".localized
     case .didntStart: return "listen_together_didnt_start_announcement".localized
@@ -88,6 +91,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerCouldNotPrepare: return "sharerCouldNotPrepare"
     case .connectionEnded: return "connectionEnded"
     case .connectionEndedSharer: return "connectionEndedSharer"
+    case .ownCopyUnplayable: return "ownCopyUnplayable"
     case .prepareFailed: return "prepareFailed"
     case .unavailable: return "unavailable"
     case .didntStart: return "didntStart"
@@ -104,7 +108,8 @@ enum ListenTogetherUserMessage: Hashable {
   var speaks: Bool {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .prepareFailed, .unavailable, .didntStart, .waitingForSharer, .retryingSend, .alertShownElsewhere:
+      .ownCopyUnplayable, .prepareFailed, .unavailable, .didntStart, .waitingForSharer, .retryingSend,
+      .alertShownElsewhere:
       return true
     case .sharerBack, .waitingForBook:
       return false
@@ -115,7 +120,7 @@ enum ListenTogetherUserMessage: Hashable {
   var isEnding: Bool {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .prepareFailed:
+      .ownCopyUnplayable, .prepareFailed:
       return true
     default: return false
     }
@@ -124,7 +129,7 @@ enum ListenTogetherUserMessage: Hashable {
   /// A listener's ending: shown only after the listener cover has left (guidance A.0).
   var waitsForListenerCover: Bool {
     switch self {
-    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded: return true
+    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .ownCopyUnplayable: return true
     default: return false
     }
   }
@@ -139,6 +144,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerCouldNotPrepare: return .sharerCouldNotPrepare
     case .connectionEnded: return wasListener ? .connectionEnded : .connectionEndedSharer
     case .prepareFailed: return .prepareFailed
+    case .ownCopyFailed: return .ownCopyUnplayable
     case .normal, .left, .unavailable: return nil
     }
   }
@@ -270,6 +276,9 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   private var closeActions: [UUID: @MainActor () -> Void] = [:]
   private var coverWaits = Set<AnyCancellable>()
   private var trackerObservations = Set<AnyCancellable>()
+  /// Bumped when pending alerts are dropped (a new invitation or session), so a message still waiting
+  /// for the notification check can tell it belongs to an earlier session (final review M9).
+  private(set) var sessionGeneration = 0
 
   /// After the listener cover has gone: VoiceOver focus first, then the queued sentence, so moving
   /// focus can't cut the sentence off (leave guidance, "After leaving"; a11y M4: 500 ms gap).
@@ -353,9 +362,15 @@ final class ListenTogetherMessageDelivery: ObservableObject {
     if plan.showsAlert {
       enqueue(message, isSpoken: false, onClose: onClose)
     } else if plan.notifiesOrWaits {
+      // M9: a new invitation or session during the await drops this message (it was about the old one).
+      let generation = sessionGeneration
       Task { @MainActor [weak self] in
         guard let self else { return }
         let posted = await self.postNotification("listen_together_title".localized, message.text)
+        guard self.sessionGeneration == generation else {
+          onClose?()
+          return
+        }
         if posted, !plan.keepsAlertAfterNotification {
           // The notification is the one message: no alert later (A.0).
           onClose?()
@@ -434,6 +449,7 @@ final class ListenTogetherMessageDelivery: ObservableObject {
 
   /// A new invitation or session: alerts still waiting about an earlier one are dropped.
   func dropPendingAlerts() {
+    sessionGeneration += 1
     for item in alerts.pending { closeActions.removeValue(forKey: item.id)?() }
     alerts.dropPending()
     forgetStuckCover()

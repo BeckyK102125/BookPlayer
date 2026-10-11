@@ -31,6 +31,9 @@ enum ListenTogetherState: Equatable {
     /// Listener: this device left (Leave Listen Together, or Leave to play its own book). No "ended"
     /// banner, which would suggest it ended for everyone (a11y M6).
     case left
+    /// Listener with their own copy: a file couldn't be played (gone, or failed three times), so this
+    /// phone left (final review I1). One alert says why.
+    case ownCopyFailed
   }
 }
 
@@ -85,6 +88,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   @Published private(set) var isSharerGraceRunning = false
   /// Listener: the group waits for a piece this device doesn't have yet (mirrors the player).
   @Published private(set) var isListenerWaitingForPiece = false
+  /// Listener: the shared book is playing on this phone (mirrors the player). The "Can't reach the
+  /// person sharing. The book keeps playing." line needs it to be true (final review M2).
+  @Published private(set) var isListenerPlaying = false
   /// Someone else paused the group; cleared by the next play (E9).
   @Published private(set) var isPausedByOther = false
   /// Sharer, owners-only: someone couldn't join (no copy). Shown until the count changes or the end (E11).
@@ -94,7 +100,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var statusConditions: ListenTogetherStatusConditions {
     ListenTogetherStatusConditions(
       notice: notice, isSharerGraceRunning: isSharerGraceRunning,
-      isWaitingForPiece: isListenerWaitingForPiece, isPausedByOther: isPausedByOther,
+      isWaitingForPiece: isListenerWaitingForPiece, isListenerPlaying: isListenerPlaying,
+      isPausedByOther: isPausedByOther,
       someoneDeclined: someoneDeclined)
   }
 
@@ -262,6 +269,12 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func rememberEndedShare(_ id: UUID) { endedShareIDs.insert(id) }
   /// Listener: how often each received piece failed to play (its reload backs off).
   var pieceDecodeFailures: [Int: Int] = [:]
+  /// Listener with their own copy: the own files by piece index, armed again after a failure (I1).
+  var ownCopyFiles: [Int: SourceFile] = [:]
+  /// Sharer: `.needPiece` requests that arrived before the send order existed (final review M5).
+  var pendingPieceRequests = Set<Int>()
+  /// An own file that fails this many times makes this phone leave.
+  static let ownCopyFailureLimit = 3
   private var appStateObservation: AnyCancellable?
 
   // SharePlay plumbing.
@@ -345,6 +358,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setListenerWaitingForPiece(_ value: Bool) {
     if isListenerWaitingForPiece != value { isListenerWaitingForPiece = value }
   }
+  func setListenerPlaying(_ value: Bool) { if isListenerPlaying != value { isListenerPlaying = value } }
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
 
@@ -979,6 +993,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     isSendLoopRunning = false
     pieceFailures = [:]
     pieceDecodeFailures = [:]
+    ownCopyFiles = [:]
+    pendingPieceRequests = []
     lastStateAnswer = nil
     isStateAnswerPending = false
     isHeartbeatQueued = false
@@ -990,6 +1006,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     notice = nil
     isSharerGraceRunning = false
     isListenerWaitingForPiece = false
+    isListenerPlaying = false
     isPausedByOther = false
     someoneDeclined = false
     localEventsBag.removeAll()
@@ -1023,12 +1040,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let message = ListenTogetherUserMessage.ending(for: reason, wasListener: wasListener)
     if announces, message == nil { announcer.announce(announcement ?? ListenTogetherAnnouncements.ended()) }
     Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
-    if wasListener, [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded].contains(reason) {
+    if wasListener, [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .ownCopyFailed].contains(reason) {
       endNotice = reason
     }
     // Never offered or joined again in this app session. `.unavailable` has no share (it ends before
     // one starts), and an own End or Leave records it before tearing down.
-    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .connectionEnded].contains(reason),
+    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .connectionEnded, .ownCopyFailed]
+      .contains(reason),
       let shareID
     {
       endedShareIDs.insert(shareID)

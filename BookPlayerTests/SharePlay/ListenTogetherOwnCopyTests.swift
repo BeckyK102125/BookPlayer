@@ -209,6 +209,69 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertEqual(posted, [])
   }
 
+  // MARK: Final review I1: an own file that can't be played
+
+  private func startOwnCopySession(
+    timers: ManualScheduler, control: RecordingCoordinatorControl
+  ) throws -> (SharePlaySessionService, OwnCopyTransport, ListenerPlayer, URL) {
+    let service = makeService(), transport = OwnCopyTransport()
+    service.scheduleSessionTimer = timers.schedule
+    service.coordinatorControlFactory = { control }
+    service.messages.schedule = timers.schedule
+    let url = try makeLibraryFile()
+    service.startListening(
+      with: transport, shareID: UUID(), ownCopy: try ownCopy(of: url), title: "T", author: "A", shared: fingerprint())
+    let listener = try XCTUnwrap(service.listener)
+    return (service, transport, listener, url)
+  }
+
+  func testAFailedOwnFileIsArmedAgainAndNeverSaysWaitingForTheBook() throws {
+    let timers = ManualScheduler(), control = RecordingCoordinatorControl()
+    let (service, transport, listener, url) = try startOwnCopySession(timers: timers, control: control)
+    posted = []
+    listener.pieceFailed(index: 0)
+    XCTAssertNil(listener.timeline.url(forPiece: 0))
+    XCTAssertFalse(posted.contains("listen_together_waiting_download".localized), "nothing will be sent")
+    XCTAssertFalse(service.isListenerWaitingForPiece, "no waiting status or caption for an own file")
+    timers.advance(by: .seconds(5))
+    XCTAssertEqual(listener.timeline.url(forPiece: 0), url, "armed again after the back-off")
+    XCTAssertTrue(service.isListenerSession)
+    XCTAssertFalse(transport.left)
+    XCTAssertNil(service.messages.alerts.next)
+  }
+
+  func testAGoneOwnFileLeavesWithOneAlert() throws {
+    let timers = ManualScheduler(), control = RecordingCoordinatorControl()
+    let (service, transport, listener, url) = try startOwnCopySession(timers: timers, control: control)
+    listener.applyPlay(at: 1, rate: 1)
+    listener.pieceFailed(index: 0)
+    try FileManager.default.removeItem(at: url)
+    posted = []
+    timers.advance(by: .seconds(5))
+    XCTAssertFalse(service.isInSession, "this phone leaves, so the group is not held")
+    XCTAssertEqual(service.state, .ended(reason: .ownCopyFailed))
+    XCTAssertTrue(transport.left)
+    XCTAssertEqual(control.openSuspensions, 0, "no stall is left behind")
+    XCTAssertEqual(service.messages.alerts.next?.message, .ownCopyUnplayable)
+    XCTAssertEqual(
+      service.messages.alerts.next?.message.text,
+      "Your copy of this book can't be played right now. You left Listen Together.")
+    XCTAssertEqual(posted, [], "the alert is the one message")
+  }
+
+  func testAnOwnFileThatKeepsFailingLeavesOnTheThirdTry() throws {
+    let timers = ManualScheduler(), control = RecordingCoordinatorControl()
+    let (service, _, listener, _) = try startOwnCopySession(timers: timers, control: control)
+    listener.pieceFailed(index: 0)
+    timers.advance(by: .seconds(5))
+    listener.pieceFailed(index: 0)
+    timers.advance(by: .seconds(10))
+    XCTAssertTrue(service.isListenerSession, "two failures: still trying")
+    listener.pieceFailed(index: 0)
+    XCTAssertEqual(service.state, .ended(reason: .ownCopyFailed))
+    XCTAssertEqual(service.messages.alerts.next?.message, .ownCopyUnplayable)
+  }
+
   // MARK: Playing the own copy
 
   func testJoiningWithOwnCopyPlaysAtOnceAndNeverDownloads() async throws {

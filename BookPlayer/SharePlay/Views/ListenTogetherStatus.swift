@@ -8,6 +8,8 @@ struct ListenTogetherStatusConditions: Equatable {
   var isSharerGraceRunning = false
   /// Listener: the group waits for a piece this device doesn't have yet.
   var isWaitingForPiece = false
+  /// Listener: the book is playing here.
+  var isListenerPlaying = false
   /// Someone else paused the group (until the next play).
   var isPausedByOther = false
   /// Sharer: someone couldn't join (no copy).
@@ -60,7 +62,7 @@ enum ListenTogetherStatus {
       // The person's own End (E15): the short ended banner stays.
       return "listen_together_ended".localized
     case .ended(.prepareFailed), .ended(.unavailable), .ended(.sharerEnded), .ended(.sharerLeft),
-      .ended(.sharerCouldNotPrepare), .ended(.connectionEnded), .ended(.left):
+      .ended(.sharerCouldNotPrepare), .ended(.connectionEnded), .ended(.left), .ended(.ownCopyFailed):
       return nil
     case .idle, .needsFaceTime, .invitation:
       return nil
@@ -99,8 +101,9 @@ enum ListenTogetherStatus {
         let spokenDetail = downloaded < 1 ? baseSpoken : nil
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, spokenDetail), icon: .hourglass)
       }
-      if conditions.notice == .waitingForSharer {
+      if conditions.notice == .waitingForSharer, conditions.isListenerPlaying {
         // Silence only (a11y I4): the book keeps playing, so this is not "waiting"; nothing is announced.
+        // Not before the manifest or while paused: "Getting the book" / the normal line stay (M2).
         let text = "listen_together_sharer_quiet".localized
         return ListenTogetherStatusLine(text: text, detail: nil, spoken: text, icon: .hourglass)
       }

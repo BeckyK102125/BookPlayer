@@ -100,6 +100,9 @@ extension SharePlaySessionService {
     guard self.transport === transport, !plan.isEmpty else { return }
 
     pieceScheduler = PieceUploadScheduler(pieces: plan)
+    // Final review M5: pieces a listener asked for before the send order existed go first now.
+    for index in pendingPieceRequests.sorted() { pieceScheduler?.request(index) }
+    pendingPieceRequests = []
     sendContext = (item, files, folder)
     Self.logger.info(
       "Listen Together: \(plan.count, privacy: .public) pieces to send, \(files.count, privacy: .public) files")
@@ -158,7 +161,12 @@ extension SharePlaySessionService {
     guard let message = uploadedPieceMessages.first(where: {
       if case .pieceUploaded(index, _) = $0 { return true } else { return false }
     }), case .pieceUploaded(_, let attachmentID) = message else {
-      pieceScheduler?.request(index)
+      if pieceScheduler != nil {
+        pieceScheduler?.request(index)
+      } else {
+        // The manifest is still being sent: remember it for when the send order exists (M5).
+        pendingPieceRequests.insert(index)
+      }
       return
     }
     guard transport.hasAttachment(attachmentID) == false else {
@@ -181,8 +189,9 @@ extension SharePlaySessionService {
       guard !isStateAnswerPending else { return }
       isStateAnswerPending = true
       let wait = Self.stateAnswerInterval - now.timeIntervalSince(last)
-      scheduleSessionTimer(.milliseconds(Int((wait * 1000).rounded(.up)))) { [weak self] in
-        guard let self, self.transport === transport, self.isStateAnswerPending else { return }
+      // M10: timers hold the transport weakly, so a left session's transport is released at teardown.
+      scheduleSessionTimer(.milliseconds(Int((wait * 1000).rounded(.up)))) { [weak self, weak transport] in
+        guard let self, let transport, self.transport === transport, self.isStateAnswerPending else { return }
         self.isStateAnswerPending = false
         Task { await self.answerStateRequest(on: transport) }
       }
@@ -295,8 +304,8 @@ extension SharePlaySessionService {
 
   /// "Still here", every `heartbeatInterval`, for as long as this share runs.
   private func scheduleHeartbeat(on transport: ListenTogetherTransport) {
-    scheduleSessionTimer(Self.heartbeatInterval) { [weak self] in
-      guard let self, self.transport === transport, self.role == .sharer else { return }
+    scheduleSessionTimer(Self.heartbeatInterval) { [weak self, weak transport] in
+      guard let self, let transport, self.transport === transport, self.role == .sharer else { return }
       // Minor 10: never more than one heartbeat waiting in the outbox.
       if !self.isHeartbeatQueued {
         self.isHeartbeatQueued = true
@@ -362,10 +371,14 @@ extension SharePlaySessionService {
     let manifest = ownCopy.manifest(shareID: shareID, title: title, author: author, shared: shared)
     var urls: [Int: URL] = [:]
     for (index, file) in ownCopy.files.enumerated() { urls[index] = file.url }
+    ownCopyFiles = Dictionary(uniqueKeysWithValues: ownCopy.files.enumerated().map { ($0, $1) })
     installListener(manifest: manifest, arrivedFiles: urls)
     // Said after the player's title has focus (`listenerTitleFocused`), or after a fallback delay.
     pendingOwnCopyJoinedLine = true
-    schedule(Self.ownCopyJoinedFallbackDelay) { [weak self] in self?.announceOwnCopyJoined(on: transport) }
+    schedule(Self.ownCopyJoinedFallbackDelay) { [weak self, weak transport] in
+      guard let transport else { return }
+      self?.announceOwnCopyJoined(on: transport)
+    }
     return true
   }
 
@@ -392,7 +405,7 @@ extension SharePlaySessionService {
     player.onPieceFailed = { [weak self] index in self?.listenerPieceFailed(index) }
     // Play or pause while the group waits for this device's piece: nothing is sent; say why.
     player.onToggleWhileWaiting = { [weak self] in
-      guard let self, self.waitingToggleLimiter.allows(at: Date()) else { return }
+      guard let self, !self.isUsingOwnCopy, self.waitingToggleLimiter.allows(at: Date()) else { return }
       self.announcer.announce("listen_together_waiting_download".localized)
     }
     // Play or pause while the person sharing is missing (C.2): nothing happens; say why, at most every
@@ -405,7 +418,15 @@ extension SharePlaySessionService {
     // The status line and the Zoom caption follow the player's wait for a piece.
     player.$isWaitingForPiece
       .removeDuplicates()
-      .sink { [weak self] waiting in self?.setListenerWaitingForPiece(waiting) }
+      .sink { [weak self] waiting in
+        // Own copy: no "Waiting for the book" status or caption (final review I1).
+        guard let self else { return }
+        self.setListenerWaitingForPiece(waiting && !self.isUsingOwnCopy)
+      }
+      .store(in: &localEventsBag)
+    player.$isPlaying
+      .removeDuplicates()
+      .sink { [weak self] playing in self?.setListenerPlaying(playing) }
       .store(in: &localEventsBag)
     self.bridge = bridge
     setListener(player)
@@ -422,7 +443,8 @@ extension SharePlaySessionService {
     bridge?.waitForPiece()
     // The sharer sends this piece next, whatever its own position.
     if !isUsingOwnCopy { outbox?.yield(.needPiece(index: index)) }
-    guard !announcedWaiting else { return }
+    // An own file is never "Waiting for the book": nothing will be sent (final review I1).
+    guard !isUsingOwnCopy, !announcedWaiting else { return }
     announcedWaiting = true
     // Status + one announcement per wait; never spoken by the setting (normal buffering).
     messages.deliver(.waitingForBook)
@@ -438,15 +460,59 @@ extension SharePlaySessionService {
     let failures = (pieceDecodeFailures[index] ?? 0) + 1
     pieceDecodeFailures[index] = failures
     let delay = Self.loadRetryDelays[min(failures - 1, Self.loadRetryDelays.count - 1)]
+    if isUsingOwnCopy {
+      ownCopyFileFailed(index, failures: failures, delay: delay)
+      return
+    }
     Self.logger.error(
       "Listen Together: piece \(index, privacy: .public) dropped (failure \(failures, privacy: .public)), loading it again in \(String(describing: delay), privacy: .public)")
     guard let transport, let attachmentID = pieceIndexByAttachment.first(where: { $0.value == index })?.key
     else { return }
-    scheduleSessionTimer(delay) { [weak self] in
-      guard let self, self.transport === transport, self.role == .listener, !self.placedPieces.contains(index)
+    scheduleSessionTimer(delay) { [weak self, weak transport] in
+      guard let self, let transport, self.transport === transport, self.role == .listener,
+        !self.placedPieces.contains(index)
       else { return }
       transport.reloadPiece(attachmentID: attachmentID)
     }
+  }
+
+  /// Final review I1: one of the listener's own files can't be played. Nothing will ever be sent for it,
+  /// so it is armed again after the same back-off if the file is still there with its matched size. If
+  /// it is gone, or fails `ownCopyFailureLimit` times, this phone leaves (the others' stall ends with it)
+  /// and one alert says why.
+  private func ownCopyFileFailed(_ index: Int, failures: Int, delay: Duration) {
+    Self.logger.error(
+      "Listen Together: own file \(index, privacy: .public) can't be played (failure \(failures, privacy: .public))")
+    guard failures < Self.ownCopyFailureLimit else {
+      leaveBecauseOwnCopyFailed()
+      return
+    }
+    guard let transport else { return }
+    scheduleSessionTimer(delay) { [weak self, weak transport] in
+      guard let self, let transport, self.transport === transport, self.role == .listener,
+        self.isUsingOwnCopy
+      else { return }
+      guard let file = self.ownCopyFiles[index], Self.ownFileIsUsable(file) else {
+        self.leaveBecauseOwnCopyFailed()
+        return
+      }
+      Self.logger.info("Listen Together: own file \(index, privacy: .public) armed again")
+      self.listener?.pieceArrived(index: index, url: file.url)
+    }
+  }
+
+  /// The own file is still there with the size it had when matched.
+  nonisolated static func ownFileIsUsable(_ file: SourceFile, fileManager: FileManager = .default) -> Bool {
+    guard let size = (try? fileManager.attributesOfItem(atPath: file.url.path))?[.size] as? Int64 else {
+      return false
+    }
+    return size == file.byteSize
+  }
+
+  private func leaveBecauseOwnCopyFailed() {
+    guard role == .listener, isUsingOwnCopy else { return }
+    Self.logger.error("Listen Together: the own copy can't be played; leaving on this phone")
+    tearDown(reason: .ownCopyFailed)
   }
 
   private func listenerPositionReady() {
@@ -630,7 +696,10 @@ extension SharePlaySessionService {
     if countedLeft { announcer.announce(ListenTogetherAnnouncements.left()) }
     guard !arrived.isEmpty else { return }
     if isOwnersOnlySession {
-      schedule(Self.joinConfirmationDelay) { [weak self] in self?.confirmArrivals(arrived, on: transport) }
+      schedule(Self.joinConfirmationDelay) { [weak self, weak transport] in
+        guard let transport else { return }
+        self?.confirmArrivals(arrived, on: transport)
+      }
     } else {
       confirmArrivals(arrived, on: transport)
     }
@@ -770,15 +839,18 @@ extension SharePlaySessionService {
     if listener == nil || heldAttachments.keys.contains(where: { pieceIndexByAttachment[$0] == nil }) {
       outbox?.yield(.requestState)
     }
-    scheduleSessionTimer(Self.stateRequestInterval) { [weak self] in self?.requestStateIfNeeded(on: transport) }
+    scheduleSessionTimer(Self.stateRequestInterval) { [weak self, weak transport] in
+      guard let transport else { return }
+      self?.requestStateIfNeeded(on: transport)
+    }
   }
 
   /// I1: failed piece loads are tried again on a timer (5, 10, 20, then every 30 s), whatever the
   /// journal does, until the session ends.
   private func scheduleLoadRetry(on transport: ListenTogetherTransport, attempt: Int) {
     let delay = Self.loadRetryDelays[min(attempt, Self.loadRetryDelays.count - 1)]
-    scheduleSessionTimer(delay) { [weak self] in
-      guard let self, self.transport === transport, self.role == .listener else { return }
+    scheduleSessionTimer(delay) { [weak self, weak transport] in
+      guard let self, let transport, self.transport === transport, self.role == .listener else { return }
       var next = 0
       if transport.hasFailedPieceLoads {
         Self.logger.info("Listen Together: retrying failed piece loads")
@@ -795,8 +867,8 @@ extension SharePlaySessionService {
   }
 
   private func schedulePresenceCheck(on transport: ListenTogetherTransport) {
-    scheduleSessionTimer(Self.heartbeatInterval) { [weak self] in
-      guard let self, self.transport === transport, self.role == .listener else { return }
+    scheduleSessionTimer(Self.heartbeatInterval) { [weak self, weak transport] in
+      guard let self, let transport, self.transport === transport, self.role == .listener else { return }
       self.checkSharerPresence()
       if self.transport === transport { self.schedulePresenceCheck(on: transport) }
     }
@@ -890,7 +962,16 @@ extension SharePlaySessionService {
   private func sharerHeard() {
     guard role == .listener else { return }
     lastSharerContact = now()
-    sharerReturned()
+    // Final review M6: during the roster grace a message alone doesn't prove the sharer is back (a
+    // heartbeat queued before they left can arrive late). Only the sharer's own id, back in the roster,
+    // ends the grace here; otherwise the roster does.
+    if sharerMissingSince == nil || isSharerInRoster { sharerReturned() }
     setSharerSilent(false)
+  }
+
+  /// The sharer's participant id is known and in the latest roster.
+  private var isSharerInRoster: Bool {
+    guard let sharer = sharerParticipantID else { return false }
+    return rosterIDs.contains(sharer)
   }
 }
