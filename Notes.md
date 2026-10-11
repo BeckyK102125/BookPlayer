@@ -769,3 +769,66 @@ Parent 7bf22248. Inputs: own-copy-rereview-1.md (N1, M-a, M-b), coordinator ruli
   ** TEST SUCCEEDED ** (first run); TSan 20 classes 265/0, 0 ThreadSanitizer warnings.
 - Guide: the message appears if BookPlayer is opened within a minute; dropped after that or when the
   sharer stopped.
+
+## 2026-10-11 - listen-together-own-copy - addendum 3, Task A: reliable sending engine (no UI)
+Parent 1598e8d4 (spec docs/superpowers/specs/2026-10-11-listen-together-addendum-3-reliable-sending.md,
+brief .superpowers/sdd/2026-10-10-shareplay-listen-together/reliable-sending-task-A-brief.md). Code commit
+87f4a744. Why: field test on 5.22.2 (1): the listener pressed Play, 0.4 s later the sharer's phone sent
+"session ending" (only End or failSharing after 3 failed piece attempts send it); the sharer's error was not
+captured. Investigation: getting-book-investigation.md (paths 1-5).
+- PiecePlanner: target 12 min, max 15 min, byte cap 90 MB as a duration cap; files <= 15 min and <= 90 MB
+  are copied whole; chapters grouped until >= 12 min (never past 15); spans > 15 min split evenly into
+  ceil(len/12 min) parts (more if the byte cap needs it). Multi-file books: file boundaries are cuts.
+  Tests: 2-min chapters, 10-h chapter, no chapters, multi-file, mixed, high bitrate. `uploadOrder` removed.
+- PieceUploadScheduler (new file): requested pieces (listener `.needPiece`) first, then the piece at the
+  group position (sharer's own player time when it holds the book, else item.currentTime; seam
+  groupPositionProvider), then forward, wrapping. Asked before every piece, so a far seek re-prioritises.
+- Retry: PieceRetryPolicy 2/5/15/30 s (cap); interruptions (CancellationError, AVError
+  operationInterrupted/mediaServicesWereReset, URLError.cancelled, or the app not active at the start or
+  end of the attempt) do not count: 2 s when active, 30 s in the background. ListenTogetherRetryWaiter ends
+  a wait early on didBecomeActive and at teardown. failSharing now only for "could not prepare the book"
+  (sourceFiles/folder), not for piece failures. Typed notice `.retryingSend` while retrying.
+- Awake: ListenTogetherAppSystem (new file; UIKit implementation + tests' FakeAppSystem). Idle timer held
+  off while pieces are left (previous value restored when all sent or at teardown; re-asserted per piece
+  and on activation). ListenTogetherBackgroundTask around each export+upload: end() from the defer and
+  from the expiration handler, guarded by .invalid. Test covers success, upload error, expiration, end.
+- Listener: AVQueuePlayer; the next arrived piece is inserted behind the current one (on load and on
+  arrival); `queueAdvanced` follows currentItem KVO; `decisionAtEnd` (pure) decides between the queued
+  piece, waiting, and end of book. Periodic time maps through the current item's piece. Item status
+  .failed and failedToPlayToEndTime logged with domain/code and extension.
+- Path 3: ListenerPlayer.onPositionReady after any successful load -> bridge.pieceBecameAvailable; the
+  bridge also re-checks after play/seek/pause commands. Tests: move back into an arrived piece ends the
+  stall; a listener at 0 is released when piece 0 arrives late.
+- Path 5: listener `.requestState` on join and every 5 s while it has no manifest or holds an unmapped
+  attachment (scheduleSessionTimer seam, separate from `schedule`); sharer answers with
+  resendForLateJoiners. The count-increase re-send stays.
+- Decision 9 (logic): sharer `.heartbeat` every 5 s. Listener: sharer messages (manifest, pieceUploaded,
+  heartbeat) refresh contact; silence > 15 s while the group needs the sharer (playing, waiting for a
+  piece, or no manifest yet), or a roster of 1 after seeing 2+, -> notice `.waitingForSharer`, player
+  paused locally, bridge.holdForSharer (its own stall suspension). Back (any sharer message) -> released.
+  Missing 60 s -> tearDown(.sharerLeft). `.sessionEnding` -> tearDown(.sharerEnded) on listeners.
+  `endNotice` keeps sharerEnded/sharerLeft until acknowledgeEndNotice() or a new session. Status line and
+  announcement stay the generic "Listen Together ended" until Task B.
+  Judgment call (flagged in the report): silence while the group is paused and nothing is awaited does
+  not count, so a sharer who paused and locked the phone (app suspended) does not end the session after
+  75 s (device check "paused + locked 5+ minutes"). Leaving the roster still counts at once.
+- Diagnostics: export start (index, whole, source, range, estimate, app state) and end (preset, bytes,
+  seconds), upload start/end, every failure with domain/code (public) and description (private), app
+  state changes in a session, stall begin/end and "still not ready", coordinator commands, attachment
+  load start/end/bytes/ext, group session state, manifest/piece/placement lines, end reason.
+  BookSplitterError.exportFailed(index:preset:underlying:) and pieceTooLarge(index:bytes:).
+- Seams added: appSystem (init), retrySleep, pieceExporter, groupPositionProvider, scheduleSessionTimer,
+  coordinatorControlFactory. uploadRetryDelay removed.
+- Removed the stale "Not shown after every attempt..." lines on NeedsCopyPresentationStep.waitForActive.
+- Tests: new ListenTogetherReliableSendingTests (30); planner, splitter, models, bridge, listener player,
+  session tests updated. Existing test changes: upload failure now keeps the session; own-copy sharer
+  ending expects .sharerEnded; local-action tests filter .action (listeners now also send .requestState).
+- TDD: red run = test build failed on the missing APIs (ExportedPiece, PiecePlanner.targetDuration,
+  ListenTogetherAppSystem, queuedPieceIndex, holdForSharer, new messages...). First green run 306 tests,
+  2 failures (own-copy test expecting .normal; a test that set the idle timer before reading its
+  history), both test fixes. Then 306/0. Presence refinement (paused = harmless) added with 2 tests:
+  21 SharePlay classes 308/0. Full: "Executed 880 tests, with 0 failures", ** TEST SUCCEEDED ** (first
+  run). TSan 21 classes: 308/0, 0 ThreadSanitizer warnings (one pre-existing "Thread Performance
+  Checker" priority-inversion line from CoreData in an own-copy test, also in an earlier TSan log).
+- Guide: small parts and faster start, sharer keeps BookPlayer open while sending, failures retried and
+  never end the session, sharer End ends for listeners, sharer missing -> wait up to a minute.

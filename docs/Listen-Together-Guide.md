@@ -72,6 +72,9 @@ People listening do not need their own copy of the book, unless the person shari
 8. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing". If you close the player, a **Listen Together** row stays above the tab bar. Choose it to return to the player.
 9. When the session has started after the sharing screen, VoiceOver says "Listen Together started".
 10. Wait until someone has joined and you hear the book playing before you lock the phone.
+11. While the book is still being sent, your iPhone does not lock by itself if BookPlayer is on screen. Keep BookPlayer open for the first minute or so if you can: the book is sent in small parts, starting where you are listening, and leaving BookPlayer can pause the sending. It carries on when you come back.
+
+If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives.
 
 If the sharing screen cannot be opened, BookPlayer says "Couldn't open sharing" and suggests starting a FaceTime call instead.
 
@@ -88,7 +91,7 @@ After you send the invitation, BookPlayer waits up to 20 seconds for Listen Toge
    If you have the book, the message says instead that you have it and BookPlayer plays your copy. Nothing is downloaded, and after Join you go straight to the player and hear "Joined. Playing your copy."
    If the person sharing only listens with people who have the book and you don't, there is no invitation: you hear "You need your own copy", and the invitation is declined once that message is on screen. Choose OK (or use the two-finger scrub); either only closes the message. If BookPlayer isn't open at that moment, the message appears when you open it within a minute (and, only if you have already allowed BookPlayer notifications, a notification says so). After that, or if the person sharing has stopped, the message is dropped without being shown. If BookPlayer couldn't check your library in time, the message says "Couldn't check your library" instead: ask the person sharing to send the book.
 5. Choose **Join** to listen, or **Not Now** to decline.
-6. If you don't have the book: after you join, you hear "Getting the book" while the first part of the book downloads. This usually takes less than a minute.
+6. If you don't have the book: after you join, you hear "Getting the book" while the first part of the book downloads. The book comes in small parts (about 12 minutes each), starting with the part everyone is listening to, so playback can start as soon as that part is here, usually within seconds. The percentage on the status line goes up with every part.
 7. Playback starts in sync with everyone else.
 8. To leave the Listen Together screen without ending it, use the two-finger scrub. You go back to your library and the book keeps playing for everyone. A **Listen Together** row stays just above the tab bar. VoiceOver reads it, for example, as "Listen Together, playing, Moby Dick". Choose it to come back to the player.
 
@@ -157,6 +160,9 @@ When the session ends, the lock screen, Control Center and AirPods control your 
 - The Listen Together row only opens the player; it cannot end the session.
 - If the session is on a FaceTime call, ending the call ends the session.
 - VoiceOver says "Listen Together ended".
+- When the person sharing ends Listen Together, it ends for every listener, and the listener's player and Listen Together row go away.
+
+If listeners stop hearing from the person sharing while the book is playing (for example their iPhone lost its connection, or they left), everyone pauses and waits. If the person sharing is back within a minute, the book carries on. If not, Listen Together ends for everyone and the temporary copy is deleted. If everyone is paused, a person sharing who has simply locked their phone does not end the session.
 
 ## What happens to the shared book
 
@@ -174,7 +180,7 @@ Your own copy is never deleted or moved by Listen Together, and its place, bookm
 - During a listener session, your own book cannot be started from Siri, a widget or CarPlay while the phone is locked (BookPlayer cannot ask first). You hear "You're in Listen Together. Unlock to play your own book." when BookPlayer can speak. Unlock and choose the book in BookPlayer, then choose Leave.
 - Invitations from other people are ignored while your own sharing screen is open or BookPlayer is waiting (up to 20 seconds) for your own share to start.
 - CarPlay: during a listener session the standard Now Playing play, pause and skip buttons reach the shared book, but CarPlay's chapter buttons still control your own book. Connecting CarPlay may switch the lock screen to your own book.
-- If the person sharing leaves the call but the call continues, listeners may keep waiting. Ending the session or the call stops it for everyone.
+- If the person sharing leaves, listeners wait for up to a minute and then Listen Together ends (see "End the session"). The message that says why is still being added; for now VoiceOver says "Listen Together ended".
 - Books streamed from a server, and different editions or recordings of the same book, are not matched. In "Only people who have the book can join" mode they cannot join; in "Send it for this session" mode they receive a temporary copy.
 - With "Send it for this session", the person sharing still sends the pieces even if everyone so far has their own copy, so anyone who joins later without one can listen. People with their own copy never download them.
 - Speeds other than 0.75, 1, 1.25, 1.5, 1.75 and 2 times are not shown in the speed list.

@@ -6,23 +6,27 @@ Date: 2026-10-11
 SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a downloaded audiobook (from
 Messages with no call, or on a FaceTime call); the others listen to a copy that is downloaded for the
 session only and deleted when it ends; playback stays in sync; everything works with VoiceOver.
-Current goal: addendum 2, "Both have the book": a listener who owns the book plays their own copy
-(nothing downloaded); the sharer can choose "Only people who have the book can join".
+Current goal: addendum 3 (reliable sending, visible messages, spoken errors), after a field test where
+the session ended 0.4 s after Play (most likely a failed piece on the sharer). Task A (engine, no UI) is done
+(87f4a744); Task B (visible messages R41, Leave button, "Speak error messages" setting) is next.
+Addendum 2 ("Both have the book") is done on this branch.
 - Spec: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md
-- Addendum 2: docs/superpowers/specs/2026-10-10-shareplay-listen-together-addendum-2.md, a11y guidance
-  .superpowers/sdd/2026-10-10-shareplay-listen-together/own-copy-a11y-guidance.md
+- Addendum 2: docs/superpowers/specs/2026-10-10-shareplay-listen-together-addendum-2.md
+- Addendum 3: docs/superpowers/specs/2026-10-11-listen-together-addendum-3-reliable-sending.md;
+  Task A brief/report: .superpowers/sdd/.../reliable-sending-task-A-{brief,report}.md
 - Plan: docs/superpowers/plans/2026-10-10-shareplay-listen-together.md
 - User guide: docs/Listen-Together-Guide.md
 - Ledger, briefs, reports, rulings R1-R38: .superpowers/sdd/2026-10-10-shareplay-listen-together/
-  (progress.md). Latest report: own-copy-report.md.
+  (progress.md). Latest report: reliable-sending-task-A-report.md.
 
 ## Branches and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - Tracked on origin: `develop`, `listen-together-messages` (both 9c70dd06), `listen-together-lock-screen`
   (63e9578b), `shareplay-listen-together` (e634f5c7). Becky and Michael are testing develop on devices.
-- `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731), fix round
-  1 (7bf22248) and fix round 2 in this commit (parent 7bf22248). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at 9c70dd06)
-  belongs to another session (TestFlight archive); not touched here.
+- `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731), fix rounds
+  (7bf22248, 0b5aacdd), addendum 3 ruling (1598e8d4), Task A code (87f4a744), docs in this commit
+  (parent 87f4a744). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
+  9c70dd06) belongs to another session (TestFlight archive); not touched here.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 - Never committed: BuildConfiguration/Debug.xcconfig (gitignored; holds the signing below).
 - BookPlayer/Player/PlayerManager.swift and Shared/ are untouched.
@@ -44,45 +48,32 @@ Current goal: addendum 2, "Both have the book": a listener who owns the book pla
   never silent.
 - Standing rule: VoiceOver two-finger scrub/escape is always cancel or back; never starts or ends.
 
-## Most recent work: addendum 2 "Both have the book" (2026-10-11, this commit)
-- Fingerprint (BookFingerprint.swift): normalised title/author, total duration, per-file book start,
-  duration and byte size, SHA-256 of the first 64 KB of the first file (read off the main actor). It
-  travels in the activity (so the invitation knows the match before it is shown; the manifest only
-  arrives after joining) and in the manifest. Pure matcher (BookFingerprintMatcher): ±2 s total and per
-  file, same file count, and hash match OR (title AND author AND every size ±1 %); tie -> most recent.
-- Listener (ListenTogetherOwnCopy.swift): LibraryOwnCopyFinder reads the library through
-  LibraryService.searchAllBooks + PlaybackService.getPlayableItem on the main context (Simple*/Playable*
-  snapshots only, read only). The invitation waits up to 3 s for the check, then is shown once with the
-  right words (case A "You have this book..." + own Join hint; case B unchanged). Owners-only and no copy
-  (case C): no sheet, no invitation announcement; the listener joins just long enough to send
-  `.declinedNoCopy`, leaves, and shows "You need your own copy" (single OK, cancel-style; fallback
-  announcement/notification when it can't be shown). Join re-checks the files (sizes): unusable copy ->
-  download (send mode) or "Your copy can't be used" + decline (owners-only).
-- Own-copy playback: ListenerPlayer built at Join with the own files as already-arrived pieces at the
-  sharer's book times; the transport stops loading pieces; state is .listening(_, 1) from the start;
-  one announcement "Joined. Playing your copy." after 0.7 s; End hint "Leaves Listen Together. Your own
-  copy is kept." The library is never written (no progress, bookmarks, last played).
-- Safety: cleanup only removes ShareStorage folders; tests prove library files survive every teardown.
-- Sharer: Settings -> Playback -> Listen Together ("When someone doesn't have the book": Send it for this
-  session (default) / Only people who have the book can join), inline picker, footer, row value. Owners-
-  only shares upload nothing (manifest without pieces). Send mode always uploads (late joiners without a
-  copy; owners never download). First-share note depends on the mode.
-- Roster by id: decliners never counted/announced; sharer hears one "Someone couldn't join" per 10 s.
-- Guide updated (guidance section 5). 18 new strings + changed first-share message, in all 26 lproj.
-- Fix round 1 (this commit): hash covers audio data (MP4 `mdat` payload, MP3 after ID3v2; else file
-  start); joined line ~300 ms after the player's title focus (fallback 1.5 s); owners-only decline sent
-  only when the alert is on screen, notice kept until the app is active; 4 s join delay only in
-  owners-only; timeout says "Couldn't check your library"; own share during the check drops the
-  invitation; picker label removed. Round 2: waiting notice dropped unshown on session end or after 60 s.
+## Most recent work: addendum 3 Task A, reliable sending engine (2026-10-11, 87f4a744)
+- Pieces ~12 min (max 15, < 90 MB), cut at chapter starts; whole files <= 15 min copied.
+- PieceUploadScheduler: listener-requested piece (.needPiece) first, then the group position, forward,
+  wrap; re-asked before every piece (a far seek re-prioritises).
+- Piece failures never end the session: back-off 2/5/15/30 s, immediate retry on becoming active,
+  interruptions (cancel, AVError -11847, background) not counted; notice .retryingSend.
+- Sharer awake while pieces are left: idle timer off (restored), background task per piece ended on every
+  path (ListenTogetherAppSystem protocol).
+- Listener: AVQueuePlayer queues the next arrived piece (seamless); stall released after any load/seek/
+  play at an arrived piece; .requestState every 5 s until the manifest (sharer re-sends manifest + map).
+- Sharer presence: heartbeat 5 s; listener waits (.waitingForSharer, group suspended) after 15 s silence
+  while the group needs the sharer, or when alone in the roster; back within 60 s resumes, else
+  .sharerLeft. Sharer End -> .sharerEnded. endNotice holds either until Task B shows it.
+- Diagnostics (os Logger): export/upload start/end with preset/size/time, failures with domain/code,
+  app state, stall begin/end, commands, attachment loads, AVPlayerItem failures.
+- Earlier: addendum 2 own copy (fingerprint, own-copy playback, owners-only mode); see Notes.md.
 
-## Test evidence (2026-10-11, addendum 2)
-- Fix round 2: 20 SharePlay classes 265/0; full 837/0 ** TEST SUCCEEDED **; TSan 20 classes 265/0, 0
-  warnings. (Fix round 1: 261/833; addendum 2 first pass: 247/819.)
+## Test evidence (2026-10-11, addendum 3 Task A)
+- 21 SharePlay classes (20 + ListenTogetherReliableSendingTests) 308/0; full 880/0 ** TEST SUCCEEDED **
+  (first run); TSan 21 classes 308/0, 0 ThreadSanitizer warnings. (Addendum 2 fix round 2: 265/837.)
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
--only-testing:BookPlayerTests test (focused/TSan: `-only-testing:BookPlayerTests/<Class>` for the 20
-SharePlay classes, TSan adds `-enableThreadSanitizer YES`). Before addendum 2: 774 full, 202 SharePlay.
-- Ending a real stall suspension aborts inside CoreMedia under TSan only (wave-2 report, concern 1).
+-only-testing:BookPlayerTests test (focused/TSan: `-only-testing:BookPlayerTests/<Class>` per SharePlay
+class, TSan adds `-enableThreadSanitizer YES`).
+- Ending a real stall suspension aborts inside CoreMedia under TSan only (wave-2 report, concern 1);
+  new session tests use coordinatorControlFactory (fake control) for that reason.
 
 ## Local environment gotchas
 - Xcode 27 here, CI uses 26.4. Use the simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C.
@@ -95,8 +86,13 @@ SharePlay classes, TSan adds `-enableThreadSanitizer YES`). Before addendum 2: 7
 - TSan on the whole suite stops at a pre-existing DirectoryWatcher race; run SharePlay classes by name.
 
 ## Device and assistive-technology acceptance
-Status: install done on Becky's iPhone 15 Pro (from 54399521). Two-device run NOT done yet. Setup for
+Status: install done on Becky's iPhone 15 Pro (from 54399521). Field test of 5.22.2 (1) failed (session
+ended after Play, see addendum 3). Two-device run of Task A NOT done yet. Setup for
 the run: Becky + Michael, two iPhones, talking on Discord, session started from Messages, both locked.
+Task A checks (first): start from Messages with a long single-file m4b and an mp3 book; listener
+plays within seconds; percent moves; no gap at piece joins; sharer switches apps / locks mid-send
+(sending resumes, session never ends); airplane mode on the sharer for 30 s then back; sharer force-quits
+(listeners wait, end after ~75 s); sharer End; capture both devices' Console logs ("Listen Together:").
 Priority checks (new or risky; full wording in Notes.md, fix round 2 entry):
 1. Paused + locked 5+ minutes, then Play from the lock screen, from EACH side (whole-branch I4).
 2. R38/R39: own book during a listener session (question, Leave/Cancel/scrub, focus; locked refusal).
@@ -117,8 +113,11 @@ session time; refused presentation leaves presentingViewController nil); contras
 ## Known limitations
 - Streamed books and video cannot be shared (hidden or refused).
 - The sharer's exported pieces take about the book's size in tmp until the session ends.
+- A piece that fails for good (for example always too large) is retried every 30 s for ever; listeners
+  who need it wait. The sharer is told only by the .retryingSend notice (Task B shows it).
 - If the sharer switches books mid-session, listeners keep the old book (R12).
-- If the sharer's app is killed while the call continues, listeners wait (I5, R32).
+- If the sharer's app is killed, listeners wait up to 60 s after noticing (15 s silence while playing or
+  waiting, or at once when alone in the roster), then end; while everyone is paused they keep waiting.
 - Speed changes are saved in the sharer's library for that book.
 - Sleep timer and CarPlay chapter buttons on a listener act on the own book.
 - Own book cannot start from Siri/widget/CarPlay while locked during a listener session (R38/R39
@@ -137,12 +136,12 @@ session time; refused presentation leaves presentingViewController nil); contras
 - Audio session deactivation at listener end runs on main (M7, deliberately not moved: see report).
 
 ## Open problems and next steps (in order)
-1. Review addendum 2 (code + a11y) on `listen-together-own-copy`; then merge into develop (ask; Becky
-   and Michael are testing develop now, so not before they say).
-2. Two-device run of develop (list above); record results here and in Notes.md.
-3. Two-device run of addendum 2 (item 9), needs both phones to own the same book.
-4. Change A (streamed-book alert) of addendum 1.
-5. Upstream PR decision later (propose owners-only as the default upstream).
+1. Review Task A (code); then Task B: visible messages (R41) for .waitingForSharer, .retryingSend,
+   endNotice (.sharerEnded/.sharerLeft, one alert then nothing of the session), download percent;
+   Leave/Cancel Sharing buttons (R40); "Speak error messages" setting.
+2. Two-device run of Task A + B (list above); record results here and in Notes.md.
+3. Merge into develop (ask; Becky and Michael test develop).
+4. Change A (streamed-book alert) of addendum 1. 5. Upstream PR decision later.
 
 ## Decisions waiting on Becky
 - TestFlight: record whether a TestFlight build is wanted (and under which bundle ID) or device installs only.
