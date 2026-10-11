@@ -6,6 +6,9 @@ enum LocalPlaybackEvent: Equatable {
   case paused(at: TimeInterval)
   case seeked(to: TimeInterval, from: TimeInterval)
   case rateChanged(Float)
+  /// Sharer only: a group time was ignored because the group has not yet been seen at the sharer's
+  /// place (start-position fix D). The group is asked to seek to `at`. Never a message to others.
+  case reasserted(at: TimeInterval)
 }
 
 @MainActor

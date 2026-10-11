@@ -14,6 +14,8 @@ struct ListenTogetherStatusConditions: Equatable {
   var isPausedByOther = false
   /// Sharer: someone couldn't join (no copy).
   var someoneDeclined = false
+  /// Listener: the group's timing is not known yet; Play and the skips do nothing ("Joining…").
+  var isJoiningGroup = false
 }
 
 /// One status line in the banner: a first line, an optional second line, what VoiceOver reads and the
@@ -101,6 +103,13 @@ enum ListenTogetherStatus {
         let spokenDetail = downloaded < 1 ? baseSpoken : nil
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, spokenDetail), icon: .hourglass)
       }
+      if conditions.isJoiningGroup {
+        // Start-position fix C: why Play does nothing yet. The percent stays visible under it.
+        let text = "listen_together_joining".localized
+        let detail = downloaded < 1 ? base : nil
+        let spokenDetail = downloaded < 1 ? baseSpoken : nil
+        return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, spokenDetail), icon: .hourglass)
+      }
       if conditions.notice == .waitingForSharer, conditions.isListenerPlaying {
         // Silence only (a11y I4): the book keeps playing, so this is not "waiting"; nothing is announced.
         // Not before the manifest or while paused: "Getting the book" / the normal line stay (M2).
@@ -135,6 +144,7 @@ enum ListenTogetherStatus {
   static func waitingCaption(_ conditions: ListenTogetherStatusConditions) -> String? {
     if conditions.isSharerGraceRunning { return "listen_together_waiting_for_sharer".localized }
     if conditions.isWaitingForPiece { return "listen_together_waiting_download".localized }
+    if conditions.isJoiningGroup { return "listen_together_joining".localized }
     return nil
   }
 

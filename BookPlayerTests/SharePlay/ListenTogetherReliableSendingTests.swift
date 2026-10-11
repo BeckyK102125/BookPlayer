@@ -435,6 +435,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     listenerService.startListening(with: listenerTransport, shareID: id)
     listenerTransport.emit(.message(.manifest(manifest(id, pieces: 5))))
     await waitUntil { listenerService.listener != nil }
+    listenerService.bridge?.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
     listenerService.listener?.userJump(to: 35)
     await waitUntil { listenerTransport.sent.contains(.needPiece(index: 3)) }
     XCTAssertTrue(listenerTransport.sent.contains(.needPiece(index: 3)))
@@ -482,6 +483,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
     await waitUntil { service.listener?.isReady(at: 1) == true }
     let listener = try XCTUnwrap(service.listener)
+    service.bridge?.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
 
     listener.userJump(to: 15)   // piece 1 is missing: the group waits
     XCTAssertEqual(control.openSuspensions, 1)
@@ -495,6 +497,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     transport.emit(.message(.manifest(manifest(id))))
     await waitUntil { service.listener != nil }
     let listener = try XCTUnwrap(service.listener)
+    service.bridge?.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
     listener.userTogglePlay()   // at 0; piece 0 missing
     XCTAssertEqual(control.openSuspensions, 1)
 

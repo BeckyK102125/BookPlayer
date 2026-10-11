@@ -1132,3 +1132,47 @@ Parent f4d9cad4. Inputs: transfer-fix-rereview-1.md (ready to merge; 5 new Minor
   exported and uploaded (internal only): "Upload succeeded". Worktree, archive and export deleted.
 - Device test to do: both phones on build 3; sharer's phone on a Mac to read "journal upload failed: … rejection=" and transport-mode lines.
 - 2026-10-11 device result (Becky): build 5.22.2 (3) WORKS on a FaceTime call — audio arrives and plays in sync. Not yet known which path (journal Data vs chunk fallback); Messages start, locked phones, End/session end still to test.
+
+## 2026-10-11 - listen-together-start-position - start-position fix (build 4)
+Parent 77c3037c (develop). Field result on build 3: audio arrives and plays (FaceTime and Messages), but the
+session started at 0:00 and Michael's own saved place in the book became 0:00. Root cause:
+started-over-investigation.md (the sharer's `transitionToItem` proposal was made before
+`coordinateWithSession`; the listener's nil proposal is "paused at 0"; the listener's Play then made 0 the
+group's state; the sharer obeyed `play at 0` with `jumpTo(0)`, and `PlayerManager.jumpTo` always saves the
+time as progress). Brief: start-position-brief.md. Report: start-position-report.md.
+- A: `ListenTogetherCoordinatorBridge.start(session:)` replaces `coordinate(with:)`: connect the coordinator,
+  then `transitionToItem` (Apple's sample order); nothing is proposed in `init`; runs once.
+- B: sharer `assertPosition()` = `coordinateSeek(to: bookTime)` (+ rate change if playing) right after the
+  transition, and from `resendForLateJoiners` (roster/count growth, state requests) while the sharer target
+  is not yet `isGroupEstablished`. Start place = `groupPosition(for: item)`.
+- C: listener bridge `hasGroupTiming` false until its first play/pause/seek command (any matching command;
+  buffering doesn't count). `ListenerPlayer.isJoiningGroup` holds userTogglePlay/userJump/userSkip/
+  userSetRate (so buttons, lock screen, AirPods, Magic Tap, rotor) and calls `onActionWhileJoining` ->
+  "Joining…" announced, `joiningToggleLimiter` 3 s (same as the waiting message). Bridge also drops
+  listener reports before timing. Visible: `isListenerJoining` -> `statusConditions.isJoiningGroup` ->
+  status line "Joining…" (hourglass; percent as detail while downloading) and `waitingCaption` (caption
+  under the controls + Play button value). Reset in tearDown.
+- D: `SharerPlaybackTarget(playerManager:sharedItemUUID:startPosition:)`. `bookTime` = player time while it
+  holds the shared book, else the start place. Before `isGroupEstablished` (a group play/seek within 2 s of
+  the sharer's own place), other play/seek times are not applied: no `jumpTo`, play/pause in place, and
+  `LocalPlaybackEvent.reasserted(at:)` -> bridge `coordinateSeek` on the next main-queue turn (after the
+  command's completion handler). Pauses never establish or jump before then. Another book is never jumped
+  or played (`play()` skipped when the player holds a different book). Group seeks within 0.5 s of the
+  sharer's place no longer jump (avoids re-saving and a stutter on the echo of its own seek). Backstop in
+  `stop()`: unconfirmed, no local seek reported, shared book more than 2 s before the start -> `jumpTo(start,
+  recordBookmark: false)`. `remoteAction(.reasserted)` = nil (never a message).
+- E: comments say nil timing = "paused at zero"; listener test renamed testListenerProposesPausedAtZero.
+- Strings: `listen_together_joining` = "Joining…" in Base and all 25 other lproj (English).
+- Guide: Share step 10 (starts at your saved place, never moved back, kept if it ends early); Join step 7
+  ("Joining…" visible + spoken, controls do nothing until in step); Messages list includes joining.
+- Tests: new ListenTogetherStartPositionTests (21). Existing tests that drive a listener's own actions now
+  first deliver a coordinator command (`bridge.handlePause(itemTime: 0)`), and the bridge tests call
+  `start(session: nil)` before checking transitions.
+- TDD red: compile red first (new API), then with API stubs only: 21 tests, 19 failed (the 2 passing are
+  guards for behaviour that already held: deliberate jumps after confirmation, no restore after listening
+  on). Green: 30 SharePlay classes 508/0 (** TEST SUCCEEDED **); full suite "Executed 1080 tests, with 0
+  failures", ** TEST SUCCEEDED **; TSan on the 30 SharePlay classes 508/0, 0 ThreadSanitizer warnings
+  (xcodebuild hung after the results and was killed, as usual).
+- Not done / open: no fallback if a listener never receives a coordinator command (it would stay on
+  "Joining…"); Apple's behaviour for the explicit seek before anyone joined and for late joiners is
+  inferred, to be checked on devices (context.md item S).

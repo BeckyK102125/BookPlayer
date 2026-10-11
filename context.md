@@ -7,34 +7,30 @@ SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a d
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: two-device run of TestFlight build 5.22.2 (3) (develop 4f589c33, transfer fix), uploaded 2026-10-11.
-audio piece ever arrives ("Couldn't send part of the book"). Root cause and plan:
-.superpowers/sdd/2026-10-10-shareplay-listen-together/transfer-root-cause-2026-10-11.md; brief
-transfer-fix-brief.md; report transfer-fix-report.md. Branch `listen-together-transfer-fix` (from develop
-b73bd061), not pushed, waiting for review, then a two-device run of build 3.
-- Specs and plan: docs/superpowers/specs/2026-10-1*-*.md, docs/superpowers/plans/2026-10-10-*.md
-- User guide: docs/Listen-Together-Guide.md
+Current goal: build 4, start-position fix. Build 3 transfers audio and plays (FaceTime and Messages), but
+the session started at 0:00 and Michael's own saved place in his book was reset to 0 (protecting the
+sharer's progress is the top priority). Investigation: started-over-investigation.md; brief
+start-position-brief.md; report start-position-report.md. Branch `listen-together-start-position` (from
+develop 77c3037c), not pushed, waiting for review, then TestFlight build 4 and a two-device run.
+- Specs and plan: docs/superpowers/specs/, docs/superpowers/plans/. User guide: docs/Listen-Together-Guide.md
 - Ledger, briefs, reports, rulings: .superpowers/sdd/2026-10-10-shareplay-listen-together/ (progress.md).
-  Latest: transfer-root-cause-2026-10-11.md, transfer-fix-brief.md, transfer-fix-report.md.
+  Latest: started-over-investigation.md, start-position-brief.md, start-position-report.md.
 
 ## Branches and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - On origin: `develop` (85c42b29, pushed 2026-10-11), `listen-together-messages` (9c70dd06),
   `listen-together-lock-screen` (63e9578b), `shareplay-listen-together` (e634f5c7).
-- `listen-together-transfer-fix` (local, not pushed): 41efa526 transfer fix A + B, readable errors,
-  SharePlay really ends; f4d9cad4 fix round 1; this commit = fix round 2. Clean after the commit.
-- `develop` (b73bd061, docs commit on top of 85c42b29, pushed) fast-forwarded from `listen-together-own-copy`
-  (local branch, same commits, not pushed): addendum 2 (de1f5731,
-  7bf22248, 0b5aacdd), addendum 3 ruling 1598e8d4, Task A (87f4a744, de116941, d786c79e, 9cedab87),
-  Task B (482ba093, 572d267b, 282f27c4, 27d86fd2), final review fixes 85c42b29 (re-review: ready).
-  No extra worktrees (the TestFlight worktree was removed after each upload).
+- `listen-together-start-position` (local, not pushed; parent 77c3037c on develop): this commit = the
+  start-position fix A-D with tests, guide and notes. Clean after the commit.
+- `develop` at 77c3037c (notes commits on top of 4f589c33 = transfer fix, build 3; earlier history
+  (addenda 2-3, Tasks A-B, final review) in Notes.md). No extra worktrees.
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 
 ## TestFlight and devices
-- Build 1: 5.22.2 (1) (9c70dd06) failed in the field (ended 0.4 s after Play) -> addendum 3. Build 2:
-  5.22.2 (2) (85c42b29), internal group "Listen Together": no piece arrives -> this fix. Both phones must
-  run the same build (protocol changes; chunk mode needs both sides on build 3).
+- Build 1 (9c70dd06) ended 0.4 s after Play; build 2 (85c42b29) no piece arrived; build 3 (4f589c33) plays
+  on FaceTime and Messages but started at 0:00 and reset the sharer's place -> this branch (build 4).
+  Both phones must run the same build.
 - Local device installs: team Techopolis (M9SNPTXA44), bundle ID app.techopolis.BookPlayer-together, local
   Debug.xcconfig only. Pass signing on the command line; revert any pbxproj/Info.plist churn Xcode writes.
 
@@ -51,39 +47,37 @@ b73bd061), not pushed, waiting for review, then a two-device run of build 3.
   sharer leaving the roster starts the 60 s grace; Becky: after the sharer ends/leaves, one message, then
   no Listen Together UI for that book. sharerLeft keeps the spec sentence.
 
-## Transfer fix (this branch, build 3)
-- A: `PieceTransfer` is a `DataRepresentation(contentType: .data)` (file memory-mapped on the sharer);
-  `journal.add(_:metadata: PieceMetadata(pathExtension:))`; the listener names the file with that extension
-  (`receivedFileName`, `m4a` fallback). `maxPieceBytes` 90 MB -> 25 MB (planner target still ~12 min).
-- B: `MessengerPieceChannel` + `PieceChunks.swift`: second reliable messenger, raw `LTCK` chunks of 192 KB
-  (48-byte header: id, index, count, size, CRC-32, extension), `LTCC` control frames (transportMode,
-  chunksMissing, pieceGone). Window 2-3, back-off 100/250/500 ms/1 s, 8 failures in a row fail the piece.
-  Listener: pre-sized `.part` in the share folder, gaps asked for after the last chunk and on the service's
-  retry timer (stale 5 s), CRC check, `.attachmentReceived` as before. Sharer keeps the 3 latest pieces;
-  older ones are deleted (only inside the share folder) and reported gone -> `needPiece` re-exports.
-  Fix round 1: frames over 100 MB rejected (no overflow/alloc crash); chunks only from the sharer, at most
-  4 pieces assembling; listener `journalUnusable` (notSupported or 2 load failures) switches the sharer and
-  the listener re-asks its missing pieces with `needPiece`; journal-domain errors count in any app state;
-  all mode logic in `ListenTogetherTransferCoordinator` (tested); chunk disk work off the main actor.
-  Round 2: the listener re-asks missing pieces on every announcement after its report; incoming/ emptied
-  at teardown; nothing starts after stop.
-  Switch per session after 2 non-interruption journal failures or any `notSupported`; announced to all and
-  to later joiners. B added `end()` and `stopPieceTransfers()` to the protocol (defaults; End uses both).
-- Guide (41efa526, round 2): slower fallback, End stops SharePlay, sharer quitting, late joiners.
-- Errors: `ListenTogetherErrorDescription` (type/case, domain, code, underlying) public on failure lines.
-- End: sharer End -> `.sessionEnding`, 0.5 s, `transport.end()` (`GroupSession.end()`), all within 2 s;
-  listeners leave; chunk transfers stop first. App terminating (only): sharer ends at once, listener leaves.
+## Start-position fix (this branch, build 4)
+- A: the bridge no longer transitions in `init`. `start(session:)` connects the coordinator
+  (`coordinateWithSession`) and only then calls `transitionToItem` (Apple's sample order); runs once.
+- B: the sharer then asserts its place with `coordinateSeek(to:)` (+ `coordinateRateChange` if playing).
+  The place is `groupPosition(for: item)` (the shared book's saved time when the player holds no book or
+  another one). `resendForLateJoiners` (roster growth, count growth, state requests) asserts it again while
+  the group is not yet confirmed.
+- C: a listener bridge has `hasGroupTiming` = false until its first play/pause/seek command for the item.
+  Until then `ListenerPlayer.isJoiningGroup` makes Play/Pause/skips/speed (buttons, lock screen, AirPods,
+  Magic Tap, rotor) do nothing and call `onActionWhileJoining`: "Joining…" announced, at most every 3 s
+  (`joiningToggleLimiter`). The bridge also drops listener reports before timing. Visible: status line
+  "Joining…" (hourglass, percent below while downloading), the caption under the controls and the Play
+  button's value (`waitingCaption`), via `isListenerJoining` / `statusConditions.isJoiningGroup`.
+- D: `SharerPlaybackTarget(playerManager:sharedItemUUID:startPosition:)`. Until a group play/seek arrives
+  within 2 s of the sharer's own place (`isGroupEstablished`), other times are not applied: no `jumpTo`
+  (it always saves progress), play/pause where it is, `.reasserted(at:)` -> the bridge coordinates a seek
+  there on the next main-queue turn (after the command completes). Pauses never establish. Another book is
+  never jumped or played. Backstop at `stop()`: unconfirmed, no local seek, shared book now more than 2 s
+  before the start -> `jumpTo(start)`. Group seeks within 0.5 s of where the sharer is no longer jump.
+- E: comments say nil timing = "paused at zero". New string `listen_together_joining` ("Joining…") in Base
+  and all lproj (English).
 
-## What is built before this branch (summary; details in Notes.md)
-- Addendum 2: own copy (fingerprint match, plays in place), owners-only mode.
-- Task A: ~12 min pieces, send-ahead scheduler (.needPiece), retries with back-off, sharer kept awake,
-  AVQueuePlayer, state requests, heartbeat, roster grace, diagnostics ("Listen Together:" logs).
-- Task B: one message-delivery path (alerts, status + one announcement, speech), Speak, Leave buttons.
-- Final review fixes (85c42b29): own copy unplayable -> leave with alert, and minors.
+## Built before this branch (on develop; details in Notes.md)
+- Addendum 2 own copy + owners-only; Task A pieces/scheduler/retries/heartbeat/grace; Task B one message
+  path, Speak, Leave; final review fixes; transfer fix (build 3): pieces as `Data` with a chunked messenger
+  fallback, readable error logs, End really ends SharePlay.
 
-## Test evidence (2026-10-11, transfer fix)
-- Red checks each round (Notes.md). Round 2 green: 29 SharePlay classes 487/0; full suite 1059/0
-  (** TEST SUCCEEDED **, after one known InsertBooksTests crash rerun); TSan 487/0, 0 warnings.
+## Test evidence (2026-10-11, start-position fix)
+- New class ListenTogetherStartPositionTests (21 tests). Red with API stubs only: 19 of 21 failed (the 2
+  passing guard behaviour that already held). Green: 30 SharePlay classes 508/0; full suite 1080/0
+  (** TEST SUCCEEDED **); TSan on the 30 SharePlay classes 508/0, 0 ThreadSanitizer warnings.
 - Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
   Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests" -only-testing:BookPlayerTests
   test (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`).
@@ -99,10 +93,14 @@ b73bd061), not pushed, waiting for review, then a two-device run of build 3.
 ## Device and assistive-technology checks (two-device run, both phones on the same build)
 Setup: Becky (VoiceOver) + Michael (Zoom, VoiceOver off), two iPhones, Discord, start from Messages.
 Capture both Console logs filtered on "Listen Together:".
-0. Build 3 first: the sharer's log shows `uploaded piece 0` (journal works) or `journal upload failed:
-   ... notSupported` then `transport mode chunks (sharer ...)` and `chunks sent piece ... rate=...B/s`;
-   the listener shows `attachment ... loaded` or `transport mode chunks (listener ...)` and
-   `chunks piece ... received`. Rate must be at least 32 KB/s. SharePlay indicator gone after End.
+S. Build 4 first (start position): Michael paused at, say, 2:13:00, starts from Messages; Becky joins.
+   Becky hears 2:13:00; Michael's library still shows 2:13:00 afterwards. Logs: sharer "asserting the
+   sharer's place", "the group is at the sharer's place"; listener "the group's timing is known"; no
+   "Time = 0.0" rate change. Repeat with Becky pressing Play at once on join ("Joining…" seen and heard
+   once, nothing moves), with the book not open in Michael's player, on FaceTime, and with End before
+   anyone joined (Michael's place unchanged). Check "Joining…" at Zoom 3x and in the 11 themes.
+0. Build 3 checks still open: which path carried the pieces (journal `uploaded piece` or `transport mode
+   chunks`, rate at least 32 KB/s); SharePlay indicator gone after End.
 1. Start with a long single-file m4b and an mp3 book: listener plays within seconds; percent moves; no gap
    at piece joins.
 2. Sharer switches apps / locks mid-send: session goes on; airplane mode 30 s then back.
@@ -138,9 +136,11 @@ Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.
 - Own copy: other editions/recordings never match; plays at the sharer's file boundaries (±2 s).
 
 ## Open problems and next steps (in order)
-1. Review of the transfer fix branch; merge to develop; TestFlight build 3 (Becky approves upload).
-2. Two-device run on build 3 (item 0 first, then the list above); record results here and in Notes.md.
-3. Parked minors: M3 protocol version, M4 late-join resend, M7 endNotice (unused outside the service), M8
+1. Review of the start-position branch; merge to develop; TestFlight build 4 (Becky approves upload).
+2. Two-device run on build 4 (item S first, then the list above); record results here and in Notes.md.
+3. If a listener ever stays on "Joining…" (no coordinator command arrives), there is no fallback yet:
+   decide one from the device logs (for example `reapplyCurrentItemStateToPlaybackControlDelegate`).
+4. Parked minors: M3 protocol version, M4 late-join resend, M7 endNotice (unused outside the service), M8
    two notification-permission checks. Change A (streamed-book alert). Upstream PR decision later.
 
 ## Decisions waiting on Becky

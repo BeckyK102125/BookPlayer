@@ -472,6 +472,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertFalse(service.isPausedByOther)
     transport.emit(.message(.action(.paused)))
     await waitUntil { service.isPausedByOther }
+    service.bridge?.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
     try XCTUnwrap(service.listener).userTogglePlay()
     XCTAssertFalse(service.isPausedByOther, "the person's own play clears it")
   }

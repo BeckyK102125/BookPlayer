@@ -332,6 +332,7 @@ final class SharePlaySessionServiceTests: XCTestCase {
     transport.emit(.message(.manifest(manifest(id))))
     await waitUntil { service.listener != nil }
     let listener = try? XCTUnwrap(service.listener)
+    service.bridge?.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
 
     listener?.userSetRate(1.5)
     listener?.userSetRate(2)
@@ -354,7 +355,7 @@ final class SharePlaySessionServiceTests: XCTestCase {
     // No stall suspension on the real (session-less) coordinator here: under Thread Sanitizer, ending
     // one aborts inside CoreMedia (see fix-wave-2-report.md). The wait itself is what this test needs.
     listener.onNeedsPiece = nil
-    listener.applyPlay(at: 0, rate: 1)   // the group plays, the piece is missing
+    service.bridge?.handlePlay(itemTime: 0, rate: 1)   // the group plays, the piece is missing
     XCTAssertTrue(listener.isWaitingForPiece)
     posted = []
 

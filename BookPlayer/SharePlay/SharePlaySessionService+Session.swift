@@ -41,12 +41,17 @@ extension SharePlaySessionService {
     startEventLoop(on: transport)
     startOutbox(on: transport)
 
-    let target = SharerPlaybackTarget(playerManager: playerManager)
+    // The group starts at the shared book's saved place, also when the player holds no book or another
+    // one (start-position fix B), and the target never lets the group move that place before the group
+    // has been seen there (fix D).
+    let target = SharerPlaybackTarget(
+      playerManager: playerManager, sharedItemUUID: item.uuid, startPosition: groupPosition(for: item))
     sharerTarget = target
     let bridge = ListenTogetherCoordinatorBridge(
       target: target, shareID: shareID, role: .sharer, control: coordinatorControlFactory?())
     self.bridge = bridge
-    if let activeSession { bridge.coordinate(with: activeSession) }
+    // Connect first, then transition and assert the place (fix A).
+    bridge.start(session: activeSession)
     observeLocalEvents(of: target)
     scheduleHeartbeat(on: transport)
     Self.logger.info("Listen Together: sharing started, ownersOnly=\(ownersOnly, privacy: .public)")
@@ -417,6 +422,19 @@ extension SharePlaySessionService {
       guard let self, self.sharerWaitToggleLimiter.allows(at: Date()) else { return }
       self.announcer.announce("listen_together_waiting_for_sharer".localized)
     }
+    // Start-position fix C: until the first coordinator command, the group's timing is unknown here.
+    // Play, pause, skips and speed do nothing to the group; "Joining…" shows in the status and under
+    // the controls, and a press says it (VoiceOver), at most every 3 s like "Waiting for the book".
+    player.isJoiningGroup = !bridge.hasGroupTiming
+    setListenerJoining(!bridge.hasGroupTiming)
+    player.onActionWhileJoining = { [weak self] in
+      guard let self, self.joiningToggleLimiter.allows(at: self.now()) else { return }
+      self.announcer.announce("listen_together_joining".localized)
+    }
+    bridge.onGroupTimingKnown = { [weak self, weak player] in
+      player?.isJoiningGroup = false
+      self?.setListenerJoining(false)
+    }
     // The status line and the Zoom caption follow the player's wait for a piece.
     player.$isWaitingForPiece
       .removeDuplicates()
@@ -432,7 +450,8 @@ extension SharePlaySessionService {
       .store(in: &localEventsBag)
     self.bridge = bridge
     setListener(player)
-    if let activeSession { bridge.coordinate(with: activeSession) }
+    // Connect first, then transition (fix A).
+    bridge.start(session: activeSession)
     observeLocalEvents(of: player)
     // Pieces that arrived before the manifest.
     for (attachmentID, index) in pieceIndexByAttachment {
@@ -732,8 +751,13 @@ extension SharePlaySessionService {
 
   /// Late joiners get journal attachments automatically, but not earlier messages: re-send the
   /// manifest and the piece map. Nothing is uploaded again.
+  ///
+  /// Until the group has been seen at the sharer's place, the place is asserted again too, so someone
+  /// arriving before then starts there (start-position fix B).
   private func resendForLateJoiners(on transport: ListenTogetherTransport) async {
-    guard role == .sharer, let manifest else { return }
+    guard role == .sharer else { return }
+    if sharerTarget?.isGroupEstablished == false { bridge?.assertPosition() }
+    guard let manifest else { return }
     await send(.manifest(manifest), on: transport)
     for message in uploadedPieceMessages {
       guard self.transport === transport else { return }
@@ -814,6 +838,7 @@ extension SharePlaySessionService {
     case .played: return .resumed
     case .paused: return .paused
     case .rateChanged(let rate): return .speedChanged(rate: rate)
+    case .reasserted: return nil   // the sharer's own place, asserted to the coordinator only
     case .seeked(let to, let from):
       if let chapter = manifest?.chapter(at: to), chapter != manifest?.chapter(at: from) {
         return .movedToChapter(title: chapter.title)

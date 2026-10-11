@@ -23,6 +23,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   var isHeldForSharer = false
   /// Play or pause pressed while `isHeldForSharer`: nothing happens; the service says why.
   var onToggleWhileHeldForSharer: (() -> Void)?
+  /// True until the group's timing is known here (the first coordinator command; set by the service).
+  /// Meanwhile this player's timeline is "paused at 0", so play, pause, skips and speed would move the
+  /// whole group there (the 0:00 start, build 3): they do nothing, and the service says "Joining…".
+  var isJoiningGroup = false
+  /// A control was used while `isJoiningGroup`: nothing happened; the service says why.
+  var onActionWhileJoining: (() -> Void)?
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
   /// is no longer needed can end (path 3).
   var onPositionReady: (() -> Void)?
@@ -198,6 +204,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       onToggleWhileHeldForSharer?()
       return
     }
+    if isJoiningGroup {
+      onActionWhileJoining?()
+      return
+    }
     // The group is playing but held for our piece: toggling would only send everyone a second play
     // (or, to the user's ear, a pause that stops the group for no reason). Do nothing; say we wait.
     // A paused seek into a missing piece is different: Play there still starts the group (R14).
@@ -224,6 +234,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func userSkip(by seconds: TimeInterval) { userJump(to: bookTime + seconds) }
 
   func userJump(to target: TimeInterval) {
+    if isJoiningGroup {
+      onActionWhileJoining?()
+      return
+    }
     let from = bookTime
     let clamped = min(max(0, target), manifest.duration)
     subject.send(.seeked(to: clamped, from: from))
@@ -231,6 +245,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   }
 
   func userSetRate(_ newRate: Float) {
+    if isJoiningGroup {
+      onActionWhileJoining?()
+      return
+    }
     subject.send(.rateChanged(newRate))
     applyRate(newRate)
   }

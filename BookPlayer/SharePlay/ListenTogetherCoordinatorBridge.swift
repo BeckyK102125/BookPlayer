@@ -12,7 +12,8 @@ protocol ListenTogetherCoordinatorControlling: AnyObject {
   /// Begins a stall-recovery suspension and returns a closure that ends it.
   func beginStallSuspension() -> () -> Void
   /// Makes `identifier` the current item. With a `time`, proposes that the item is at `time` moving
-  /// at `rate` (0 when paused); with nil, the coordinator assumes paused at zero.
+  /// at `rate` (0 when paused). With nil, the coordinator assumes the item is paused at zero: that is a
+  /// proposal too, not "no proposal" (Apple's documentation).
   func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float)
 }
 
@@ -30,9 +31,20 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   private var endSharerHold: (() -> Void)?
   private var disposeBag = Set<AnyCancellable>()
   private var isInvalidated = false
+  private let role: SharePlaySessionService.Role
+  private var isStarted = false
+  /// Listener: true once the first coordinator command for this item has arrived, so the group's
+  /// timing is known here. Until then nothing local is sent to the group (start-position fix C): a
+  /// listener's own timeline is "paused at 0", and a play or skip from it could become the group's.
+  /// Always true for the sharer, whose place is where the group starts.
+  private(set) var hasGroupTiming: Bool
+  /// Called once, when `hasGroupTiming` becomes true.
+  var onGroupTimingKnown: (() -> Void)?
 
-  /// `role` decides the initial timing: the sharer proposes where it really is (time and rate), so the
-  /// group starts there; a listener proposes nothing and adopts the group's timing.
+  /// `role` decides the initial timing (`start(session:)`): the sharer proposes where it really is
+  /// (time and rate) and then asserts that place with a coordinated seek, so the group starts there; a
+  /// listener's transition proposes "paused at zero" and it adopts the group's timing from the first
+  /// command.
   init(
     target: ListenTogetherPlaybackTarget,
     shareID: UUID,
@@ -41,6 +53,8 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   ) {
     self.target = target
     self.itemIdentifier = shareID.uuidString
+    self.role = role
+    self.hasGroupTiming = role == .sharer
     super.init()
 
     if let control {
@@ -51,23 +65,47 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
       self.realCoordinator = coordinator
       self.control = DelegatingCoordinatorControl(coordinator: coordinator)
     }
-    switch role {
-    case .sharer:
-      self.control.transitionToItem(
-        withIdentifier: itemIdentifier,
-        proposingTime: target.bookTime,
-        rate: target.isPlaying ? target.rate : 0)
-    case .listener:
-      self.control.transitionToItem(withIdentifier: itemIdentifier, proposingTime: nil, rate: 0)
-    }
-
     target.localEvents
       .sink { [weak self] event in self?.report(event) }
       .store(in: &disposeBag)
   }
 
-  func coordinate(with session: GroupSession<ListenTogetherActivity>) {
-    realCoordinator?.coordinateWithSession(session)
+  /// Connects the coordinator to `session` first and only then makes the shared book its item, the
+  /// order of Apple's "Supporting coordinated media playback" sample (start-position fix A): a
+  /// proposal made before connecting was never seen by the group (the 0:00 start, build 3). The sharer
+  /// then asserts its place explicitly (fix B). `session` is nil in tests. Runs once.
+  func start(session: GroupSession<ListenTogetherActivity>?) {
+    guard !isStarted, !isInvalidated, let target else { return }
+    isStarted = true
+    if let session { realCoordinator?.coordinateWithSession(session) }
+    switch role {
+    case .sharer:
+      control.transitionToItem(
+        withIdentifier: itemIdentifier,
+        proposingTime: target.bookTime,
+        rate: target.isPlaying ? target.rate : 0)
+      assertPosition()
+    case .listener:
+      control.transitionToItem(withIdentifier: itemIdentifier, proposingTime: nil, rate: 0)
+    }
+  }
+
+  /// Sharer: puts the group at this device's place with a coordinated seek (and its speed when
+  /// playing), an explicit group command that does not depend on how Apple treats initial proposals.
+  /// Called after starting, and when someone joins before the group has been seen at that place.
+  func assertPosition() {
+    guard role == .sharer, isStarted, !isInvalidated, let target else { return }
+    Self.logger.info("Listen Together: asserting the sharer's place \(target.bookTime, privacy: .public)")
+    control.coordinateSeek(to: target.bookTime)
+    if target.isPlaying { control.coordinateRateChange(to: target.rate) }
+  }
+
+  /// A coordinator command for this item arrived: the group's timing is known from now on.
+  private func noteGroupTiming() {
+    guard !hasGroupTiming else { return }
+    hasGroupTiming = true
+    Self.logger.info("Listen Together: the group's timing is known")
+    onGroupTimingKnown?()
   }
 
   /// Begins a `.stallRecovery` suspension if not already suspended.
@@ -119,6 +157,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
 
   func handlePlay(itemTime: TimeInterval, rate: Float) {
     guard !isInvalidated else { return }
+    noteGroupTiming()
     target?.applyPlay(at: itemTime, rate: rate)
     pieceBecameAvailable()
   }
@@ -126,6 +165,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   /// A pause with `shouldBuffer` is also a request to buffer in anticipation of playback.
   func handlePause(itemTime: TimeInterval, shouldBuffer: Bool = false) {
     guard !isInvalidated else { return }
+    noteGroupTiming()
     target?.applyPause(at: itemTime)
     if shouldBuffer { waitIfNotReady() } else { pieceBecameAvailable() }
   }
@@ -133,6 +173,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   /// A seek with `shouldBuffer` is also a request to buffer in anticipation of playback.
   func handleSeek(itemTime: TimeInterval, shouldBuffer: Bool = false) {
     guard !isInvalidated else { return }
+    noteGroupTiming()
     target?.applySeek(to: itemTime)
     if shouldBuffer { waitIfNotReady() } else { pieceBecameAvailable() }
   }
@@ -149,6 +190,11 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   // MARK: Local changes -> coordinator
 
   private func report(_ event: LocalPlaybackEvent) {
+    // Belt and braces for fix C (the listener's player already holds its actions while joining).
+    if role == .listener, !hasGroupTiming {
+      Self.logger.info("Listen Together: not sent, the group's timing is not known yet")
+      return
+    }
     switch event {
     case .played(_, let rate):
       control.coordinateRateChange(to: rate)
@@ -158,6 +204,16 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
       control.coordinateSeek(to: to)
     case .rateChanged(let rate):
       if target?.isPlaying == true { control.coordinateRateChange(to: rate) }
+    case .reasserted(let time):
+      // Sent from inside a coordinator command: coordinated after that command has completed (the
+      // main queue is FIFO, and the command's completion handler runs in the same turn as the command).
+      DispatchQueue.main.async { [weak self] in
+        MainActor.assumeIsolated {
+          guard let self, !self.isInvalidated else { return }
+          Self.logger.info("Listen Together: the group was elsewhere; reasserting \(time, privacy: .public)")
+          self.control.coordinateSeek(to: time)
+        }
+      }
     }
   }
 }

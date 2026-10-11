@@ -529,6 +529,7 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_ended" = "Listen Together ended";
 "listen_together_download_progress" = "Book %d percent downloaded";
 "listen_together_waiting_download" = "Waiting for the book";
+"listen_together_joining" = "Joining…";
 "listen_together_send_failed" = "Couldn't send part of the book. Trying again.";
 "listen_together_unavailable" = "Listen Together isn't available right now.";
 "listen_together_invitation_message_no_author" = "Listen to %@ together.";

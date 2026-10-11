@@ -95,6 +95,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   @Published private(set) var isPausedByOther = false
   /// Sharer, owners-only: someone couldn't join (no copy). Shown until the count changes or the end (E11).
   @Published private(set) var someoneDeclined = false
+  /// Listener: the group's timing is not known yet (no coordinator command so far). Local play, pause,
+  /// skips and speed do nothing to the group meanwhile; the status says "Joining…".
+  @Published private(set) var isListenerJoining = false
 
   /// What the status line needs besides the state.
   var statusConditions: ListenTogetherStatusConditions {
@@ -102,7 +105,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       notice: notice, isSharerGraceRunning: isSharerGraceRunning,
       isWaitingForPiece: isListenerWaitingForPiece, isListenerPlaying: isListenerPlaying,
       isPausedByOther: isPausedByOther,
-      someoneDeclined: someoneDeclined)
+      someoneDeclined: someoneDeclined,
+      isJoiningGroup: isListenerJoining)
   }
 
   /// Every alert, announcement and spoken message goes through here (guidance A.2).
@@ -214,6 +218,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var waitingToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
   /// Play pressed while the person sharing is missing: "Waiting for the person sharing" at most every 2 s.
   var sharerWaitToggleLimiter = ListenTogetherRepeatLimiter(interval: 2)
+  /// A control pressed while joining: "Joining…" at most once per 3 s (like the waiting message).
+  var joiningToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
   /// Roster by participant id (when the transport reports ids): everyone present, everyone counted
   /// (present for `joinConfirmationDelay` and not declined), and everyone who declined.
   var rosterIDs = Set<UUID>()
@@ -368,6 +374,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setListenerPlaying(_ value: Bool) { if isListenerPlaying != value { isListenerPlaying = value } }
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
+  func setListenerJoining(_ value: Bool) { if isListenerJoining != value { isListenerJoining = value } }
 
   /// "Couldn't send part of the book. Trying again." is said once per episode (guidance A.2, C5), until
   /// every piece is sent again.
@@ -1047,6 +1054,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     notice = nil
     isSharerGraceRunning = false
     isListenerWaitingForPiece = false
+    isListenerJoining = false
+    joiningToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
     isListenerPlaying = false
     isPausedByOther = false
     someoneDeclined = false

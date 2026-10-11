@@ -67,6 +67,7 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     let target = FakePlaybackTarget()
     let control = FakeCoordinatorControl()
     let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: UUID(), control: control)
+    bridge.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
     target.subject.send(.played(at: 10, rate: 1.5))
     target.subject.send(.paused(at: 12))
     target.subject.send(.seeked(to: 300, from: 12))
@@ -173,6 +174,7 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     let control = FakeCoordinatorControl()
     let shareID = UUID()
     let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: shareID, role: .sharer, control: control)
+    bridge.start(session: nil)
     XCTAssertEqual(control.transitions, [.init(identifier: shareID.uuidString, time: 120, rate: 1.5)])
     withExtendedLifetime(bridge) {}
   }
@@ -185,17 +187,20 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     let control = FakeCoordinatorControl()
     let shareID = UUID()
     let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: shareID, role: .sharer, control: control)
+    bridge.start(session: nil)
     XCTAssertEqual(control.transitions, [.init(identifier: shareID.uuidString, time: 75, rate: 0)])
     withExtendedLifetime(bridge) {}
   }
 
-  func testListenerProposesNoTiming() {
+  /// Nil timing means "paused at zero" to the coordinator; the listener adopts the group's timing.
+  func testListenerProposesPausedAtZero() {
     let target = FakePlaybackTarget()
     target.bookTime = 75
     target.isPlaying = true
     let control = FakeCoordinatorControl()
     let shareID = UUID()
     let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: shareID, role: .listener, control: control)
+    bridge.start(session: nil)
     XCTAssertEqual(control.transitions, [.init(identifier: shareID.uuidString, time: nil, rate: 0)])
     bridge.invalidate()
     XCTAssertEqual(control.transitions.last, .init(identifier: nil, time: nil, rate: 0))
@@ -215,6 +220,7 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     let control = FakeCoordinatorControl()
     let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: UUID(), control: control)
     player.onNeedsPiece = { _ in bridge.waitForPiece() }
+    bridge.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
 
     player.userJump(to: 15)
 
@@ -227,6 +233,7 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     let control = FakeCoordinatorControl()
     let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: UUID(), control: control)
     player.onNeedsPiece = { _ in bridge.waitForPiece() }
+    bridge.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
 
     player.userTogglePlay()
 
