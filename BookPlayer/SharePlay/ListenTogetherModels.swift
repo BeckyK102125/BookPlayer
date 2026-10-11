@@ -1,8 +1,11 @@
 import Foundation
 
 enum ListenTogetherLimits {
-  /// SharePlay journal attachments are capped at 100 MB; keep a margin.
-  static let maxPieceBytes: Int64 = 90_000_000
+  /// SharePlay journal attachments are capped at 100 MB, but a journal piece now travels as `Data` and
+  /// the listener's import holds it in memory whole (transfer fix A): pieces stay at most 25 MB. The
+  /// planner's target (about 12 minutes, around 6 MB at 64 kbps) is unchanged; only high-bitrate
+  /// sources are cut shorter.
+  static let maxPieceBytes: Int64 = 25_000_000
 }
 
 struct SharedChapter: Codable, Equatable {

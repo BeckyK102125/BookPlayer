@@ -76,6 +76,8 @@ People listening do not need their own copy of the book, unless the person shari
 
 If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives. While it tries again, the status line on your player says "Couldn't send part of the book. Trying again." until the part has been sent, and the Listen Together row above the tab bar says "couldn't send part of the book, trying again". VoiceOver says it once each time this starts.
 
+If SharePlay doesn't accept the parts of the book the usual way, BookPlayer switches by itself to a slower way of sending them, for the rest of that session. Before it switches you may see "Couldn't send part of the book. Trying again." once. Nothing else changes on screen, but listeners may wait longer for each part to arrive (the percentage still goes up with every part).
+
 If BookPlayer can't read the book's files at all, nothing can be sent. A message says "Couldn't prepare the book for sharing. Listen Together ended." Choose OK. Listeners see "The person sharing couldn't prepare the book. Listen Together ended."
 
 If the call or the connection ends without anyone choosing End, the person sharing sees "Listen Together ended because the call or connection ended." and listeners see "Listen Together ended because the connection to the person sharing was lost." Each is a message with OK.
@@ -168,7 +170,7 @@ When the session ends, the lock screen, Control Center and AirPods control your 
 
 ## End the session
 
-- **If you are sharing:** choose **End Listen Together** in the status line on the player. BookPlayer asks you to confirm. It ends for everyone. VoiceOver says "Listen Together ended".
+- **If you are sharing:** choose **End Listen Together** in the status line on the player. BookPlayer asks you to confirm. It ends for everyone, and SharePlay stops on every iPhone. VoiceOver says "Listen Together ended".
 - **If you are listening:** choose **Leave Listen Together** (in the status line on the player, or under the status on "Getting the book"). BookPlayer asks "Leave Listen Together?": "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone." Choose **Leave**, or **Cancel** (the two-finger scrub is Cancel). After Leave the Listen Together screen closes, VoiceOver moves to your own mini player if it is shown, and says "You left Listen Together." The others keep listening. If you listened with your own copy, the question says your copy stays in your library.
 - The two-finger scrub never ends or leaves Listen Together: it only closes the screen.
 - The Listen Together row only opens the player; it cannot end the session.
@@ -176,7 +178,9 @@ When the session ends, the lock screen, Control Center and AirPods control your 
 
 When the person sharing ends Listen Together, every listener gets one message: "The person sharing ended Listen Together." First the player closes, the Listen Together row goes away and the temporary copy is deleted; then the message appears in the middle of the screen and stays until you choose OK (the two-finger scrub also closes it). VoiceOver reads it once. Afterwards nothing of that session is left, and VoiceOver moves to your own mini player if it is shown. To listen together again, the person sharing sends a new invitation.
 
-If the person sharing leaves Listen Together (they are no longer in the session, for example their iPhone lost its connection or BookPlayer was closed), everyone pauses and waits. The status line says "Waiting for the person sharing" and "If they are not back within a minute, Listen Together ends." Play does nothing while you wait (it says why). If they are back within a minute, the book carries on and VoiceOver says "The person sharing is back." If not, Listen Together ends for everyone with one message, "The person sharing left. Listen Together ended.", the same way as above.
+If the person sharing closes BookPlayer while it is running (for example swipes it away in the app switcher during the session), Listen Together ends for everyone at once, and listeners see "Listen Together ended because the connection to the person sharing was lost." A listener who closes BookPlayer this way only leaves; the others keep listening.
+
+If the person sharing leaves Listen Together in another way (they are no longer in the session, for example their iPhone lost its connection), everyone pauses and waits. The status line says "Waiting for the person sharing" and "If they are not back within a minute, Listen Together ends." Play does nothing while you wait (it says why). If they are back within a minute, the book carries on and VoiceOver says "The person sharing is back." If not, Listen Together ends for everyone with one message, "The person sharing left. Listen Together ended.", the same way as above.
 
 If the person sharing is still in the session but their iPhone has gone quiet (for example they switched to another app or locked the phone while the book was still being sent), listeners may see "Can't reach the person sharing. The book keeps playing." Nothing is announced or spoken for this, because the book goes on. This never ends Listen Together.
 
@@ -211,6 +215,7 @@ Your own copy is never deleted or moved by Listen Together, and its place, bookm
 - Invitations from other people are ignored while your own sharing screen is open or BookPlayer is waiting (up to 20 seconds) for your own share to start.
 - CarPlay: during a listener session the standard Now Playing play, pause and skip buttons reach the shared book, but CarPlay's chapter buttons still control your own book. Connecting CarPlay may switch the lock screen to your own book.
 - If the person sharing leaves, listeners wait for up to a minute and then Listen Together ends (see "End the session").
+- When BookPlayer has switched to the slower way of sending the book (see "Share a book"), anyone who joins later gets the parts from the iPhone of the person sharing, so that iPhone needs to stay in the session, with BookPlayer open while parts are being sent, for them to get the book.
 - Speak error messages: whether a Siri voice chosen in Spoken Content is used is still being checked. If it is not, the standard voice for your language is used.
 - Books streamed from a server, and different editions or recordings of the same book, are not matched. In "Only people who have the book can join" mode they cannot join; in "Send it for this session" mode they receive a temporary copy.
 - With "Send it for this session", the person sharing still sends the pieces even if everyone so far has their own copy, so anyone who joins later without one can listen. People with their own copy never download them.

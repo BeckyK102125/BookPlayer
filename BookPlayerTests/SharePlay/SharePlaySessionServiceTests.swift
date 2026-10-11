@@ -10,6 +10,8 @@ final class FakeTransport: ListenTogetherTransport {
   var sent: [ListenTogetherMessage] = []
   var uploads: [URL] = []
   var left = false
+  /// The sharer ended the group session for everyone (`GroupSession.end()`), instead of leaving it.
+  var ended = false
   var failUploads = false
   /// Thrown by the next uploads, one each, before uploads succeed again.
   var uploadErrors: [Error] = []
@@ -42,6 +44,7 @@ final class FakeTransport: ListenTogetherTransport {
     uploads.append(url); return UUID()
   }
   func leave() { left = true; _ = events; continuation.finish() }
+  func end() { ended = true; _ = events; continuation.finish() }
 }
 
 @MainActor
@@ -289,7 +292,7 @@ final class SharePlaySessionServiceTests: XCTestCase {
   }
 
   /// The sharer's bookkeeping is synchronous too: End straight after it ends the session, and the
-  /// session is left once the end message has been sent.
+  /// group session is ended for everyone once the end message has been sent (transfer fix, item 4).
   func testSharerSetupIsSynchronousSoAnImmediateEndEnds() async throws {
     let service = makeService(), transport = FakeTransport()
     XCTAssertTrue(service.startSharingSession(with: transport, item: try makeSharedItem(), shareID: UUID()))
@@ -300,8 +303,9 @@ final class SharePlaySessionServiceTests: XCTestCase {
 
     XCTAssertFalse(service.isInSession)
     XCTAssertEqual(service.state, .ended(reason: .normal))
-    await waitUntil { transport.left }
-    XCTAssertTrue(transport.left)
+    await waitUntil { transport.ended }
+    XCTAssertTrue(transport.ended)
+    XCTAssertFalse(transport.left)
     XCTAssertEqual(transport.sent, [.sessionEnding])
   }
 

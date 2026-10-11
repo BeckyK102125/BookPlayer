@@ -247,7 +247,9 @@ extension SharePlaySessionService {
     }
   }
 
-  /// Logs the failure with its underlying error (domain, code, description) and says whether it counts.
+  /// Logs the failure with its underlying error and says whether it counts. The public part (transfer
+  /// fix, item 3) names the error's type or case, domain and code, and the underlying error's domain
+  /// and code, so a device log without a debugger shows it; the description stays private.
   private func failure(
     _ error: Error, stage: String, piece: PlannedPiece, appStateAtStart: ListenTogetherAppState,
     on transport: ListenTogetherTransport
@@ -258,7 +260,7 @@ extension SharePlaySessionService {
     let nsError = error as NSError
     let detail = (error as? BookSplitterError)?.diagnostics ?? nsError.localizedDescription
     Self.logger.error(
-      "Listen Together: \(stage, privacy: .public) piece \(piece.index, privacy: .public) failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public) \(detail) app=\(appStateAtStart.rawValue, privacy: .public)->\(appStateNow.rawValue, privacy: .public) interruption=\(interrupted, privacy: .public)")
+      "Listen Together: \(stage, privacy: .public) piece \(piece.index, privacy: .public) failed: \(ListenTogetherErrorDescription.describe(error), privacy: .public) app=\(appStateAtStart.rawValue, privacy: .public)->\(appStateNow.rawValue, privacy: .public) interruption=\(interrupted, privacy: .public) detail=\(detail)")
     return interrupted ? .interrupted : .failed
   }
 
@@ -555,7 +557,8 @@ extension SharePlaySessionService {
         try FileManager.default.moveItem(at: url, to: destination)
       }
     } catch {
-      Self.logger.error("Listen Together: could not store piece \(index): \(error.localizedDescription)")
+      Self.logger.error(
+        "Listen Together: could not store piece \(index, privacy: .public): \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
       return
     }
     placedPieces.insert(index)

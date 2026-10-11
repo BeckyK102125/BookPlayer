@@ -170,8 +170,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// it): after this long the pending share is released so Listen Together is offered again. While the
   /// sheet is still on screen nothing is released or announced: the check simply runs again later.
   static let sheetWatchdog: Duration = .seconds(120)
-  /// The sharer's end message gets this long before the session is left anyway.
+  /// The sharer's end message gets this long before the session is ended anyway.
   static let endMessageTimeout: Duration = .seconds(2)
+  /// After the end message is out, the session is ended this much later (within the time limit), so
+  /// listeners handle "ended by the person sharing" before their session is invalidated.
+  static let endAfterMessageDelay: Duration = .milliseconds(500)
   /// Owners-only shares: someone new in the roster is counted and announced only after this long, and
   /// only if they are still there and did not decline (no copy), so a decliner is never heard as
   /// "Someone joined" and "Someone left". Covers the decliner's 3 s wait for the join plus the send.
@@ -276,6 +279,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// An own file that fails this many times makes this phone leave.
   static let ownCopyFailureLimit = 3
   private var appStateObservation: AnyCancellable?
+  /// The app terminating, or its last window scene going away (transfer fix, item 4).
+  private var appExitObservations = Set<AnyCancellable>()
 
   // SharePlay plumbing.
   private var observeTask: Task<Void, Never>?
@@ -320,6 +325,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     speaker: ListenTogetherSpeaking? = nil,
     coverTracker: ListenTogetherCoverTracker? = nil,
     focusRequests: ListenTogetherFocusRequests? = nil,
+    notificationCenter: NotificationCenter = .default,
     transportFactory: @escaping @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
       = { GroupSessionTransport(session: $0, downloadFolder: $1) }
   ) {
@@ -344,6 +350,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let groupStateObserver = GroupStateObserver()
     self.isEligibleForGroupSession = { groupStateObserver.isEligibleForGroupSession }
     observeAppState()
+    observeAppExit(in: notificationCenter)
   }
 
   var isInSession: Bool { role != nil }
@@ -379,6 +386,53 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       .sink { [weak self] appState in
         MainActor.assumeIsolated { self?.appStateChanged(to: appState) }
       }
+  }
+
+  /// Best-effort (transfer fix, item 4): when the app terminates, or its last window scene goes away,
+  /// a sharer ends SharePlay for everyone and a listener leaves, so nobody is left in a session with
+  /// nobody sharing.
+  private func observeAppExit(in center: NotificationCenter) {
+    center.publisher(for: UIApplication.willTerminateNotification)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated { self?.endForAppExit(reason: "terminate") }
+      }
+      .store(in: &appExitObservations)
+    center.publisher(for: UIScene.didDisconnectNotification)
+      .sink { [weak self] notification in
+        MainActor.assumeIsolated {
+          let scene = notification.object as? UIScene
+          let others = UIApplication.shared.connectedScenes.filter {
+            $0 !== scene && $0.session.role == .windowApplication
+          }
+          guard Self.endsOnSceneDisconnect(
+            isAppWindowScene: scene?.session.role == .windowApplication,
+            otherConnectedAppWindowScenes: others.count)
+          else { return }
+          self?.endForAppExit(reason: "scene disconnect")
+        }
+      }
+      .store(in: &appExitObservations)
+  }
+
+  /// Only the app's last window scene counts: CarPlay going away, or one of several iPad windows
+  /// closing, is not the app closing. Test seam.
+  nonisolated static func endsOnSceneDisconnect(isAppWindowScene: Bool, otherConnectedAppWindowScenes: Int) -> Bool {
+    isAppWindowScene && otherConnectedAppWindowScenes == 0
+  }
+
+  /// No time is left for the end message: the session is ended (sharer) or left (listener) at once,
+  /// and nothing is announced.
+  func endForAppExit(reason: String) {
+    guard isInSession, let transport else { return }
+    Self.logger.info(
+      "Listen Together: the app is closing (\(reason, privacy: .public)); \(self.role == .sharer ? "ending the group session" : "leaving", privacy: .public)")
+    if let shareID { rememberEndedShare(shareID) }
+    if role == .sharer {
+      tearDown(reason: .normal, announces: false, leaveTransport: false)
+      transport.end()
+    } else {
+      tearDown(reason: .left, announces: false)
+    }
   }
 
   /// The listener's message after "The person sharing ended/left" has been shown.
@@ -916,17 +970,21 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if let shareID { endedShareIDs.insert(shareID) }
     if role == .sharer, let transport {
       tearDown(reason: .normal, leaveTransport: false)
-      // The end message gets a short time; the session is left whatever happens, so a stalled
-      // messenger can't keep this device in a session the UI already says has ended.
+      // The end message gets a short time; then SharePlay is ended for everyone (transfer fix, item
+      // 4) whatever happens, so a stalled messenger can't keep a session the UI already says has ended.
+      // A short pause after the message lets it be handled before listeners see the session end.
       Task {
         await Self.withTimeLimit(Self.endMessageTimeout) {
           do {
             try await transport.send(.sessionEnding)
+            try? await Task.sleep(for: Self.endAfterMessageDelay)
           } catch {
-            Self.logger.error("Listen Together: could not send the end message: \(error.localizedDescription)")
+            Self.logger.error(
+              "Listen Together: could not send the end message: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
           }
         }
-        transport.leave()
+        Self.logger.info("Listen Together: ending the group session for everyone")
+        transport.end()
       }
     } else {
       tearDown(reason: .normal)

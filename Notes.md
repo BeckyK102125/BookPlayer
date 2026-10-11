@@ -1015,3 +1015,51 @@ Parent 27d86fd2. Inputs: final-branch-review-2026-10-11.md, final-fix-round.md (
   exported with app-store-connect/upload, internal testing only: "Upload succeeded". Warning: Sentry.framework
   dSYM missing for symbol upload (harmless). Worktree, archive, export and logs deleted.
 - Device log capture from Becky's phone (idevicesyslog over USB) deleted after analysis.
+
+## 2026-10-11 - listen-together-transfer-fix - transfer fix (build 3): A + B, readable errors, real End
+Parent b73bd061 (develop). Inputs: transfer-fix-brief.md, transfer-root-cause-2026-10-11.md (H1-H4).
+Field facts (build 2): messages cross both ways, no audio piece ever arrives, sharer shows "Couldn't send
+part of the book" (Messages and FaceTime, single local .m4b).
+- Fix A (ListenTogetherTransport.swift): `PieceTransfer` = `DataRepresentation(contentType: .data)`,
+  exporting `Data(contentsOf:options: .mappedIfSafe)`, importing writes into ShareStorage root/incoming.
+  `journal.add(_:metadata: PieceMetadata(pathExtension:))`; load reads `loadMetadata` and names the file
+  `PieceTransfer.receivedFileName` (extension sanitised by `ChunkFrame.wireExtension`, `m4a` fallback).
+  `ListenTogetherLimits.maxPieceBytes` 90 MB -> 25 MB. Two planner tests rescaled (200 MB -> 60 MB
+  sources) so they still test the duration rule, not the byte cap.
+- Fix B (new PieceChunks.swift, MessengerPieceChannel.swift; transport only): second reliable messenger,
+  `LTCK` 48-byte-header chunks of 192 KB (id, index, count, size, CRC-32, extension), `LTCC` JSON control
+  frames (transportMode, chunksMissing, pieceGone) kept off `ListenTogetherMessage` so the protocol and
+  the session service are unchanged for B (deviation from the report, which put the control messages in the
+  Codable enum). Window 2 -> 3 after 10 clean sends, halved on a failed send, back-off 100/250/500 ms/1 s;
+  more than 8 failures in a row fail the upload (session back-off as before). Listener writes into a
+  pre-sized `.part` in the share folder, verifies size + CRC off main, renames `<id>.<ext>`, yields
+  `.attachmentReceived`. Gaps: asked for 1 s after the last chunk is in (re-armed by every later chunk),
+  and by the service's retry timer (stale after 5 s via `hasFailedPieceLoads`/`retryFailedPieceLoads`);
+  checksum failure -> whole piece again; `reloadPiece` -> whole piece. Late joiners: the listener transport
+  watches `pieceUploaded` and asks for unknown ids once in chunk mode (ids heard before the mode are kept and
+  asked for on the switch); sharer answers `.only([participant])`. Sharer keeps the 3 latest pieces; older
+  files are deleted (only inside the share folder) and reported `pieceGone`; `hasAttachment` false then, so
+  the existing `needPiece` path re-exports. Switch per session (`TransportModeSwitch`): 2 consecutive
+  non-interruption journal add failures (interruption = PieceRetryPolicy or app not active at start/end)
+  or any error whose reflection names `notSupported` (the journal error type isn't public). The failing
+  piece goes out as chunks in the same `upload` call. Sharer announces to all and to each later joiner.
+- Item 3: `ListenTogetherErrorDescription.describe` (Swift enum: reflected case with paths redacted;
+  BookSplitterError: case, index, preset; others: type name; plus domain, code, underlying domain/code) is
+  public on export/upload/load/store/chunk failure lines. Deviation: no String(reflecting:) for NSError /
+  CocoaError / structs, whose reflection prints user info with file paths and book titles.
+- Item 4: protocol gains `end()` (default = `leave()`); GroupSessionTransport.end() -> `session.end()`.
+  Sharer End: `.sessionEnding`, 0.5 s pause, then `end()`, inside the existing 2 s limit. Listener End/Leave
+  unchanged. `observeAppExit`: willTerminate, or the last `.windowApplication` scene disconnecting
+  (`endsOnSceneDisconnect`) -> `endForAppExit`: sharer tears down silently and ends, listener leaves.
+  New init parameter `notificationCenter` (test seam).
+- Guide: fallback paragraph, End stops SharePlay for everyone, sharer closing the app, late joiners in
+  fallback (known limitation).
+- TDD: tests first; red = compile failure (missing types). Behaviour red with A/B/item-4 fixes reverted
+  (FileRepresentation, leave instead of end, app exit no-op, 90 MB, no notSupported switch, no window
+  halving): 5 classes 69 tests, 23 failures in 11 tests. Green: 28 SharePlay classes 457/0.
+- Full run 1: 1029 tests, 2 failures, both in my new gap test: a chunk landing after the last chunk
+  stopped the gap check for good (real bug). Fixed: the check is re-armed by every chunk once the last is
+  in; new test `testAGapIsAskedForOnceEvenWhenTheLastChunkCameFirst`; the fake network's gap wait now takes
+  100 ms real time (it reorders deliveries). Channel tests 5/5 runs green.
+- Full run 2: "Executed 1030 tests, with 0 failures", ** TEST EXECUTE SUCCEEDED **.
+- TSan, 28 SharePlay classes: "Executed 458 tests, with 0 failures", 0 ThreadSanitizer warnings.

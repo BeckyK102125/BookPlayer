@@ -87,14 +87,15 @@ final class PiecePlannerTests: XCTestCase {
   }
 
   func testChapterLargerThanTheMaximumIsSplitEvenly() {
-    // One 50-minute chapter: five equal parts of 10 minutes.
+    // One 50-minute chapter: five equal parts of 10 minutes. 60 MB (160 kbps), so the 25 MB byte cap
+    // (transfer fix A) doesn't bind and the duration rule is what is tested.
     let pieces = PiecePlanner.plan(
-      files: [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 200_000_000)],
+      files: [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 60_000_000)],
       chapterStarts: [0])
     XCTAssertEqual(pieces.count, 5)
     XCTAssertEqual(pieces[1].bookStart, 600, accuracy: 0.001)
     XCTAssertTrue(pieces.allSatisfy { $0.estimatedBytes <= ListenTogetherLimits.maxPieceBytes })
-    assertTiles(pieces, files: [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 200_000_000)])
+    assertTiles(pieces, files: [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 60_000_000)])
   }
 
   /// Fix round 1: a piece under 30 s at the end of a file joins the one before it.
@@ -175,7 +176,7 @@ final class PiecePlannerTests: XCTestCase {
 
   func testOversizedNonFirstFileRebasesCutsOntoBookTimeline() {
     let a = SourceFile(url: URL(fileURLWithPath: "/tmp/01.mp3"), bookStart: 0, duration: 600, byteSize: 5_000_000)
-    let b = SourceFile(url: URL(fileURLWithPath: "/tmp/02.mp3"), bookStart: 600, duration: 3000, byteSize: 200_000_000)
+    let b = SourceFile(url: URL(fileURLWithPath: "/tmp/02.mp3"), bookStart: 600, duration: 3000, byteSize: 60_000_000)
     let pieces = PiecePlanner.plan(files: [a, b], chapterStarts: [0, 600, 1200])
     // B: chapter at 1200 is file-relative 600; the 40-minute span 600..3000 is split into four parts.
     XCTAssertEqual(pieces.map(\.sourceIndex), [0, 1, 1, 1, 1, 1])
