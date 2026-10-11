@@ -5,7 +5,7 @@ import UIKit
 import XCTest
 
 /// Transfer fix, item 4: the sharer's End really ends SharePlay (`GroupSession.end()`, through the
-/// transport's `end()`), listeners only leave, and the app closing ends or leaves best-effort.
+/// transport's `end()`), listeners only leave, and the app terminating ends or leaves best-effort.
 @MainActor
 final class ListenTogetherSessionEndTests: XCTestCase {
   private var root: URL!
@@ -69,6 +69,9 @@ final class ListenTogetherSessionEndTests: XCTestCase {
     XCTAssertTrue(transport.ended)
     XCTAssertFalse(transport.left, "the sharer ends SharePlay, it doesn't just leave it")
     XCTAssertEqual(transport.sent, [.sessionEnding])
+    // Fix round 1: piece transfers stop first (before the share folder is deleted), the end message
+    // goes out, and only then is the group session ended.
+    XCTAssertEqual(transport.calls, ["stopPieceTransfers", "send:sessionEnding", "end"])
     XCTAssertEqual(service.state, .ended(reason: .normal))
   }
 
@@ -105,6 +108,7 @@ final class ListenTogetherSessionEndTests: XCTestCase {
 
     XCTAssertTrue(transport.ended)
     XCTAssertFalse(transport.left)
+    XCTAssertEqual(transport.calls, ["stopPieceTransfers", "end"])
     XCTAssertFalse(service.isInSession)
     XCTAssertEqual(posted, [], "nothing is announced while the app closes")
     XCTAssertEqual(service.decision(forIncoming: id), .endedShare)
@@ -122,18 +126,22 @@ final class ListenTogetherSessionEndTests: XCTestCase {
     XCTAssertNil(service.endNotice)
   }
 
+  /// Fix round 1, C3: a scene going away (iOS can disconnect a background scene that keeps playing) never
+  /// ends the session; only termination does.
+  func testASceneDisconnectingDoesNotEndTheSession() throws {
+    let service = makeService(), transport = FakeTransport()
+    service.startSharingSession(with: transport, item: try makeSharedItem(), shareID: UUID())
+
+    center.post(name: UIScene.didDisconnectNotification, object: nil)
+
+    XCTAssertTrue(service.isInSession)
+    XCTAssertFalse(transport.ended)
+    XCTAssertFalse(transport.left)
+  }
+
   func testTerminatingOutsideASessionDoesNothing() {
     let service = makeService()
     center.post(name: UIApplication.willTerminateNotification, object: nil)
     XCTAssertEqual(service.state, .idle)
-  }
-
-  func testOnlyTheLastAppWindowSceneGoingAwayEndsTheSession() {
-    XCTAssertTrue(SharePlaySessionService.endsOnSceneDisconnect(
-      isAppWindowScene: true, otherConnectedAppWindowScenes: 0))
-    XCTAssertFalse(SharePlaySessionService.endsOnSceneDisconnect(
-      isAppWindowScene: true, otherConnectedAppWindowScenes: 1), "another window still shows the app (iPad)")
-    XCTAssertFalse(SharePlaySessionService.endsOnSceneDisconnect(
-      isAppWindowScene: false, otherConnectedAppWindowScenes: 0), "CarPlay going away is not the app closing")
   }
 }

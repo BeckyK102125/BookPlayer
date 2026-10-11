@@ -279,7 +279,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// An own file that fails this many times makes this phone leave.
   static let ownCopyFailureLimit = 3
   private var appStateObservation: AnyCancellable?
-  /// The app terminating, or its last window scene going away (transfer fix, item 4).
+  /// The app terminating (transfer fix, item 4).
   private var appExitObservations = Set<AnyCancellable>()
 
   // SharePlay plumbing.
@@ -388,36 +388,16 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       }
   }
 
-  /// Best-effort (transfer fix, item 4): when the app terminates, or its last window scene goes away,
-  /// a sharer ends SharePlay for everyone and a listener leaves, so nobody is left in a session with
-  /// nobody sharing.
+  /// Best-effort (transfer fix, item 4): when the app terminates, a sharer ends SharePlay for
+  /// everyone and a listener leaves, so nobody is left in a session with nobody sharing. A scene going
+  /// away is not the app closing (iOS can disconnect a background scene that keeps playing), so only
+  /// termination counts (fix round 1, C3).
   private func observeAppExit(in center: NotificationCenter) {
     center.publisher(for: UIApplication.willTerminateNotification)
       .sink { [weak self] _ in
         MainActor.assumeIsolated { self?.endForAppExit(reason: "terminate") }
       }
       .store(in: &appExitObservations)
-    center.publisher(for: UIScene.didDisconnectNotification)
-      .sink { [weak self] notification in
-        MainActor.assumeIsolated {
-          let scene = notification.object as? UIScene
-          let others = UIApplication.shared.connectedScenes.filter {
-            $0 !== scene && $0.session.role == .windowApplication
-          }
-          guard Self.endsOnSceneDisconnect(
-            isAppWindowScene: scene?.session.role == .windowApplication,
-            otherConnectedAppWindowScenes: others.count)
-          else { return }
-          self?.endForAppExit(reason: "scene disconnect")
-        }
-      }
-      .store(in: &appExitObservations)
-  }
-
-  /// Only the app's last window scene counts: CarPlay going away, or one of several iPad windows
-  /// closing, is not the app closing. Test seam.
-  nonisolated static func endsOnSceneDisconnect(isAppWindowScene: Bool, otherConnectedAppWindowScenes: Int) -> Bool {
-    isAppWindowScene && otherConnectedAppWindowScenes == 0
   }
 
   /// No time is left for the end message: the session is ended (sharer) or left (listener) at once,
@@ -428,6 +408,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       "Listen Together: the app is closing (\(reason, privacy: .public)); \(self.role == .sharer ? "ending the group session" : "leaving", privacy: .public)")
     if let shareID { rememberEndedShare(shareID) }
     if role == .sharer {
+      transport.stopPieceTransfers()
       tearDown(reason: .normal, announces: false, leaveTransport: false)
       transport.end()
     } else {
@@ -969,6 +950,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     guard isInSession else { return }
     if let shareID { endedShareIDs.insert(shareID) }
     if role == .sharer, let transport {
+      // Chunk sends stop before teardown deletes the share's files (fix round 1, Minor 1).
+      transport.stopPieceTransfers()
       tearDown(reason: .normal, leaveTransport: false)
       // The end message gets a short time; then SharePlay is ended for everyone (transfer fix, item
       // 4) whatever happens, so a stalled messenger can't keep a session the UI already says has ended.

@@ -6,6 +6,11 @@ enum ListenTogetherLimits {
   /// planner's target (about 12 minutes, around 6 MB at 64 kbps) is unchanged; only high-bitrate
   /// sources are cut shorter.
   static let maxPieceBytes: Int64 = 25_000_000
+  /// The largest piece an export may produce: the planner's cap plus a fifth for estimates that
+  /// overshoot (a re-encode). Above it the export fails, like an oversized piece always did.
+  static let maxExportedPieceBytes: Int64 = maxPieceBytes + maxPieceBytes / 5
+  /// A chunk frame claiming a bigger piece is rejected (the SharePlay attachment limit).
+  static let maxChunkedPieceBytes: Int64 = 100_000_000
 }
 
 struct SharedChapter: Codable, Equatable {

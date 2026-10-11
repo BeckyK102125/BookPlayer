@@ -146,21 +146,24 @@ final class BookSplitterTests: XCTestCase {
 
   // MARK: - Error paths
 
+  /// Fix round 1: the export's size check follows the piece cap (plus a fifth), not SharePlay's 100 MB.
   func testOversizedWholeFilePieceThrowsAndRemovesOutput() async throws {
+    let bytes = ListenTogetherLimits.maxExportedPieceBytes + 1
+    XCTAssertEqual(bytes, 30_000_001)
     let source = folder.appendingPathComponent("big.m4a")
     XCTAssertTrue(FileManager.default.createFile(atPath: source.path, contents: nil))
     let handle = try FileHandle(forWritingTo: source)
-    try handle.truncate(atOffset: 100_000_001)
+    try handle.truncate(atOffset: UInt64(bytes))
     try handle.close()
     let piece = PlannedPiece(
       index: 3, sourceIndex: 0, sourceStart: 0, duration: 5, bookStart: 0,
-      isWholeFile: true, estimatedBytes: 100_000_001)
-    let file = SourceFile(url: source, bookStart: 0, duration: 5, byteSize: 100_000_001)
+      isWholeFile: true, estimatedBytes: bytes)
+    let file = SourceFile(url: source, bookStart: 0, duration: 5, byteSize: bytes)
     do {
       _ = try await BookSplitter().export(piece, from: [file], to: folder)
       XCTFail("expected pieceTooLarge")
     } catch {
-      XCTAssertEqual(error as? BookSplitterError, .pieceTooLarge(index: 3, bytes: 100_000_001))
+      XCTAssertEqual(error as? BookSplitterError, .pieceTooLarge(index: 3, bytes: bytes))
     }
     XCTAssertFalse(FileManager.default.fileExists(
       atPath: folder.appendingPathComponent("piece-003.m4a").path))

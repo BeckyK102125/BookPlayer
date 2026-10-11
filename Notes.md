@@ -1063,3 +1063,41 @@ part of the book" (Messages and FaceTime, single local .m4b).
   100 ms real time (it reorders deliveries). Channel tests 5/5 runs green.
 - Full run 2: "Executed 1030 tests, with 0 failures", ** TEST EXECUTE SUCCEEDED **.
 - TSan, 28 SharePlay classes: "Executed 458 tests, with 0 failures", 0 ThreadSanitizer warnings.
+
+## 2026-10-11 - listen-together-transfer-fix - fix round 1
+Parent 41efa526. Inputs: transfer-fix-review.md (3 Critical, 3 Important, 9 Minor), transfer-fix-round-1.md.
+- Correction to the transfer fix entry above: the scene-disconnect trigger it describes
+  (`UIScene.didDisconnectNotification`, `endsOnSceneDisconnect`) is removed (C3, controller ruling). iOS
+  can disconnect a background scene that keeps playing; only `willTerminate` ends or leaves now. The test
+  is replaced by `testASceneDisconnectingDoesNotEndTheSession`.
+- C1: `ChunkFrame.decode` rejects totals above `ListenTogetherLimits.maxChunkedPieceBytes` (100 MB) before
+  any count math; `chunkCount` uses quotientAndRemainder (no overflow); `ChunkReassembler` refuses frames
+  over the cap or with an inconsistent count. Hostile-frame tests (Int64.max, UInt64.max, over the cap,
+  UInt32.max count, count mismatch, offset past the end, wrong payload length, non-ASCII extension,
+  truncated header).
+- C2: new `ChunkControl.journalUnusable`. A listener sends it after a `notSupported` load failure or 2
+  real load failures in a row; the sharer switches (or stays) in chunks, announces the mode again and from
+  then on reports journal pieces gone (`hasAttachment` false). On that announcement the listener sends
+  `needPiece` for every announced piece not received, in announcement order, and stops retrying journal
+  loads; `listenerNeeds` then re-exports them as chunks.
+- I1: chunks are taken only from the sharer once known (from manifest/pieceUploaded/heartbeat); at most 4
+  pieces assemble at once (a stale one makes room; otherwise the new one waits for the retry timer).
+- I2: `TransportModeSwitch.isJournalRejection` (notSupported, or a GroupActivities / GroupSession error
+  domain) counts whatever the app state; other errors count only while active; cancellations never.
+- I3: new `ListenTogetherTransferCoordinator` holds every mode decision (upload switch, announcements,
+  late joiners, listener adoption and replay, C2, hasAttachment, reload routing); `GroupSessionTransport`
+  only wires SharePlay to it. 13 coordinator tests with a sharer and a listener on the fake chunk network.
+- Minors fixed: (1) protocol `stopPieceTransfers()` (default no-op), called before teardown on End and on
+  termination; (2) splitter limit `maxExportedPieceBytes` = 30 MB; (3) chunk writes and the final fsync on a
+  serial queue (`ChunkFileWriter`), sharer chunk reads in detached tasks; (7) End tests assert the order
+  stopPieceTransfers -> send:sessionEnding -> end; (8) enum errors log type and case name only; (9)
+  transport and coordinator tasks forget themselves. The window test's fake network now takes 5 ms per
+  send (reads are awaited now, so instant sends never overlap).
+- Minors left: (4) `pieceUploaded` overtaking the chunks makes that listener ask for the piece once more
+  (sent `.only` to it; bounded to one piece; a delay would slow late joiners); (5) a piece whose chunk
+  upload fails for good is re-sent under a new id (rare; listeners' partial files are dropped by
+  `pieceGone`/teardown); (6) a journal import whose load throws after the importer ran stays in
+  `incoming/` until launch cleanup (the URL is not returned to us).
+- TDD red with the round-1 fixes reverted: 5 classes, 79 tests, 24 failures in 14 tests (C3 is a removal:
+  its test passes either way). Green: 29 SharePlay classes 481/0; full suite 1053/0.
+- Verification: full suite "Executed 1053 tests, with 0 failures", ** TEST SUCCEEDED **; TSan on 29 SharePlay classes 481/0, 0 ThreadSanitizer warnings.

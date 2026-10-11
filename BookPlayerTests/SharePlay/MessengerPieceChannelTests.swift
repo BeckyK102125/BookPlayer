@@ -3,46 +3,51 @@ import XCTest
 
 /// Transfer fix B: pieces as chunks on a second messenger. Several channels are wired together by a
 /// fake network (no SharePlay): what one sends reaches the others, or only the recipient.
+/// Delivers what a channel sends to the other channels, a turn later, through optional filters.
 @MainActor
-final class MessengerPieceChannelTests: XCTestCase {
-  /// Delivers what a channel sends to the other channels, a turn later, through optional filters.
-  @MainActor
-  final class Network {
-    var channels: [UUID: MessengerPieceChannel] = [:]
-    /// Every frame sent: (from, to, data). `to` nil means everyone.
-    private(set) var log: [(from: UUID, to: UUID?, data: Data)] = []
-    /// Return nil to drop the frame, or other data to change it in transit.
-    var filter: (@MainActor (UUID, UUID?, Data) -> Data?)?
-    /// Thrown by the next sends, one each.
-    var sendErrors: [Error] = []
-    /// Sends in flight right now, and the most there ever were.
-    private(set) var inFlight = 0
-    private(set) var peakInFlight = 0
+final class ChunkTestNetwork {
+  var channels: [UUID: MessengerPieceChannel] = [:]
+  /// Every frame sent: (from, to, data). `to` nil means everyone.
+  private(set) var log: [(from: UUID, to: UUID?, data: Data)] = []
+  /// Return nil to drop the frame, or other data to change it in transit.
+  var filter: (@MainActor (UUID, UUID?, Data) -> Data?)?
+  /// Each send takes this long (a real network is slower than reading a chunk from disk).
+  var sendDelay: Duration?
+  /// Thrown by the next sends, one each.
+  var sendErrors: [Error] = []
+  /// Sends in flight right now, and the most there ever were.
+  private(set) var inFlight = 0
+  private(set) var peakInFlight = 0
 
-    func sender(for id: UUID) -> MessengerPieceChannel.Send {
-      { [weak self] data, recipient in
-        guard let self else { return }
-        self.inFlight += 1
-        self.peakInFlight = max(self.peakInFlight, self.inFlight)
-        defer { self.inFlight -= 1 }
-        await Task.yield()
-        if !self.sendErrors.isEmpty { throw self.sendErrors.removeFirst() }
-        self.log.append((id, recipient, data))
-        guard let delivered = self.filter.map({ $0(id, recipient, data) }) ?? data else { return }
-        for (other, channel) in self.channels where other != id && (recipient == nil || recipient == other) {
-          Task { @MainActor in channel.receive(delivered, from: id) }
-        }
+  func sender(for id: UUID) -> MessengerPieceChannel.Send {
+    { [weak self] data, recipient in
+      guard let self else { return }
+      self.inFlight += 1
+      self.peakInFlight = max(self.peakInFlight, self.inFlight)
+      defer { self.inFlight -= 1 }
+      await Task.yield()
+      if let delay = self.sendDelay { try? await Task.sleep(for: delay) }
+      if !self.sendErrors.isEmpty { throw self.sendErrors.removeFirst() }
+      self.log.append((id, recipient, data))
+      guard let delivered = self.filter.map({ $0(id, recipient, data) }) ?? data else { return }
+      for (other, channel) in self.channels where other != id && (recipient == nil || recipient == other) {
+        Task { @MainActor in channel.receive(delivered, from: id) }
       }
     }
-
-    func chunks(to id: UUID) -> [ChunkFrame] {
-      log.filter { $0.to == nil || $0.to == id }.compactMap { ChunkFrame.decode($0.data) }
-    }
-
-    func controls(from id: UUID) -> [ChunkControl] {
-      log.filter { $0.from == id }.compactMap { ChunkControl.decode($0.data) }
-    }
   }
+
+  func chunks(to id: UUID) -> [ChunkFrame] {
+    log.filter { $0.to == nil || $0.to == id }.compactMap { ChunkFrame.decode($0.data) }
+  }
+
+  func controls(from id: UUID) -> [ChunkControl] {
+    log.filter { $0.from == id }.compactMap { ChunkControl.decode($0.data) }
+  }
+}
+
+@MainActor
+final class MessengerPieceChannelTests: XCTestCase {
+  typealias Network = ChunkTestNetwork
 
   private var root: URL!
   private var network: Network!
@@ -306,6 +311,7 @@ final class MessengerPieceChannelTests: XCTestCase {
   func testNeverMoreThanThreeChunksAreInFlight() async throws {
     let sharer = makeChannel(sharerID)
     makeChannel(listenerID)
+    network.sendDelay = .milliseconds(5)
     _ = try await sharer.upload(fileAt: try makePiece(bytes: chunk * 30 + 7))
     await waitUntil { received[listenerID]?.count == 1 }
     XCTAssertLessThanOrEqual(network.peakInFlight, 3)
@@ -373,11 +379,80 @@ final class MessengerPieceChannelTests: XCTestCase {
     XCTAssertTrue(network.log.isEmpty)
   }
 
+  // MARK: Fix round 1
+
+  /// I1: once the sharer is known, chunks from anyone else are dropped (they can't poison a piece).
+  func testChunksFromSomeoneOtherThanTheSharerAreDropped() async throws {
+    let listener = makeChannel(listenerID)
+    let stranger = UUID()
+    let data = Data([1, 2, 3])
+    let frame = ChunkFrame(
+      pieceID: UUID(), index: 0, count: 1, totalBytes: 3, checksum: ListenTogetherCRC32.checksum(data),
+      pathExtension: "m4a", payload: data)
+    listener.receive(frame.encoded(), from: stranger)
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertNil(received[listenerID])
+
+    listener.receive(frame.encoded(), from: sharerID)
+    await waitUntil { received[listenerID]?.count == 1 }
+    XCTAssertEqual(received[listenerID]?.count, 1)
+  }
+
+  /// I1: at most four pieces are assembled at once; a fifth is dropped (and asked for again later).
+  func testAtMostFourPiecesAreAssembledAtOnce() async throws {
+    let listener = makeChannel(listenerID)
+    let ids = (0..<5).map { _ in UUID() }
+    for id in ids {
+      listener.receive(ChunkFrame(
+        pieceID: id, index: 0, count: 2, totalBytes: Int64(chunk + 1), checksum: 0, pathExtension: "m4a",
+        payload: Data(count: chunk)).encoded(), from: sharerID)
+    }
+    let folder = root.appendingPathComponent(listenerID.uuidString)
+    let parts = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".part") }
+    XCTAssertEqual(parts.count, 4)
+    XCTAssertFalse(parts.contains("\(ids[4].uuidString).part"))
+    clock += 6
+    listener.retryStale()
+    await waitUntil { network.controls(from: listenerID).count == 5 }
+    XCTAssertTrue(network.controls(from: listenerID).contains(.chunksMissing(pieceID: ids[4], ranges: [])))
+  }
+
+  /// I1: a stale assembly makes room for a new piece.
+  func testAStaleAssemblyMakesRoomForANewPiece() throws {
+    let listener = makeChannel(listenerID)
+    let ids = (0..<5).map { _ in UUID() }
+    for (number, id) in ids.enumerated() {
+      if number == 4 { clock += 6 }
+      listener.receive(ChunkFrame(
+        pieceID: id, index: 0, count: 2, totalBytes: Int64(chunk + 1), checksum: 0, pathExtension: "m4a",
+        payload: Data(count: chunk)).encoded(), from: sharerID)
+    }
+    let folder = root.appendingPathComponent(listenerID.uuidString)
+    let parts = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".part") }
+    XCTAssertEqual(parts.count, 4)
+    XCTAssertTrue(parts.contains("\(ids[4].uuidString).part"))
+  }
+
+  /// C2: a listener's "journal unusable" reaches the sharer's channel.
+  func testJournalUnusableReachesTheSharer() async throws {
+    let sharer = makeChannel(sharerID)
+    let listener = makeChannel(listenerID)
+    var reports: [UUID?] = []
+    sharer.onJournalUnusable = { reports.append($0) }
+    await listener.reportJournalUnusable()
+    await waitUntil { !reports.isEmpty }
+    XCTAssertEqual(reports, [listenerID])
+    XCTAssertEqual(network.log.last?.to, sharerID, "sent to the sharer only")
+  }
+
   func testModeAnnouncementsReachTheListener() async throws {
     let sharer = makeChannel(sharerID)
     let listener = makeChannel(listenerID)
     var modes: [ListenTogetherTransportMode] = []
-    listener.onModeAnnounced = { modes.append($0) }
+    listener.onModeAnnounced = { mode, explicit in
+      XCTAssertTrue(explicit)
+      modes.append(mode)
+    }
     await sharer.announceMode(to: nil)
     await waitUntil { !modes.isEmpty }
     XCTAssertEqual(modes, [.chunks])

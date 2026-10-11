@@ -18,6 +18,7 @@ struct TransportModeSwitch: Equatable {
   private var consecutiveFailures = 0
 
   /// Records a failed journal `add`. True when this failure switches the session to chunks.
+  /// `isInterruption` comes from `isInterruption(_:appWasActive:)`.
   mutating func journalAddFailed(isNotSupported: Bool, isInterruption: Bool) -> Bool {
     guard mode == .journal else { return false }
     if !isInterruption { consecutiveFailures += 1 }
@@ -30,6 +31,14 @@ struct TransportModeSwitch: Equatable {
     consecutiveFailures = 0
   }
 
+  /// A listener couldn't load journal pieces (`ChunkControl.journalUnusable`): the sharer switches.
+  /// True when it changed.
+  mutating func listenerReportedJournalUnusable() -> Bool {
+    guard mode != .chunks else { return false }
+    mode = .chunks
+    return true
+  }
+
   /// A listener adopts the mode the sharer announced. True when it changed.
   mutating func adopt(_ announced: ListenTogetherTransportMode) -> Bool {
     guard announced == .chunks, mode != .chunks else { return false }
@@ -40,6 +49,21 @@ struct TransportModeSwitch: Equatable {
   /// GroupActivities' journal errors are not public API: the case is recognised by its name.
   static func isNotSupported(_ error: Error) -> Bool {
     String(reflecting: error).contains("notSupported")
+  }
+
+  /// The journal itself refused (its own error domain, or `notSupported`): a local or validation
+  /// failure, never a suspension, so it counts whatever the app's state (fix round 1, I2).
+  static func isJournalRejection(_ error: Error) -> Bool {
+    if isNotSupported(error) { return true }
+    let domain = (error as NSError).domain
+    return domain.contains("GroupActivities") || domain.contains("GroupSession")
+  }
+
+  /// A real interruption doesn't count towards the switch: a cancellation, or (for errors that are not
+  /// the journal's own) the app not being active during the attempt.
+  static func isInterruption(_ error: Error, appWasActive: Bool) -> Bool {
+    if PieceRetryPolicy.isInterruption(error) { return true }
+    return !isJournalRejection(error) && !appWasActive
   }
 }
 
@@ -102,10 +126,12 @@ struct ChunkFrame: Equatable {
 
   var isLast: Bool { index == count - 1 }
 
+  /// Overflow-safe for any size (fix round 1, C1).
   static func chunkCount(forBytes totalBytes: Int64) -> Int {
     guard totalBytes > 0 else { return 1 }
     let size = Int64(payloadSize)
-    return Int((totalBytes + size - 1) / size)
+    let (whole, rest) = totalBytes.quotientAndRemainder(dividingBy: size)
+    return Int(whole) + (rest == 0 ? 0 : 1)
   }
 
   static func byteRange(ofChunk index: Int, totalBytes: Int64) -> Range<Int64> {
@@ -152,7 +178,8 @@ struct ChunkFrame: Equatable {
     let index = Int(read(UInt32.self, header, at: 24))
     let count = Int(read(UInt32.self, header, at: 28))
     let total = read(UInt64.self, header, at: 32)
-    guard total <= UInt64(Int64.max) else { return nil }
+    // A hostile or broken frame can't make anyone allocate or compute past the SharePlay limit (C1).
+    guard total <= UInt64(ListenTogetherLimits.maxChunkedPieceBytes) else { return nil }
     let totalBytes = Int64(total)
     let checksum = read(UInt32.self, header, at: 40)
     let extBytes = header[44..<48].prefix { $0 != 0 }
@@ -185,6 +212,9 @@ enum ChunkControl: Codable, Equatable {
   case transportMode(ListenTogetherTransportMode)
   /// Listener to sharer: send these chunks of the piece (none listed: all of it).
   case chunksMissing(pieceID: UUID, ranges: [ClosedRange<Int>])
+  /// Listener to sharer: journal pieces can't be loaded on this phone (fix round 1, C2). The sharer
+  /// switches to chunks, announces it, and reports its journal pieces gone, so `needPiece` re-sends them.
+  case journalUnusable
   /// Sharer: this piece is no longer kept. The listener stops asking; its player's `needPiece`
   /// makes the sharer prepare the piece again.
   case pieceGone(pieceID: UUID)
@@ -275,7 +305,8 @@ enum ListenTogetherErrorDescription {
     if let splitter = error as? BookSplitterError {
       parts.append(splitter.publicCase)
     } else if Mirror(reflecting: error).displayStyle == .enum {
-      parts.append(redactingPaths(String(reflecting: error)))
+      // The type and the case name only: associated values could hold a file name (a book title).
+      parts.append("\(String(reflecting: type(of: error))).\(caseName(of: error))")
     } else {
       parts.append(String(reflecting: type(of: error)))
     }
@@ -284,6 +315,13 @@ enum ListenTogetherErrorDescription {
       parts.append("underlying=\(underlying.domain) \(underlying.code)")
     }
     return parts.joined(separator: " ")
+  }
+
+  /// An enum's case name, without its associated values.
+  static func caseName(of value: Any) -> String {
+    if let label = Mirror(reflecting: value).children.first?.label { return label }
+    let text = String(describing: value)
+    return String(text.prefix { $0 != "(" })
   }
 
   private static func underlyingError(of error: Error) -> NSError? {

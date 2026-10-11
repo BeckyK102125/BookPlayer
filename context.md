@@ -21,8 +21,8 @@ b73bd061), not pushed, waiting for review, then a two-device run of build 3.
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - On origin: `develop` (85c42b29, pushed 2026-10-11), `listen-together-messages` (9c70dd06),
   `listen-together-lock-screen` (63e9578b), `shareplay-listen-together` (e634f5c7).
-- `listen-together-transfer-fix` (local, this commit; parent b73bd061 on develop): transfer fix A + B,
-  readable errors, SharePlay really ends. Clean after the commit. Not pushed.
+- `listen-together-transfer-fix` (local, not pushed): 41efa526 transfer fix A + B, readable errors,
+  SharePlay really ends; this commit = fix round 1 (parent 41efa526). Clean after the commit.
 - `develop` (b73bd061, docs commit on top of 85c42b29, pushed) fast-forwarded from `listen-together-own-copy`
   (local branch, same commits, not pushed): addendum 2 (de1f5731,
   7bf22248, 0b5aacdd), addendum 3 ruling 1598e8d4, Task A (87f4a744, de116941, d786c79e, 9cedab87),
@@ -61,25 +61,26 @@ b73bd061), not pushed, waiting for review, then a two-device run of build 3.
   Listener: pre-sized `.part` in the share folder, gaps asked for after the last chunk and on the service's
   retry timer (stale 5 s), CRC check, `.attachmentReceived` as before. Sharer keeps the 3 latest pieces;
   older ones are deleted (only inside the share folder) and reported gone -> `needPiece` re-exports.
+  Fix round 1: frames over 100 MB rejected (no overflow/alloc crash); chunks only from the sharer, at most
+  4 pieces assembling; listener `journalUnusable` (notSupported or 2 load failures) switches the sharer and
+  the listener re-asks its missing pieces with `needPiece`; journal-domain errors count in any app state;
+  all mode logic in `ListenTogetherTransferCoordinator` (tested); chunk disk work off the main actor.
   Switch per session after 2 non-interruption journal failures or any `notSupported`; announced to all and
   to later joiners. Protocol and session service unchanged for B.
-- Errors: `ListenTogetherErrorDescription` (type/case, domain, code, underlying; no paths or descriptions)
-  public on every export/upload/load/chunk failure line.
+- Errors: `ListenTogetherErrorDescription` (type/case, domain, code, underlying) public on failure lines.
 - End: sharer End -> `.sessionEnding`, 0.5 s, `transport.end()` (`GroupSession.end()`), all within 2 s;
-  listeners leave. App terminating / last window scene disconnecting: sharer ends at once, listener leaves.
-- Guide: slower fallback, SharePlay stops for everyone, sharer closing the app, late joiners in fallback.
+  listeners leave; chunk transfers stop first. App terminating (only): sharer ends at once, listener leaves.
 
 ## What is built before this branch (summary; details in Notes.md)
-- Addendum 2: own copy (fingerprint match, plays in place, nothing downloaded), owners-only mode.
+- Addendum 2: own copy (fingerprint match, plays in place), owners-only mode. Guide updated for this fix.
 - Task A: ~12 min pieces, send-ahead scheduler (.needPiece), retries with back-off, sharer kept awake,
   AVQueuePlayer, state requests, heartbeat, roster grace, diagnostics ("Listen Together:" logs).
-- Task B: one message-delivery path (alerts, status lines + one announcement, speech), Zoom caption,
-  "Speak error messages", Leave / Cancel Sharing buttons, R40 colour fixes.
-- Final review fixes (85c42b29): own copy unplayable -> leave with alert (I1), M1, M2, M5, M6, M9, M10.
+- Task B: one message-delivery path (alerts, status + one announcement, speech), Speak, Leave buttons.
+- Final review fixes (85c42b29): own copy unplayable -> leave with alert, and minors.
 
 ## Test evidence (2026-10-11, transfer fix)
-- Red: compile failure first; then with fixes reverted, 5 classes 69 tests, 23 failures (11 tests).
-- Green: 28 SharePlay classes 458/0; full "Executed 1030 tests, with 0 failures"; TSan 458/0, 0 warnings.
+- First pass red: 69 tests / 23 failures. Round 1: red with fixes reverted 79 tests / 24 failures; green 29 SharePlay classes 481/0; full suite
+  1053/0 (** TEST SUCCEEDED **); TSan 481/0, 0 warnings.
 - Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
   Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests" -only-testing:BookPlayerTests
   test (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`).
@@ -124,7 +125,6 @@ Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.
   in chunk mode only the 3 latest are kept).
 - Chunk fallback: no cloud copy; late joiners get pieces from the sharer's phone (bandwidth per listener);
   messenger throughput is undocumented and unmeasured.
-- A scene disconnect without termination (iPad, memory pressure) ends a sharing session (brief item 4).
 - A piece that fails for good is retried every 30 s; listeners who need it wait. The sharer sees
   "Couldn't send part of the book. Trying again." "Waiting for the others to get the book" is not shown.
 - If the sharer switches books mid-session, listeners keep the old book (R12).

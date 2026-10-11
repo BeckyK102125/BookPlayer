@@ -12,8 +12,64 @@ enum ChunkChannelError: Error, Equatable {
   case sizeMismatch
 }
 
+/// A `.part` file's disk work (fix round 1, Minor 3): writes and the final flush run in order on a
+/// serial queue, off the main actor. The handle is only touched on that queue after `init`.
+final class ChunkFileWriter: @unchecked Sendable {
+  let url: URL
+  private let queue = DispatchQueue(label: "ListenTogether.chunks.writer", qos: .utility)
+  private var handle: FileHandle?
+
+  /// Creates the file pre-sized to `size` (sparse, so this is quick).
+  init(url: URL, size: Int64) throws {
+    self.url = url
+    try? FileManager.default.removeItem(at: url)
+    guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+      throw CocoaError(.fileWriteUnknown)
+    }
+    let handle = try FileHandle(forWritingTo: url)
+    try handle.truncate(atOffset: UInt64(size))
+    self.handle = handle
+  }
+
+  /// A failed write isn't reported: the size and checksum check at the end catches it.
+  func write(_ data: Data, at offset: UInt64) {
+    queue.async { [self] in
+      guard let handle else { return }
+      do {
+        try handle.seek(toOffset: offset)
+        try handle.write(contentsOf: data)
+      } catch {
+        MessengerPieceChannel.logger.error(
+          "Listen Together: chunk write failed: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
+      }
+    }
+  }
+
+  /// Waits for every write, flushes and closes.
+  func finish() async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      queue.async { [self] in
+        closeOnQueue()
+        continuation.resume()
+      }
+    }
+  }
+
+  /// Closes (after any pending write) and deletes the file.
+  func discard() {
+    queue.sync { closeOnQueue() }
+    try? FileManager.default.removeItem(at: url)
+  }
+
+  private func closeOnQueue() {
+    try? handle?.synchronize()
+    try? handle?.close()
+    handle = nil
+  }
+}
+
 /// Writes one piece's chunks straight into a `.part` file pre-sized to the whole piece, in any
-/// order. Only the bitset of received chunks stays in memory.
+/// order. Only the bitset of received chunks stays in memory; the disk work is `ChunkFileWriter`'s.
 @MainActor
 final class ChunkReassembler {
   let pieceID: UUID
@@ -28,9 +84,13 @@ final class ChunkReassembler {
   private(set) var chunksWritten = 0
   /// The last chunk is in and the file is being checked: further chunks are ignored.
   var isFinishing = false
-  private var handle: FileHandle?
+  private let file: ChunkFileWriter
 
   init(first frame: ChunkFrame, folder: URL, now: Date) throws {
+    // Decoded frames are already capped; this guards any other caller (fix round 1, C1).
+    guard frame.totalBytes <= ListenTogetherLimits.maxChunkedPieceBytes,
+      frame.count == ChunkFrame.chunkCount(forBytes: frame.totalBytes)
+    else { throw ChunkChannelError.sizeMismatch }
     pieceID = frame.pieceID
     count = frame.count
     totalBytes = frame.totalBytes
@@ -40,13 +100,7 @@ final class ChunkReassembler {
     lastChunkAt = now
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     partURL = folder.appendingPathComponent("\(frame.pieceID.uuidString).part")
-    try? FileManager.default.removeItem(at: partURL)
-    guard FileManager.default.createFile(atPath: partURL.path, contents: nil) else {
-      throw CocoaError(.fileWriteUnknown)
-    }
-    let handle = try FileHandle(forWritingTo: partURL)
-    try handle.truncate(atOffset: UInt64(frame.totalBytes))
-    self.handle = handle
+    file = try ChunkFileWriter(url: partURL, size: frame.totalBytes)
   }
 
   var isComplete: Bool { !received.contains(false) }
@@ -58,28 +112,25 @@ final class ChunkReassembler {
       && frame.pathExtension == pathExtension
   }
 
-  /// Writes the chunk at its place. False when it was already here or doesn't belong.
+  /// Queues the chunk's write at its place. False when it was already here or doesn't belong.
   @discardableResult
-  func write(_ frame: ChunkFrame, now: Date) throws -> Bool {
-    guard matches(frame), !received[frame.index], let handle else { return false }
-    try handle.seek(toOffset: UInt64(ChunkFrame.byteRange(ofChunk: frame.index, totalBytes: totalBytes).lowerBound))
-    try handle.write(contentsOf: frame.payload)
+  func write(_ frame: ChunkFrame, now: Date) -> Bool {
+    guard matches(frame), !received[frame.index] else { return false }
+    let offset = ChunkFrame.byteRange(ofChunk: frame.index, totalBytes: totalBytes).lowerBound
+    file.write(frame.payload, at: UInt64(offset))
     received[frame.index] = true
     lastChunkAt = now
     chunksWritten += 1
     return true
   }
 
-  /// Flushes and closes the file.
-  func close() {
-    try? handle?.synchronize()
-    try? handle?.close()
-    handle = nil
+  /// Waits for the writes, flushes and closes the file.
+  func close() async {
+    await file.finish()
   }
 
   func discard() {
-    close()
-    try? FileManager.default.removeItem(at: partURL)
+    file.discard()
   }
 }
 
@@ -105,6 +156,8 @@ final class MessengerPieceChannel: BPLogger {
   static let staleAfter: TimeInterval = 5
   /// More failed sends in a row than this fail the piece (the session tries it again later).
   static let maxConsecutiveSendFailures = 8
+  /// At most this many pieces are assembled at once (fix round 1, I1).
+  static let maxAssemblies = 4
   /// Once the last chunk is in, a gap is asked for if nothing else arrives for this long.
   static let gapCheckDelay: Duration = .seconds(1)
 
@@ -114,8 +167,10 @@ final class MessengerPieceChannel: BPLogger {
   var sharerID: UUID?
   /// Listener: a complete, checked piece file (in `folder`).
   var onPieceReceived: (@MainActor (UUID, URL) -> Void)?
-  /// A mode announcement, or the first chunk heard (which means chunks too).
-  var onModeAnnounced: (@MainActor (ListenTogetherTransportMode) -> Void)?
+  /// A mode announcement (`explicit`), or the first chunk heard (which means chunks too).
+  var onModeAnnounced: (@MainActor (ListenTogetherTransportMode, _ explicit: Bool) -> Void)?
+  /// Sharer: a listener can't load journal pieces (fix round 1, C2). The argument is who said so.
+  var onJournalUnusable: (@MainActor (UUID?) -> Void)?
 
   private let send: Send
   private let sleep: @MainActor (Duration) async -> Void
@@ -198,6 +253,12 @@ final class MessengerPieceChannel: BPLogger {
   func hasPiece(_ id: UUID) -> Bool? {
     if sources[id] != nil { return true }
     return evicted.contains(id) ? false : nil
+  }
+
+  /// Listener: tells the sharer that journal pieces can't be loaded here (fix round 1, C2).
+  func reportJournalUnusable() async {
+    Self.logger.info("Listen Together: telling the sharer that journal pieces can't be loaded here")
+    await sendControl(.journalUnusable, to: sharerID)
   }
 
   /// Sharer: tells `recipient` (nil: everyone) that pieces come as chunks.
@@ -294,7 +355,7 @@ final class MessengerPieceChannel: BPLogger {
       while true {
         guard !stopped else { throw ChunkChannelError.stopped }
         while inFlight < window.size, let index = retry.isEmpty ? queue.popFirst() : retry.removeFirst() {
-          let data = try frame(index, of: job.pieceID, source: source, handle: handle).encoded()
+          let data = try await Self.frame(index, of: job.pieceID, source: source, handle: handle).encoded()
           sentBytes += Int64(data.count)
           group.addTask {
             do {
@@ -328,10 +389,14 @@ final class MessengerPieceChannel: BPLogger {
       "Listen Together: chunks sent piece \(job.pieceID.uuidString, privacy: .public) chunks=\(indices.count, privacy: .public) to=\(job.recipient == nil ? "all" : "one", privacy: .public) in \(seconds, privacy: .public)s rate=\(Int(Double(sentBytes) / seconds), privacy: .public)B/s")
   }
 
-  private func frame(_ index: Int, of id: UUID, source: Source, handle: FileHandle) throws -> ChunkFrame {
+  /// Reads one chunk off the main actor (Minor 3). Reads of one job are awaited one after another, so
+  /// the handle is never used by two at once.
+  private static func frame(_ index: Int, of id: UUID, source: Source, handle: FileHandle) async throws -> ChunkFrame {
     let range = ChunkFrame.byteRange(ofChunk: index, totalBytes: source.totalBytes)
-    try handle.seek(toOffset: UInt64(range.lowerBound))
-    let payload = try handle.read(upToCount: Int(range.count)) ?? Data()
+    let payload = try await Task.detached(priority: .utility) { () throws -> Data in
+      try handle.seek(toOffset: UInt64(range.lowerBound))
+      return try handle.read(upToCount: Int(range.count)) ?? Data()
+    }.value
     guard Int64(payload.count) == range.count else { throw ChunkChannelError.sizeMismatch }
     return ChunkFrame(
       pieceID: id, index: index, count: source.count, totalBytes: source.totalBytes,
@@ -345,6 +410,8 @@ final class MessengerPieceChannel: BPLogger {
   func receive(_ data: Data, from sender: UUID?) {
     guard !stopped else { return }
     if let frame = ChunkFrame.decode(data) {
+      // I1: once the sharer is known, only their chunks are taken.
+      if let sharerID, sender != sharerID { return }
       receiveChunk(frame)
     } else if let control = ChunkControl.decode(data) {
       receiveControl(control, from: sender)
@@ -354,7 +421,9 @@ final class MessengerPieceChannel: BPLogger {
   private func receiveControl(_ control: ChunkControl, from sender: UUID?) {
     switch control {
     case .transportMode(let mode):
-      onModeAnnounced?(mode)
+      onModeAnnounced?(mode, true)
+    case .journalUnusable:
+      onJournalUnusable?(sender)
     case .chunksMissing(let id, let ranges):
       guard let source = sources[id] else {
         // Only the sharer answers; a listener ignores other listeners' requests.
@@ -380,18 +449,24 @@ final class MessengerPieceChannel: BPLogger {
     guard receivesPieces, sources[frame.pieceID] == nil, !completed.contains(frame.pieceID) else { return }
     if !heardChunks {
       heardChunks = true
-      onModeAnnounced?(.chunks)
+      onModeAnnounced?(.chunks, false)
     }
     let assembly: ChunkReassembler
     do {
       if let existing = assemblies[frame.pieceID] {
         assembly = existing
       } else {
+        guard makeRoomForAssembly() else {
+          // Asked for again by the retry timer once there is room.
+          Self.logger.info("Listen Together: chunks piece \(frame.pieceID.uuidString, privacy: .public) waits, too many pieces arriving")
+          requested[frame.pieceID] = requested[frame.pieceID] ?? now()
+          return
+        }
         assembly = try ChunkReassembler(first: frame, folder: folder, now: now())
         assemblies[frame.pieceID] = assembly
       }
       guard !assembly.isFinishing else { return }
-      try assembly.write(frame, now: now())
+      assembly.write(frame, now: now())
     } catch {
       Self.logger.error(
         "Listen Together: chunks piece \(frame.pieceID.uuidString, privacy: .public) could not be written: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
@@ -418,8 +493,23 @@ final class MessengerPieceChannel: BPLogger {
     }
   }
 
+  /// True when a new piece may start: under `maxAssemblies`, or after dropping the stalest one that
+  /// is stale (it is asked for again later).
+  private func makeRoomForAssembly() -> Bool {
+    guard assemblies.count >= Self.maxAssemblies else { return true }
+    let now = now()
+    let stale = assemblies.values
+      .filter { !$0.isFinishing && now.timeIntervalSince($0.lastChunkAt) >= Self.staleAfter }
+      .min { $0.lastChunkAt < $1.lastChunkAt }
+    guard let stale else { return false }
+    assemblies[stale.pieceID] = nil
+    stale.discard()
+    requested[stale.pieceID] = now
+    return true
+  }
+
   private func finish(_ assembly: ChunkReassembler) async {
-    assembly.close()
+    await assembly.close()
     let url = assembly.partURL
     let expectedSize = assembly.totalBytes
     let expectedChecksum = assembly.checksum

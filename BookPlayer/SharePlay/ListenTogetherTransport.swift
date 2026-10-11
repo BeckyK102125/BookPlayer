@@ -29,6 +29,8 @@ protocol ListenTogetherTransport: AnyObject {
   func leave()
   /// Sharer: ends the group session for everyone (`GroupSession.end()`), not only for this device.
   func end()
+  /// Stops sending and receiving pieces at once, before the share's files are deleted (End).
+  func stopPieceTransfers()
   /// A listener playing their own copy never downloads: pieces in the journal are not loaded.
   func stopReceivingPieces()
   /// Listener: some piece loads failed and wait to be tried again.
@@ -44,6 +46,7 @@ protocol ListenTogetherTransport: AnyObject {
 
 extension ListenTogetherTransport {
   func end() { leave() }
+  func stopPieceTransfers() {}
   func stopReceivingPieces() {}
   var hasFailedPieceLoads: Bool { false }
   func retryFailedPieceLoads() {}
@@ -87,8 +90,9 @@ struct PieceMetadata: Codable, Equatable {
 }
 
 /// The real transport: messages over `GroupSessionMessenger`, audio pieces over `GroupSessionJournal`,
-/// or, once the journal has refused pieces, as chunks on a second messenger (`MessengerPieceChannel`,
-/// transfer fix B). The switch is per session and announced, so both sides agree; the protocol and
+/// or, once the journal has refused pieces (on the sharer's add or a listener's load), as chunks on a
+/// second messenger (`MessengerPieceChannel`, transfer fix B). Every mode decision is
+/// `ListenTogetherTransferCoordinator`'s; this class only wires SharePlay to it. The protocol and
 /// everything above it are the same in both modes.
 @MainActor
 final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
@@ -97,26 +101,21 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
   private let journal: GroupSessionJournal
   /// Transfer fix B: raw chunk and chunk-control `Data` only.
   private let chunkMessenger: GroupSessionMessenger
-  private let channel: MessengerPieceChannel
+  private let transfers: ListenTogetherTransferCoordinator
   private let participants: ListenTogetherParticipantDirectory
   private let downloadFolder: URL
   private let isAppActive: @MainActor () -> Bool
-  private var tasks: [Task<Void, Never>] = []
+  /// The long-lived loops (messages, chunks, roster, state, journal list).
+  private var loops: [Task<Void, Never>] = []
+  /// One-off loads; each forgets itself when done (Minor 9).
+  private var loads: [UUID: Task<Void, Never>] = [:]
   private var seenAttachments = Set<UUID>()
   /// Every attachment in the journal's latest list, by id (to load one again).
   private var knownAttachments: [UUID: GroupSessionJournal.Attachment] = [:]
   /// Listener: attachments whose load failed, waiting for `retryFailedPieceLoads()`.
   private var failedAttachments = Set<UUID>()
-  /// Sharer: the ids in the journal's latest list, once one has arrived.
-  private var latestAttachmentIDs: Set<UUID>?
-  /// The sharer never downloads: set before its first upload, so its own attachments are not loaded back.
-  private var isUploader = false
   /// A listener with their own copy never downloads either (addendum 2).
   private var receivesPieces = true
-  /// Journal or chunks, for this session.
-  private var modeSwitch = TransportModeSwitch()
-  /// Listener: pieces announced (`pieceUploaded`) before the sharer's switch to chunks was heard.
-  private var announcedBeforeChunks: [UUID] = []
   let events: AsyncStream<TransportEvent>
   private let continuation: AsyncStream<TransportEvent>.Continuation
 
@@ -125,13 +124,15 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     isAppActive: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }
   ) {
     self.session = session
-    self.messenger = GroupSessionMessenger(session: session, deliveryMode: .reliable)
-    self.journal = GroupSessionJournal(session: session)
+    let messenger = GroupSessionMessenger(session: session, deliveryMode: .reliable)
+    self.messenger = messenger
+    let journal = GroupSessionJournal(session: session)
+    self.journal = journal
     let chunkMessenger = GroupSessionMessenger(session: session, deliveryMode: .reliable)
     self.chunkMessenger = chunkMessenger
     let participants = ListenTogetherParticipantDirectory()
     self.participants = participants
-    self.channel = MessengerPieceChannel(folder: downloadFolder) { data, recipient in
+    let channel = MessengerPieceChannel(folder: downloadFolder) { data, recipient in
       guard let recipient else {
         try await chunkMessenger.send(data)
         return
@@ -140,25 +141,31 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
       guard let participant = participants.byID[recipient] else { return }
       try await chunkMessenger.send(data, to: .only([participant]))
     }
+    self.transfers = ListenTogetherTransferCoordinator(
+      channel: channel,
+      journalAdd: { url in
+        try await journal.add(PieceTransfer(url: url), metadata: PieceMetadata(pathExtension: url.pathExtension)).id
+      },
+      sendMessage: { message in try await messenger.send(message) },
+      isAppActive: isAppActive)
     self.downloadFolder = downloadFolder
     self.isAppActive = isAppActive
     let (stream, continuation) = AsyncStream.makeStream(of: TransportEvent.self)
     self.events = stream
     self.continuation = continuation
 
-    channel.onPieceReceived = { [continuation] id, url in
+    channel.onPieceReceived = { [weak self, continuation] id, url in
+      self?.transfers.chunkPieceReceived(id)
       continuation.yield(.attachmentReceived(id: id, url: url))
     }
-    channel.onModeAnnounced = { [weak self] mode in self?.modeAnnounced(mode) }
 
-    tasks.append(Task { [weak self, messenger, continuation] in
+    loops.append(Task { [weak self, messenger, continuation] in
       for await (message, context) in messenger.messages(of: ListenTogetherMessage.self) {
+        self?.transfers.messageReceived(message, from: context.source.id)
         switch message {
         case .declinedNoCopy:
           continuation.yield(.participantDeclined(id: context.source.id))
         case .manifest, .pieceUploaded, .heartbeat:
-          self?.heardSharer(context.source.id)
-          if case .pieceUploaded(_, let attachmentID) = message { self?.pieceAnnounced(attachmentID) }
           continuation.yield(.sharerParticipant(id: context.source.id))
           continuation.yield(.message(message))
         default:
@@ -166,19 +173,21 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
         }
       }
     })
-    tasks.append(Task { [weak self, chunkMessenger] in
+    loops.append(Task { [weak self, chunkMessenger] in
       for await (data, context) in chunkMessenger.messages(of: Data.self) {
-        self?.channel.receive(data, from: context.source.id)
+        self?.transfers.channel.receive(data, from: context.source.id)
       }
     })
-    tasks.append(Task { [weak self] in
+    loops.append(Task { [weak self] in
       guard let publisher = self?.session.$activeParticipants.values else { return }
       for await active in publisher {
-        self?.rosterChanged(active)
-        self?.continuation.yield(.participantsChanged(count: active.count, ids: Set(active.map(\.id))))
+        guard let self else { return }
+        self.participants.byID = Dictionary(active.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        self.transfers.rosterChanged(Set(active.map(\.id)), localID: self.session.localParticipant.id)
+        self.continuation.yield(.participantsChanged(count: active.count, ids: Set(active.map(\.id))))
       }
     })
-    tasks.append(Task { [weak self] in
+    loops.append(Task { [weak self] in
       guard let publisher = self?.session.$state.values else { return }
       for await state in publisher {
         Self.logger.info("Listen Together: group session state \(String(describing: state), privacy: .public)")
@@ -188,7 +197,7 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
         }
       }
     })
-    tasks.append(Task { [weak self] in
+    loops.append(Task { [weak self] in
       guard let attachments = self?.journal.attachments else { return }
       for await list in attachments {
         guard let self else { return }
@@ -201,68 +210,48 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     try await messenger.send(message)
   }
 
-  /// Journal first. A journal failure that switches the session to chunks (`TransportModeSwitch`) is
-  /// not thrown: the same piece goes out as chunks at once, after the listeners have been told.
   func upload(fileAt url: URL) async throws -> UUID {
-    isUploader = true
-    if modeSwitch.mode == .journal {
-      let activeAtStart = isAppActive()
-      do {
-        let attachment = try await journal.add(
-          PieceTransfer(url: url), metadata: PieceMetadata(pathExtension: url.pathExtension))
-        modeSwitch.journalAddSucceeded()
-        seenAttachments.insert(attachment.id)
-        return attachment.id
-      } catch {
-        let activeNow = isAppActive()
-        let interrupted = PieceRetryPolicy.isInterruption(error) || !activeAtStart || !activeNow
-        let notSupported = TransportModeSwitch.isNotSupported(error)
-        let switched = modeSwitch.journalAddFailed(isNotSupported: notSupported, isInterruption: interrupted)
-        Self.logger.error(
-          "Listen Together: journal upload failed: \(ListenTogetherErrorDescription.describe(error), privacy: .public) notSupported=\(notSupported, privacy: .public) interruption=\(interrupted, privacy: .public) switching=\(switched, privacy: .public)")
-        guard switched else { throw error }
-        Self.logger.info(
-          "Listen Together: transport mode chunks (sharer, after \(notSupported ? "notSupported" : "\(TransportModeSwitch.failureLimit) journal failures", privacy: .public))")
-        await channel.announceMode(to: nil)
-      }
-    }
-    return try await channel.upload(fileAt: url)
+    let id = try await transfers.upload(fileAt: url)
+    seenAttachments.insert(id)
+    return id
   }
 
   func stopReceivingPieces() {
     receivesPieces = false
-    channel.stopReceiving()
+    transfers.stopReceiving()
   }
 
-  var hasFailedPieceLoads: Bool { !failedAttachments.isEmpty || channel.hasStalePieces }
+  var hasFailedPieceLoads: Bool {
+    (!failedAttachments.isEmpty && !transfers.hasAbandonedJournal) || transfers.channel.hasStalePieces
+  }
 
   func retryFailedPieceLoads() {
-    channel.retryStale()
+    transfers.channel.retryStale()
     let retrying = failedAttachments.compactMap { knownAttachments[$0] }
     failedAttachments = []
-    guard !retrying.isEmpty else { return }
+    // C2: once the pieces come again as chunks, failed journal loads are not retried.
+    guard !retrying.isEmpty, !transfers.hasAbandonedJournal else { return }
     // Seen again, so a journal list change meanwhile doesn't load the same piece twice.
     retrying.forEach { seenAttachments.insert($0.id) }
-    // Tracked, so `leave()` cancels it with the rest.
-    tasks.append(Task { [weak self] in
-      for attachment in retrying { await self?.load(attachment) }
-    })
+    startLoads(retrying)
   }
 
   func reloadPiece(attachmentID: UUID) {
-    guard let attachment = knownAttachments[attachmentID] else {
-      // Not in the journal: a piece sent as chunks.
-      if channel.knows(attachmentID) || modeSwitch.mode == .chunks { channel.reload(attachmentID) }
-      return
-    }
+    let attachment = knownAttachments[attachmentID]
+    if transfers.reloadChunkPiece(attachmentID, isJournalAttachment: attachment != nil) { return }
+    guard let attachment else { return }
     failedAttachments.remove(attachmentID)
     seenAttachments.insert(attachmentID)
-    tasks.append(Task { [weak self] in await self?.load(attachment) })
+    startLoads([attachment])
   }
 
   func hasAttachment(_ id: UUID) -> Bool? {
-    if let kept = channel.hasPiece(id) { return kept }
-    return latestAttachmentIDs.map { $0.contains(id) }
+    transfers.hasAttachment(id)
+  }
+
+  /// Chunk sends and receives stop at once (End, before the share folder is deleted: Minor 1).
+  func stopPieceTransfers() {
+    transfers.stop()
   }
 
   func leave() {
@@ -277,68 +266,41 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
   }
 
   private func stopEverything() {
-    tasks.forEach { $0.cancel() }
-    tasks = []
-    channel.stop()
+    loops.forEach { $0.cancel() }
+    loops = []
+    loads.values.forEach { $0.cancel() }
+    loads = [:]
+    transfers.stop()
     continuation.finish()
-  }
-
-  // MARK: Chunks (transfer fix B)
-
-  private func heardSharer(_ id: UUID) {
-    guard !isUploader else { return }
-    channel.sharerID = id
-  }
-
-  /// Listener: the sharer announced a piece. In chunk mode it is asked for unless it is arriving.
-  private func pieceAnnounced(_ id: UUID) {
-    guard !isUploader, receivesPieces, knownAttachments[id] == nil else { return }
-    guard modeSwitch.mode == .chunks else {
-      // Kept in case the switch is heard later (messages on two messengers have no common order).
-      if !announcedBeforeChunks.contains(id) { announcedBeforeChunks.append(id) }
-      if announcedBeforeChunks.count > 500 { announcedBeforeChunks.removeFirst() }
-      return
-    }
-    channel.pieceAnnounced(id)
-  }
-
-  private func modeAnnounced(_ mode: ListenTogetherTransportMode) {
-    guard !isUploader, modeSwitch.adopt(mode) else { return }
-    Self.logger.info("Listen Together: transport mode chunks (listener, announced by the sharer)")
-    let waiting = announcedBeforeChunks
-    announcedBeforeChunks = []
-    for id in waiting where knownAttachments[id] == nil { channel.pieceAnnounced(id) }
-  }
-
-  /// Keeps the participants for chunk replies; in chunk mode, the sharer tells anyone new.
-  private func rosterChanged(_ active: Set<Participant>) {
-    let previous = Set(participants.byID.keys)
-    participants.byID = Dictionary(active.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-    guard isUploader, modeSwitch.mode == .chunks else { return }
-    let me = session.localParticipant.id
-    for id in Set(participants.byID.keys).subtracting(previous) where id != me {
-      tasks.append(Task { [weak self] in await self?.channel.announceMode(to: id) })
-    }
   }
 
   // MARK: Journal
 
   private func receive(_ attachments: [GroupSessionJournal.Attachment]) async {
-    latestAttachmentIDs = Set(attachments.map(\.id))
+    transfers.journalListChanged(Set(attachments.map(\.id)))
     knownAttachments = Dictionary(attachments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-    guard !isUploader, receivesPieces else { return }
+    guard !transfers.isUploader, receivesPieces, !transfers.hasAbandonedJournal else { return }
     for attachment in attachments where !seenAttachments.contains(attachment.id) {
       seenAttachments.insert(attachment.id)
       await load(attachment)
     }
   }
 
+  private func startLoads(_ attachments: [GroupSessionJournal.Attachment]) {
+    let key = UUID()
+    loads[key] = Task { [weak self] in
+      for attachment in attachments { await self?.load(attachment) }
+      self?.loads[key] = nil
+    }
+  }
+
   /// Loads one piece into the download folder, named with the sender's extension. A failure is kept
-  /// for `retryFailedPieceLoads()`.
+  /// for `retryFailedPieceLoads()` and reported to the coordinator (C2).
   private func load(_ attachment: GroupSessionJournal.Attachment) async {
     guard receivesPieces else { return }
     var loaded: URL?
     let start = Date()
+    let activeAtStart = isAppActive()
     Self.logger.info("Listen Together: attachment \(attachment.id.uuidString, privacy: .public) load start")
     do {
       let piece = try await attachment.load(PieceTransfer.self)
@@ -350,6 +312,7 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
       let bytes = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64) ?? 0
       Self.logger.info(
         "Listen Together: attachment \(attachment.id.uuidString, privacy: .public) loaded in \(Date().timeIntervalSince(start), privacy: .public)s bytes=\(bytes, privacy: .public) ext=\(destination.pathExtension, privacy: .public) metadata=\(metadata != nil, privacy: .public)")
+      transfers.journalPieceLoaded(attachment.id)
       continuation.yield(.attachmentReceived(id: attachment.id, url: destination))
     } catch {
       // Nothing may be left outside the folders the session cleans up.
@@ -359,6 +322,7 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
       failedAttachments.insert(attachment.id)
       Self.logger.error(
         "Listen Together: could not load a piece: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
+      transfers.journalLoadFailed(attachment.id, error: error, appWasActive: activeAtStart && isAppActive())
     }
   }
 }

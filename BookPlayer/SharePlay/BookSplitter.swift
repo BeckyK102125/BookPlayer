@@ -99,7 +99,7 @@ struct BookSplitter {
     }
 
     let size = (try? FileManager.default.attributesOfItem(atPath: output.path)[.size] as? Int64) ?? 0
-    guard size <= 100_000_000 else {
+    guard size <= ListenTogetherLimits.maxExportedPieceBytes else {
       try? FileManager.default.removeItem(at: output)
       throw BookSplitterError.pieceTooLarge(index: piece.index, bytes: size)
     }

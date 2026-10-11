@@ -12,6 +12,8 @@ final class FakeTransport: ListenTogetherTransport {
   var left = false
   /// The sharer ended the group session for everyone (`GroupSession.end()`), instead of leaving it.
   var ended = false
+  /// What happened, in order: "send:<kind>", "stopPieceTransfers", "end", "leave".
+  private(set) var calls: [String] = []
   var failUploads = false
   /// Thrown by the next uploads, one each, before uploads succeed again.
   var uploadErrors: [Error] = []
@@ -28,6 +30,7 @@ final class FakeTransport: ListenTogetherTransport {
   func send(_ message: ListenTogetherMessage) async throws {
     if holdSends { await withCheckedContinuation { heldSends.append($0) } }
     sent.append(message)
+    calls.append("send:\(message.kind)")
   }
   func releaseSends() {
     holdSends = false
@@ -43,8 +46,9 @@ final class FakeTransport: ListenTogetherTransport {
     if !uploadErrors.isEmpty { throw uploadErrors.removeFirst() }
     uploads.append(url); return UUID()
   }
-  func leave() { left = true; _ = events; continuation.finish() }
-  func end() { ended = true; _ = events; continuation.finish() }
+  func leave() { left = true; calls.append("leave"); _ = events; continuation.finish() }
+  func end() { ended = true; calls.append("end"); _ = events; continuation.finish() }
+  func stopPieceTransfers() { calls.append("stopPieceTransfers") }
 }
 
 @MainActor
