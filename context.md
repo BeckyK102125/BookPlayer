@@ -7,7 +7,7 @@ SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a d
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: transfer fix for build 3. Build 2 (5.22.2 (2)) in the field: messages cross both ways but no
+Current goal: two-device run of TestFlight build 5.22.2 (3) (develop 4f589c33, transfer fix), uploaded 2026-10-11.
 audio piece ever arrives ("Couldn't send part of the book"). Root cause and plan:
 .superpowers/sdd/2026-10-10-shareplay-listen-together/transfer-root-cause-2026-10-11.md; brief
 transfer-fix-brief.md; report transfer-fix-report.md. Branch `listen-together-transfer-fix` (from develop

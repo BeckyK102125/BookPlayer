@@ -1125,3 +1125,9 @@ Parent f4d9cad4. Inputs: transfer-fix-rereview-1.md (ready to merge; 5 new Minor
 - Full run 1: 892 tests, 0 failures but ** TEST FAILED **: InsertBooksTests.testInsertEmptyBooksIntoPlaylist
   crashed (known CoreData flake, restarted); rerun below.
 - Full run 2: "Executed 1059 tests, with 0 failures", ** TEST SUCCEEDED **. TSan, 29 SharePlay classes: 487/0, 0 ThreadSanitizer warnings.
+
+## 2026-10-11 — transfer fix merged, pushed, TestFlight build 5.22.2 (3)
+- `develop` fast-forwarded to 4f589c33 (transfer fix 41efa526, f4d9cad4, 4f589c33) and pushed (Becky approved).
+- TestFlight 5.22.2 (3) archived from 4f589c33 in a temporary worktree (same overrides as builds 1-2, CURRENT_PROJECT_VERSION=3),
+  exported and uploaded (internal only): "Upload succeeded". Worktree, archive and export deleted.
+- Device test to do: both phones on build 3; sharer's phone on a Mac to read "journal upload failed: … rejection=" and transport-mode lines.
