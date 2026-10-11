@@ -212,5 +212,85 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertEqual(waitingToggles, 0)
     player.stop()
   }
+
+  // MARK: Seamless joins (addendum 3, decision 4)
+
+  private func threePieces() -> SharedBookManifest {
+    SharedBookManifest(shareID: UUID(), title: "T", author: "A", duration: 30,
+                       chapters: [SharedChapter(title: "One", start: 0, duration: 30)],
+                       pieces: (0..<3).map { SharedPiece(index: $0, bookStart: Double($0) * 10, duration: 10, byteSize: 1) })
+  }
+
+  func testTheNextArrivedPieceIsQueuedBehindTheCurrentOne() throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    player.pieceArrived(index: 0, url: try makePiece(0))
+    player.pieceArrived(index: 1, url: try makePiece(1))
+    player.applySeek(to: 2)
+    XCTAssertEqual(player.queuedPieceIndex, 1)
+    player.stop()
+  }
+
+  func testAPieceArrivingWhileThePreviousOneIsLoadedIsQueuedAtOnce() throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    player.pieceArrived(index: 0, url: try makePiece(0))
+    player.applySeek(to: 2)
+    XCTAssertNil(player.queuedPieceIndex, "piece 1 is not here yet")
+    player.pieceArrived(index: 2, url: try makePiece(2))
+    XCTAssertNil(player.queuedPieceIndex, "only the very next piece is queued")
+    player.pieceArrived(index: 1, url: try makePiece(1))
+    XCTAssertEqual(player.queuedPieceIndex, 1)
+    player.stop()
+  }
+
+  func testSeekIntoAnotherPieceRebuildsTheQueue() throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    for index in 0..<3 { player.pieceArrived(index: index, url: try makePiece(index)) }
+    player.applySeek(to: 2)
+    XCTAssertEqual(player.queuedPieceIndex, 1)
+    player.applySeek(to: 25)
+    XCTAssertNil(player.queuedPieceIndex, "the last piece has nothing after it")
+    player.applySeek(to: 12)
+    XCTAssertEqual(player.queuedPieceIndex, 2)
+    player.stop()
+  }
+
+  func testWhatHappensWhenAPieceEnds() {
+    var timeline = PieceTimeline(pieces: threePieces().pieces)
+    timeline.markArrived(index: 0, url: URL(fileURLWithPath: "/tmp/p0.m4a"))
+    XCTAssertEqual(ListenerPlayer.decisionAtEnd(of: 0, queued: 1, timeline: timeline), .queuedNextPlays(1))
+    XCTAssertEqual(ListenerPlayer.decisionAtEnd(of: 0, queued: nil, timeline: timeline), .waitForNext(1))
+    XCTAssertEqual(ListenerPlayer.decisionAtEnd(of: 2, queued: nil, timeline: timeline), .endOfBook)
+  }
+
+  func testBookTimeFollowsTheQueueAcrossTheBoundary() throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    var events: [LocalPlaybackEvent] = []
+    player.localEvents.sink { events.append($0) }.store(in: &bag)
+    for index in 0..<3 { player.pieceArrived(index: index, url: try makePiece(index)) }
+    player.applyPlay(at: 8, rate: 1)
+    player.queueAdvancedForTesting()            // piece 0 played out; the queue moved to piece 1
+    XCTAssertEqual(player.queuedPieceIndex, 2, "the piece after it is queued in turn")
+    player.itemTimeProvider = { CMTime(seconds: 3, preferredTimescale: 600) }
+    player.userTogglePlay()
+    guard case let .paused(at)? = events.last else { return XCTFail("expected paused") }
+    XCTAssertEqual(at, 13, accuracy: 0.01)
+    player.applySeek(to: 15)                    // a coordinator seek inside the queued-in piece
+    XCTAssertEqual(player.bookTime, 15, accuracy: 0.001)
+    XCTAssertEqual(player.queuedPieceIndex, 2)
+    player.stop()
+  }
+
+  func testALoadAtAnArrivedPieceReportsThatThePositionIsReady() throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    var ready = 0
+    player.onPositionReady = { ready += 1 }
+    player.applySeek(to: 15)
+    XCTAssertEqual(ready, 0)
+    player.pieceArrived(index: 1, url: try makePiece(1))   // the awaited piece: loaded in place
+    XCTAssertEqual(ready, 1)
+    player.applySeek(to: 16)
+    XCTAssertEqual(ready, 2)
+    player.stop()
+  }
 }
 

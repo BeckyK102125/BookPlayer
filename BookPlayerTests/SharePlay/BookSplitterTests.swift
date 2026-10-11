@@ -31,7 +31,9 @@ final class BookSplitterTests: XCTestCase {
       index: 1, sourceIndex: 0, sourceStart: 10, duration: 10, bookStart: 110,
       isWholeFile: false, estimatedBytes: size / 2)
 
-    let (url, shared) = try await BookSplitter().export(piece, from: [file], to: folder)
+    let exported = try await BookSplitter().export(piece, from: [file], to: folder)
+    let url = exported.url, shared = exported.shared
+    XCTAssertEqual(exported.preset, "passthrough", "AAC in .m4a is cut without re-encoding")
 
     let duration = try await AVURLAsset(url: url).load(.duration).seconds
     XCTAssertEqual(duration, 10, accuracy: 0.5)
@@ -47,10 +49,11 @@ final class BookSplitterTests: XCTestCase {
     let piece = PlannedPiece(
       index: 0, sourceIndex: 0, sourceStart: 0, duration: 5, bookStart: 0,
       isWholeFile: true, estimatedBytes: size)
-    let (url, shared) = try await BookSplitter().export(
+    let exported = try await BookSplitter().export(
       piece, from: [SourceFile(url: source, bookStart: 0, duration: 5, byteSize: size)], to: folder)
-    XCTAssertEqual(shared.byteSize, size)
-    XCTAssertNotEqual(url, source)
+    XCTAssertEqual(exported.shared.byteSize, size)
+    XCTAssertNotEqual(exported.url, source)
+    XCTAssertEqual(exported.preset, "copy")
   }
 
   // MARK: - isShareable / sourceFiles
@@ -157,7 +160,7 @@ final class BookSplitterTests: XCTestCase {
       _ = try await BookSplitter().export(piece, from: [file], to: folder)
       XCTFail("expected pieceTooLarge")
     } catch {
-      XCTAssertEqual(error as? BookSplitterError, .pieceTooLarge(index: 3))
+      XCTAssertEqual(error as? BookSplitterError, .pieceTooLarge(index: 3, bytes: 100_000_001))
     }
     XCTAssertFalse(FileManager.default.fileExists(
       atPath: folder.appendingPathComponent("piece-003.m4a").path))
@@ -186,7 +189,13 @@ final class BookSplitterTests: XCTestCase {
       _ = try await BookSplitter().export(piece, from: [file], to: folder)
       XCTFail("expected exportFailed")
     } catch {
-      XCTAssertEqual(error as? BookSplitterError, .exportFailed(index: 4))
+      // The underlying AVFoundation error is kept for the log (decision 11).
+      guard case .exportFailed(let index, let preset, let underlying)? = error as? BookSplitterError else {
+        return XCTFail("expected exportFailed, got \(error)")
+      }
+      XCTAssertEqual(index, 4)
+      XCTAssertFalse(preset.isEmpty)
+      XCTAssertNotNil(underlying, "the AVFoundation error is no longer discarded")
     }
   }
 }

@@ -95,6 +95,7 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     tasks.append(Task { [weak self] in
       guard let publisher = self?.session.$state.values else { return }
       for await state in publisher {
+        Self.logger.info("Listen Together: group session state \(String(describing: state), privacy: .public)")
         if case .invalidated = state {
           self?.continuation.yield(.invalidated)
           self?.continuation.finish()
@@ -137,18 +138,25 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     for attachment in attachments where !seenAttachments.contains(attachment.id) {
       seenAttachments.insert(attachment.id)
       var loaded: URL?
+      let start = Date()
+      Self.logger.info("Listen Together: attachment \(attachment.id.uuidString, privacy: .public) load start")
       do {
         let piece = try await attachment.load(PieceTransfer.self)
         loaded = piece.url
         let destination = downloadFolder.appendingPathComponent(piece.url.lastPathComponent)
         try FileManager.default.moveItem(at: piece.url, to: destination)
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64) ?? 0
+        Self.logger.info(
+          "Listen Together: attachment \(attachment.id.uuidString, privacy: .public) loaded in \(Date().timeIntervalSince(start), privacy: .public)s bytes=\(bytes, privacy: .public) ext=\(destination.pathExtension, privacy: .public)")
         continuation.yield(.attachmentReceived(id: attachment.id, url: destination))
       } catch {
         // Nothing may be left outside the folders the session cleans up.
         if let loaded { try? FileManager.default.removeItem(at: loaded) }
         // Try again the next time the journal's attachment list changes.
         seenAttachments.remove(attachment.id)
-        Self.logger.error("Listen Together: could not load a piece: \(error.localizedDescription)")
+        let nsError = error as NSError
+        Self.logger.error(
+          "Listen Together: could not load a piece: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public) \(error.localizedDescription)")
       }
     }
   }

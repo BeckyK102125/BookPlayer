@@ -233,4 +233,34 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     XCTAssertEqual(control.log, ["rate 1.0", "suspend"])
     player.stop()
   }
+
+  // MARK: Addendum 3: stall release and waiting for the sharer
+
+  func testACommandThatLeavesTheTargetReadyEndsTheStall() {
+    let (bridge, target, control) = makeBridge(ready: false)
+    bridge.waitForPiece()
+    target.ready = true
+    bridge.handleSeek(itemTime: 5)
+    XCTAssertEqual(control.suspensionsEnded, 1)
+    bridge.waitForPiece()
+    bridge.handlePlay(itemTime: 5, rate: 1)
+    XCTAssertEqual(control.suspensionsEnded, 2)
+  }
+
+  func testWaitingForTheSharerIsItsOwnSuspension() {
+    let (bridge, target, control) = makeBridge(ready: false)
+    bridge.holdForSharer()
+    bridge.holdForSharer()
+    XCTAssertEqual(control.suspensionsBegun, 1)
+    bridge.waitForPiece()
+    XCTAssertEqual(control.suspensionsBegun, 2)
+    bridge.releaseSharerHold()
+    XCTAssertEqual(control.suspensionsEnded, 1, "the piece wait goes on")
+    target.ready = true
+    bridge.pieceBecameAvailable()
+    XCTAssertEqual(control.suspensionsEnded, 2)
+    bridge.holdForSharer()
+    bridge.invalidate()
+    XCTAssertEqual(control.suspensionsEnded, 3)
+  }
 }

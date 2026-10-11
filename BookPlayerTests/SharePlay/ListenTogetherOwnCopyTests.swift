@@ -285,8 +285,9 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     let before = try digest(url)
     service.startListening(with: transport, shareID: id, ownCopy: try ownCopy(of: url))
     transport.emit(.message(.sessionEnding))
-    await waitUntil { service.state == .ended(reason: .normal) }
-    XCTAssertEqual(service.state, .ended(reason: .normal))
+    // Addendum 3: the sharer's End reaches a listener as its own reason.
+    await waitUntil { service.state == .ended(reason: .sharerEnded) }
+    XCTAssertEqual(service.state, .ended(reason: .sharerEnded))
     XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     XCTAssertEqual(try digest(url), before)
   }

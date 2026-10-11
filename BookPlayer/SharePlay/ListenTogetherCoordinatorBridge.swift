@@ -1,4 +1,5 @@
 import AVFoundation
+import BookPlayerKit
 import Combine
 import CoreMedia
 import GroupActivities
@@ -19,12 +20,14 @@ protocol ListenTogetherCoordinatorControlling: AnyObject {
 /// `AVDelegatingPlaybackCoordinator` commands to a `ListenTogetherPlaybackTarget`,
 /// and reporting the target's local events back to the coordinator.
 @MainActor
-final class ListenTogetherCoordinatorBridge: NSObject {
+final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   private weak var target: ListenTogetherPlaybackTarget?
   nonisolated let itemIdentifier: String
   private var control: ListenTogetherCoordinatorControlling!
   private var realCoordinator: AVDelegatingPlaybackCoordinator?
   private var endStallSuspension: (() -> Void)?
+  /// A second suspension while a listener waits for the person sharing (addendum 3, decision 9).
+  private var endSharerHold: (() -> Void)?
   private var disposeBag = Set<AnyCancellable>()
   private var isInvalidated = false
 
@@ -69,21 +72,45 @@ final class ListenTogetherCoordinatorBridge: NSObject {
 
   /// Begins a `.stallRecovery` suspension if not already suspended.
   func waitForPiece() {
-    guard !isInvalidated, target != nil, endStallSuspension == nil else { return }
+    guard !isInvalidated, let target, endStallSuspension == nil else { return }
+    Self.logger.info("Listen Together: stall begin at \(target.bookTime, privacy: .public)")
     endStallSuspension = control.beginStallSuspension()
   }
 
-  /// Ends the stall suspension if the target is now ready at its current position.
+  /// Ends the stall suspension if the target is now ready at its current position. Called after any
+  /// piece placement, load, seek or play (path 3), so no stall outlives its reason.
   func pieceBecameAvailable() {
-    if let target, !target.isReady(at: target.bookTime) { return }
-    endStallSuspension?()
+    guard let end = endStallSuspension else { return }
+    if let target, !target.isReady(at: target.bookTime) {
+      Self.logger.info("Listen Together: still not ready at \(target.bookTime, privacy: .public)")
+      return
+    }
+    Self.logger.info("Listen Together: stall end")
     endStallSuspension = nil
+    end()
+  }
+
+  /// The person sharing is missing: the group waits (one suspension, kept apart from piece stalls).
+  func holdForSharer() {
+    guard !isInvalidated, endSharerHold == nil else { return }
+    Self.logger.info("Listen Together: waiting for the sharer, group held")
+    endSharerHold = control.beginStallSuspension()
+  }
+
+  /// The person sharing is back.
+  func releaseSharerHold() {
+    guard let end = endSharerHold else { return }
+    Self.logger.info("Listen Together: the sharer is back, group released")
+    endSharerHold = nil
+    end()
   }
 
   func invalidate() {
     isInvalidated = true
     endStallSuspension?()
     endStallSuspension = nil
+    endSharerHold?()
+    endSharerHold = nil
     disposeBag.removeAll()
     control.transitionToItem(withIdentifier: nil, proposingTime: nil, rate: 0)
   }
@@ -93,20 +120,21 @@ final class ListenTogetherCoordinatorBridge: NSObject {
   func handlePlay(itemTime: TimeInterval, rate: Float) {
     guard !isInvalidated else { return }
     target?.applyPlay(at: itemTime, rate: rate)
+    pieceBecameAvailable()
   }
 
   /// A pause with `shouldBuffer` is also a request to buffer in anticipation of playback.
   func handlePause(itemTime: TimeInterval, shouldBuffer: Bool = false) {
     guard !isInvalidated else { return }
     target?.applyPause(at: itemTime)
-    if shouldBuffer { waitIfNotReady() }
+    if shouldBuffer { waitIfNotReady() } else { pieceBecameAvailable() }
   }
 
   /// A seek with `shouldBuffer` is also a request to buffer in anticipation of playback.
   func handleSeek(itemTime: TimeInterval, shouldBuffer: Bool = false) {
     guard !isInvalidated else { return }
     target?.applySeek(to: itemTime)
-    if shouldBuffer { waitIfNotReady() }
+    if shouldBuffer { waitIfNotReady() } else { pieceBecameAvailable() }
   }
 
   func handleBuffering() -> Bool {
@@ -115,7 +143,7 @@ final class ListenTogetherCoordinatorBridge: NSObject {
   }
 
   private func waitIfNotReady() {
-    if !handleBuffering() { waitForPiece() }
+    if handleBuffering() { pieceBecameAvailable() } else { waitForPiece() }
   }
 
   // MARK: Local changes -> coordinator
@@ -191,6 +219,8 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     let rate = playCommand.rate
     let matches = playCommand.expectedCurrentItemIdentifier == itemIdentifier
     Self.onMainInOrder {
+      Self.logger.info(
+        "Listen Together: play command time=\(time ?? -1, privacy: .public) rate=\(rate, privacy: .public) matches=\(matches, privacy: .public)")
       if matches, let time { self.handlePlay(itemTime: time, rate: rate) }
       completionHandler()
     }
@@ -204,6 +234,8 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     let matches = pauseCommand.expectedCurrentItemIdentifier == itemIdentifier
     let shouldBuffer = pauseCommand.shouldBufferInAnticipationOfPlayback
     Self.onMainInOrder {
+      Self.logger.info(
+        "Listen Together: pause command buffer=\(shouldBuffer, privacy: .public) matches=\(matches, privacy: .public)")
       if matches {
         // The pause command carries no time; hold at the target's own position.
         self.handlePause(itemTime: self.target?.bookTime ?? 0, shouldBuffer: shouldBuffer)
@@ -222,6 +254,8 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     let shouldBuffer = seekCommand.shouldBufferInAnticipationOfPlayback
     let matches = seekCommand.expectedCurrentItemIdentifier == itemIdentifier
     Self.onMainInOrder {
+      Self.logger.info(
+        "Listen Together: seek command time=\(time ?? -1, privacy: .public) buffer=\(shouldBuffer, privacy: .public) matches=\(matches, privacy: .public)")
       if matches, let time { self.handleSeek(itemTime: time, shouldBuffer: shouldBuffer) }
       completionHandler()
     }

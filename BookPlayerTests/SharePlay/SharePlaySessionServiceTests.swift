@@ -11,10 +11,13 @@ final class FakeTransport: ListenTogetherTransport {
   var uploads: [URL] = []
   var left = false
   var failUploads = false
+  /// Thrown by the next uploads, one each, before uploads succeed again.
+  var uploadErrors: [Error] = []
   func emit(_ event: TransportEvent) { _ = events; continuation.yield(event) }
   func send(_ message: ListenTogetherMessage) async throws { sent.append(message) }
   func upload(fileAt url: URL) async throws -> UUID {
     if failUploads { throw URLError(.networkConnectionLost) }
+    if !uploadErrors.isEmpty { throw uploadErrors.removeFirst() }
     uploads.append(url); return UUID()
   }
   func leave() { left = true; _ = events; continuation.finish() }
@@ -50,7 +53,7 @@ final class SharePlaySessionServiceTests: XCTestCase {
       playerManager: playerManager,
       storage: ShareStorage(root: root),
       announcer: ListenTogetherAnnouncer(post: { [weak self] in self?.posted.append($0) }))
-    service.uploadRetryDelay = .milliseconds(10)
+    service.retrySleep = { _ in await Task.yield() }
     services.append(service)
     return service
   }
@@ -139,14 +142,20 @@ final class SharePlaySessionServiceTests: XCTestCase {
     XCTAssertEqual(posted.last, ListenTogetherAnnouncements.joined())
   }
 
-  func testUploadFailureEndsSessionWithMessage() async throws {
+  /// Addendum 3, decision 5: a piece that keeps failing never ends the session; it is retried.
+  func testUploadFailureKeepsTheSessionAndRetries() async throws {
     let service = makeService(), transport = FakeTransport()
     transport.failUploads = true
     let item = try makeSharedItem()
-    await service.beginSharing(with: transport, item: item)
-    await waitUntil { transport.left }
-    XCTAssertEqual(service.state, .ended(reason: .sendFailed))
-    XCTAssertTrue(transport.left)
+    let sending = Task { await service.beginSharing(with: transport, item: item) }
+    await waitUntil { transport.sent.contains { if case .manifest = $0 { return true } else { return false } } }
+    try? await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(service.state, .sharing(participants: 1))
+    XCTAssertFalse(transport.left)
+    XCTAssertFalse(transport.sent.contains(.sessionEnding))
+    transport.failUploads = false
+    await sending.value
+    XCTAssertEqual(transport.uploads.count, 1)
   }
 
   func testFirstParticipantsEventIsOnlyABaseline() async {
@@ -296,9 +305,10 @@ final class SharePlaySessionServiceTests: XCTestCase {
     listener?.userSetRate(1.5)
     listener?.userSetRate(2)
     listener?.userSetRate(1.25)
-    await waitUntil { transport.sent.count >= 3 }
+    let actions = { transport.sent.filter { if case .action = $0 { return true } else { return false } } }
+    await waitUntil { actions().count >= 3 }
 
-    XCTAssertEqual(transport.sent, [
+    XCTAssertEqual(actions(), [
       .action(.speedChanged(rate: 1.5)), .action(.speedChanged(rate: 2)), .action(.speedChanged(rate: 1.25)),
     ])
   }
@@ -321,7 +331,8 @@ final class SharePlaySessionServiceTests: XCTestCase {
     listener.userTogglePlay()   // pressed again straight away: not said twice (3 s limit)
 
     XCTAssertEqual(posted, ["listen_together_waiting_download".localized])
-    XCTAssertTrue(transport.sent.isEmpty)
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertFalse(transport.sent.contains { if case .action = $0 { return true } else { return false } })
   }
 }
 

@@ -31,6 +31,7 @@ extension SharePlaySessionService {
     fingerprint: BookFingerprint? = nil
   ) -> Bool {
     guard !isInSession else { return false }
+    clearEndNotice()
     role = .sharer
     self.shareID = shareID
     self.transport = transport
@@ -42,15 +43,24 @@ extension SharePlaySessionService {
 
     let target = SharerPlaybackTarget(playerManager: playerManager)
     sharerTarget = target
-    let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: shareID, role: .sharer)
+    let bridge = ListenTogetherCoordinatorBridge(
+      target: target, shareID: shareID, role: .sharer, control: coordinatorControlFactory?())
     self.bridge = bridge
     if let activeSession { bridge.coordinate(with: activeSession) }
     observeLocalEvents(of: target)
+    scheduleHeartbeat(on: transport)
+    Self.logger.info("Listen Together: sharing started, ownersOnly=\(ownersOnly, privacy: .public)")
     return true
   }
 
   /// Sends the manifest, then exports and uploads the pieces. Stops as soon as the session ends or the
   /// task is cancelled (`tearDown` cancels `sharingTask`).
+  ///
+  /// Addendum 3: pieces are small (about 12 minutes) and sent in the order the group needs them
+  /// (`PieceUploadScheduler`, asked again before every piece). A failed piece never ends the session:
+  /// it is tried again after a back-off (2, 5, 15, then every 30 seconds), and at once when the app
+  /// becomes active; interruptions never count as failures. While pieces are left, the idle timer is
+  /// held off and each piece runs inside a background task.
   ///
   /// With "Send it for this session", every piece is uploaded even if everyone so far has their own
   /// copy: the journal keeps them for anyone who joins later without one (who would otherwise wait for
@@ -65,6 +75,7 @@ extension SharePlaySessionService {
       files = try splitter.sourceFiles(for: item)
       folder = try storage.folder(for: shareID, role: .sharer)
     } catch {
+      // Not a piece failure: without the files there is no book to describe or send.
       Self.logger.error("Listen Together: could not prepare the book: \(error.localizedDescription)")
       await failSharing(on: transport)
       return
@@ -86,38 +97,149 @@ extension SharePlaySessionService {
     self.manifest = manifest
     setState(.sharing(participants: participantCount))
     await send(.manifest(manifest), on: transport)
+    guard self.transport === transport, !plan.isEmpty else { return }
 
-    for piece in plan.uploadOrder(startingAt: item.currentTime) {
-      guard self.transport === transport, !Task.isCancelled else { return }
-      guard let attachmentID = await exportAndUpload(piece, from: files, to: folder, on: transport) else {
-        guard self.transport === transport else { return }
-        await failSharing(on: transport)
+    pieceScheduler = PieceUploadScheduler(pieces: plan)
+    Self.logger.info(
+      "Listen Together: \(plan.count, privacy: .public) pieces to send, \(files.count, privacy: .public) files")
+    var failures = 0
+    while self.transport === transport, !Task.isCancelled,
+      let piece = pieceScheduler?.next(at: groupPosition(for: item))
+    {
+      // Re-asserted for every piece: another screen may have turned the idle timer back on.
+      setKeepingScreenAwake(true)
+      switch await exportAndUpload(piece, from: files, to: folder, on: transport) {
+      case .uploaded(let attachmentID):
+        failures = 0
+        if notice == .retryingSend { setNotice(nil) }
+        pieceScheduler?.markSent(piece.index)
+        let message = ListenTogetherMessage.pieceUploaded(index: piece.index, attachmentID: attachmentID)
+        uploadedPieceMessages.append(message)
+        await send(message, on: transport)
+      case .interrupted:
+        let delay = appSystem.appState == .active
+          ? PieceRetryPolicy.interruptionDelay : PieceRetryPolicy.backgroundInterruptionDelay
+        Self.logger.info(
+          "Listen Together: piece \(piece.index, privacy: .public) interrupted, retry in \(String(describing: delay), privacy: .public) (not counted)")
+        await retryWaiter.wait(delay, sleep: retrySleep)
+      case .failed:
+        failures += 1
+        setNotice(.retryingSend)
+        let delay = PieceRetryPolicy.delay(afterFailures: failures)
+        Self.logger.info(
+          "Listen Together: piece \(piece.index, privacy: .public) failure \(failures, privacy: .public), retry in \(String(describing: delay), privacy: .public)")
+        await retryWaiter.wait(delay, sleep: retrySleep)
+      case .stopped:
         return
       }
-      guard self.transport === transport else { return }
-      let message = ListenTogetherMessage.pieceUploaded(index: piece.index, attachmentID: attachmentID)
-      uploadedPieceMessages.append(message)
-      await send(message, on: transport)
+    }
+    guard self.transport === transport, pieceScheduler?.isComplete == true else { return }
+    Self.logger.info("Listen Together: every piece is sent")
+    setKeepingScreenAwake(false)
+  }
+
+  enum PieceSendResult: Equatable {
+    case uploaded(UUID)
+    /// A real failure: counts towards the back-off.
+    case failed
+    /// The app was suspended or in the background, or the work was interrupted or cancelled: retried
+    /// without counting.
+    case interrupted
+    /// The session ended meanwhile.
+    case stopped
+  }
+
+  /// One attempt at one piece, inside a background task that is ended on every path (the defer) or
+  /// by its expiration handler, whichever comes first.
+  private func exportAndUpload(
+    _ piece: PlannedPiece, from files: [SourceFile], to folder: URL, on transport: ListenTogetherTransport
+  ) async -> PieceSendResult {
+    guard self.transport === transport, !Task.isCancelled else { return .stopped }
+    let backgroundTask = ListenTogetherBackgroundTask(system: appSystem, name: "Listen Together piece")
+    defer { backgroundTask.end() }
+    let appStateAtStart = appSystem.appState
+    let exportStart = Date()
+    Self.logger.info(
+      "Listen Together: export piece \(piece.index, privacy: .public) start whole=\(piece.isWholeFile, privacy: .public) source=\(piece.sourceIndex, privacy: .public) start=\(piece.sourceStart, privacy: .public) duration=\(piece.duration, privacy: .public) estimated=\(piece.estimatedBytes, privacy: .public) app=\(appStateAtStart.rawValue, privacy: .public)")
+    let exported: ExportedPiece
+    do {
+      exported = try await pieceExporter(piece, files, folder)
+    } catch {
+      return failure(error, stage: "export", piece: piece, appStateAtStart: appStateAtStart, on: transport)
+    }
+    guard self.transport === transport else { return .stopped }
+    Self.logger.info(
+      "Listen Together: exported piece \(piece.index, privacy: .public) preset=\(exported.preset, privacy: .public) bytes=\(exported.shared.byteSize, privacy: .public) in \(Date().timeIntervalSince(exportStart), privacy: .public)s")
+    let uploadStart = Date()
+    Self.logger.info("Listen Together: upload piece \(piece.index, privacy: .public) start")
+    do {
+      let attachmentID = try await transport.upload(fileAt: exported.url)
+      guard self.transport === transport else { return .stopped }
+      Self.logger.info(
+        "Listen Together: uploaded piece \(piece.index, privacy: .public) attachment=\(attachmentID.uuidString, privacy: .public) in \(Date().timeIntervalSince(uploadStart), privacy: .public)s")
+      return .uploaded(attachmentID)
+    } catch {
+      return failure(error, stage: "upload", piece: piece, appStateAtStart: appStateAtStart, on: transport)
     }
   }
 
-  /// Up to three attempts. Returns nil when every attempt failed or the session ended meanwhile.
-  private func exportAndUpload(
-    _ piece: PlannedPiece, from files: [SourceFile], to folder: URL, on transport: ListenTogetherTransport
-  ) async -> UUID? {
-    for attempt in 1...3 {
-      guard self.transport === transport, !Task.isCancelled else { return nil }
-      do {
-        let exported = try await BookSplitter().export(piece, from: files, to: folder)
-        guard self.transport === transport else { return nil }
-        return try await transport.upload(fileAt: exported.url)
-      } catch {
-        Self.logger.error(
-          "Listen Together: piece \(piece.index) attempt \(attempt) failed: \(error.localizedDescription)")
-        if attempt < 3 { try? await Task.sleep(for: uploadRetryDelay) }
+  /// Logs the failure with its underlying error (domain, code, description) and says whether it counts.
+  private func failure(
+    _ error: Error, stage: String, piece: PlannedPiece, appStateAtStart: ListenTogetherAppState,
+    on transport: ListenTogetherTransport
+  ) -> PieceSendResult {
+    guard self.transport === transport else { return .stopped }
+    let appStateNow = appSystem.appState
+    let interrupted = PieceRetryPolicy.isInterruption(error) || appStateAtStart != .active || appStateNow != .active
+    let nsError = error as NSError
+    let detail = (error as? BookSplitterError)?.diagnostics ?? nsError.localizedDescription
+    Self.logger.error(
+      "Listen Together: \(stage, privacy: .public) piece \(piece.index, privacy: .public) failed: \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public) \(detail) app=\(appStateAtStart.rawValue, privacy: .public)->\(appStateNow.rawValue, privacy: .public) interruption=\(interrupted, privacy: .public)")
+    return interrupted ? .interrupted : .failed
+  }
+
+  /// Where the group is, for choosing the next piece: the sharer's own player while it holds the
+  /// shared book (the coordinator keeps it at the group's time), else where the share started.
+  func groupPosition(for item: PlayableItem) -> TimeInterval {
+    if let groupPositionProvider { return groupPositionProvider() }
+    if let current = playerManager.currentItem, current.uuid == item.uuid { return current.currentTime }
+    return item.currentTime
+  }
+
+  /// Sharer, while pieces are left to send: the idle timer is held off so the phone doesn't lock and
+  /// suspend the export. Restored to its earlier value when every piece is sent or the session ends.
+  func setKeepingScreenAwake(_ keep: Bool) {
+    if keep {
+      if !keepsScreenAwake {
+        idleTimerBeforeSharing = appSystem.isIdleTimerDisabled
+        keepsScreenAwake = true
       }
+      if !appSystem.isIdleTimerDisabled { appSystem.isIdleTimerDisabled = true }
+    } else {
+      guard keepsScreenAwake else { return }
+      keepsScreenAwake = false
+      appSystem.isIdleTimerDisabled = idleTimerBeforeSharing
     }
-    return nil
+  }
+
+  /// The app's state changed: logged during a session (it explains interruptions). Becoming active
+  /// retries a waiting piece at once and holds the idle timer off again while pieces are left.
+  func appStateChanged(to appState: ListenTogetherAppState) {
+    guard isInSession else { return }
+    Self.logger.info(
+      "Listen Together: app state \(appState.rawValue, privacy: .public) role=\(self.role == .sharer ? "sharer" : "listener", privacy: .public)")
+    guard appState == .active else { return }
+    if keepsScreenAwake { appSystem.isIdleTimerDisabled = true }
+    retryWaiter.wake()
+  }
+
+  /// "Still here", every `heartbeatInterval`, for as long as this share runs.
+  private func scheduleHeartbeat(on transport: ListenTogetherTransport) {
+    scheduleSessionTimer(Self.heartbeatInterval) { [weak self] in
+      guard let self, self.transport === transport, self.role == .sharer else { return }
+      self.outbox?.yield(.heartbeat)
+      self.scheduleHeartbeat(on: transport)
+    }
   }
 
   private func failSharing(on transport: ListenTogetherTransport) async {
@@ -147,6 +269,7 @@ extension SharePlaySessionService {
     title: String = "", author: String = "", shared: BookFingerprint? = nil, ownersOnly: Bool = false
   ) -> Bool {
     guard !isInSession else { return false }
+    clearEndNotice()
     role = .listener
     self.shareID = shareID
     self.transport = transport
@@ -157,6 +280,9 @@ extension SharePlaySessionService {
       setState(.listening(participants: participantCount, downloaded: 0))
       startEventLoop(on: transport)
       startOutbox(on: transport)
+      startPresenceWatch(on: transport)
+      requestStateIfNeeded(on: transport)
+      Self.logger.info("Listen Together: joined, getting the book")
       return true
     }
     transport.stopReceivingPieces()
@@ -164,6 +290,8 @@ extension SharePlaySessionService {
     setState(.listening(participants: participantCount, downloaded: 1))
     startEventLoop(on: transport)
     startOutbox(on: transport)
+    startPresenceWatch(on: transport)
+    Self.logger.info("Listen Together: joined with an own copy")
     let manifest = ownCopy.manifest(shareID: shareID, title: title, author: author, shared: shared)
     var urls: [Int: URL] = [:]
     for (index, file) in ownCopy.files.enumerated() { urls[index] = file.url }
@@ -178,6 +306,7 @@ extension SharePlaySessionService {
     // Later copies (re-sent for late joiners) keep the existing player; a listener with their own
     // copy already has one from Join.
     guard role == .listener, listener == nil, manifest.shareID == shareID else { return }
+    Self.logger.info("Listen Together: manifest received, pieces=\(manifest.pieces.count, privacy: .public)")
     installListener(manifest: manifest)
   }
 
@@ -187,8 +316,12 @@ extension SharePlaySessionService {
     self.manifest = manifest
     let player = ListenerPlayer(manifest: manifest)
     for (index, url) in arrivedFiles.sorted(by: { $0.key < $1.key }) { player.pieceArrived(index: index, url: url) }
-    let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: manifest.shareID, role: .listener)
-    player.onNeedsPiece = { [weak self] _ in self?.listenerNeedsPiece() }
+    let bridge = ListenTogetherCoordinatorBridge(
+      target: player, shareID: manifest.shareID, role: .listener, control: coordinatorControlFactory?())
+    player.onNeedsPiece = { [weak self] index in self?.listenerNeedsPiece(index) }
+    // Path 3: whenever the player is at an arrived piece again (a placement, load, seek or play), a
+    // stall that is no longer needed ends, so the group never waits for a piece nobody needs.
+    player.onPositionReady = { [weak self] in self?.listenerPositionReady() }
     // Play or pause while the group waits for this device's piece: nothing is sent; say why.
     player.onToggleWhileWaiting = { [weak self] in
       guard let self, self.waitingToggleLimiter.allows(at: Date()) else { return }
@@ -205,15 +338,25 @@ extension SharePlaySessionService {
     updateListeningState()
   }
 
-  private func listenerNeedsPiece() {
+  private func listenerNeedsPiece(_ index: Int) {
     bridge?.waitForPiece()
+    // The sharer sends this piece next, whatever its own position.
+    if !isUsingOwnCopy { outbox?.yield(.needPiece(index: index)) }
     guard !announcedWaiting else { return }
     announcedWaiting = true
     announcer.announce("listen_together_waiting_download".localized)
   }
 
+  private func listenerPositionReady() {
+    guard let listener, listener.isReady(at: listener.bookTime) else { return }
+    announcedWaiting = false
+    bridge?.pieceBecameAvailable()
+  }
+
   private func pieceUploaded(index: Int, attachmentID: UUID) {
     guard role == .listener, !isUsingOwnCopy else { return }
+    Self.logger.info(
+      "Listen Together: piece \(index, privacy: .public) is attachment \(attachmentID.uuidString, privacy: .public), held=\(self.heldAttachments[attachmentID] != nil, privacy: .public)")
     pieceIndexByAttachment[attachmentID] = index
     if listener != nil, let url = heldAttachments.removeValue(forKey: attachmentID) {
       place(index: index, url: url)
@@ -248,6 +391,8 @@ extension SharePlaySessionService {
       return
     }
     placedPieces.insert(index)
+    Self.logger.info(
+      "Listen Together: placed piece \(index, privacy: .public) ext=\(destination.pathExtension, privacy: .public) ready=\(listener.isReady(at: listener.bookTime), privacy: .public)")
     listener.pieceArrived(index: index, url: destination)
     if listener.isReady(at: listener.bookTime) { announcedWaiting = false }
     bridge?.pieceBecameAvailable()
@@ -271,6 +416,7 @@ extension SharePlaySessionService {
       }
       // The stream ended without an explicit end message: the session is over.
       guard let self, self.transport === transport else { return }
+      Self.logger.info("Listen Together: the event stream ended")
       self.tearDown(reason: .normal)
     }
   }
@@ -278,9 +424,22 @@ extension SharePlaySessionService {
   private func handle(_ event: TransportEvent, from transport: ListenTogetherTransport) async {
     switch event {
     case .message(.manifest(let manifest)):
+      sharerHeard()
       receivedManifest(manifest)
     case .message(.pieceUploaded(let index, let attachmentID)):
+      sharerHeard()
       pieceUploaded(index: index, attachmentID: attachmentID)
+    case .message(.heartbeat):
+      sharerHeard()
+    case .message(.requestState):
+      // A listener without the manifest or piece map: send both again (to everyone; harmless).
+      guard role == .sharer else { return }
+      Self.logger.info("Listen Together: state requested; resending the manifest and piece map")
+      await resendForLateJoiners(on: transport)
+    case .message(.needPiece(let index)):
+      guard role == .sharer else { return }
+      Self.logger.info("Listen Together: a listener waits for piece \(index, privacy: .public)")
+      pieceScheduler?.request(index)
     case .attachmentReceived(let id, let url):
       attachmentReceived(id: id, url: url)
     case .message(.action(let action)):
@@ -288,9 +447,16 @@ extension SharePlaySessionService {
       if let target = playbackTarget, let rate = Self.silentRate(for: action, target: target) {
         target.applyRate(rate)
       }
-    case .message(.sessionEnding), .invalidated:
+    case .message(.sessionEnding):
+      // Only the sharer sends it: their End (or a book that could not be read at the start).
+      Self.logger.info("Listen Together: the sharer ended the session")
+      tearDown(reason: role == .listener ? .sharerEnded : .normal)
+    case .invalidated:
+      Self.logger.info("Listen Together: the group session was invalidated")
       tearDown(reason: .normal)
     case .participantsChanged(let count, let ids):
+      Self.logger.info("Listen Together: participants \(ids.isEmpty ? count : ids.count, privacy: .public)")
+      noteRosterSize(ids.isEmpty ? count : ids.count)
       if ids.isEmpty {
         await participantsChanged(to: count, on: transport)
       } else {
@@ -463,7 +629,89 @@ extension SharePlaySessionService {
     do {
       try await transport.send(message)
     } catch {
-      Self.logger.error("Listen Together: could not send a message: \(error.localizedDescription)")
+      let nsError = error as NSError
+      Self.logger.error(
+        "Listen Together: could not send \(message.kind, privacy: .public): \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public) \(error.localizedDescription)")
     }
+  }
+
+  // MARK: Listener: state requests and the sharer's presence (addendum 3)
+
+  /// Path 5: the manifest (and the piece map) can be missed. The listener asks on join and every
+  /// `stateRequestInterval` while it has no manifest or holds a piece whose index it doesn't know.
+  private func requestStateIfNeeded(on transport: ListenTogetherTransport) {
+    guard self.transport === transport, role == .listener, !isUsingOwnCopy else { return }
+    if listener == nil || heldAttachments.keys.contains(where: { pieceIndexByAttachment[$0] == nil }) {
+      outbox?.yield(.requestState)
+    }
+    scheduleSessionTimer(Self.stateRequestInterval) { [weak self] in self?.requestStateIfNeeded(on: transport) }
+  }
+
+  private func startPresenceWatch(on transport: ListenTogetherTransport) {
+    lastSharerContact = now()
+    schedulePresenceCheck(on: transport)
+  }
+
+  private func schedulePresenceCheck(on transport: ListenTogetherTransport) {
+    scheduleSessionTimer(Self.heartbeatInterval) { [weak self] in
+      guard let self, self.transport === transport, self.role == .listener else { return }
+      self.checkSharerPresence()
+      if self.transport === transport { self.schedulePresenceCheck(on: transport) }
+    }
+  }
+
+  /// Decision 9: silent for longer than `sharerSilenceLimit` while the group needs the sharer
+  /// (playing, waiting for a piece, or still without the manifest) -> wait for the sharer; missing
+  /// for `sharerReturnLimit` -> the session ends with `.sharerLeft`.
+  func checkSharerPresence() {
+    guard role == .listener else { return }
+    let now = now()
+    if let since = sharerMissingSince {
+      guard now.timeIntervalSince(since) >= Self.sharerReturnLimit else { return }
+      Self.logger.info("Listen Together: the sharer did not come back; ending")
+      tearDown(reason: .sharerLeft)
+      return
+    }
+    // While the group is paused and this device awaits nothing, silence is harmless: a sharer who
+    // paused and locked the phone is suspended and can't send (device check "paused + locked 5+
+    // minutes"). The silence clock starts again; leaving the roster still counts at once.
+    if let listener, !listener.isPlaying, !listener.isWaitingForPiece {
+      lastSharerContact = now
+      return
+    }
+    if let last = lastSharerContact, now.timeIntervalSince(last) > Self.sharerSilenceLimit {
+      sharerWentMissing(because: "silent")
+    }
+  }
+
+  /// A roster of only this device, after someone else was in it: the sharer is gone.
+  private func noteRosterSize(_ size: Int) {
+    guard role == .listener, size > 0 else { return }
+    if size >= 2 {
+      hasSeenOtherParticipants = true
+    } else if hasSeenOtherParticipants {
+      sharerWentMissing(because: "alone in the roster")
+    }
+  }
+
+  private func sharerWentMissing(because why: String) {
+    guard role == .listener, sharerMissingSince == nil else { return }
+    sharerMissingSince = now()
+    Self.logger.info("Listen Together: waiting for the sharer (\(why, privacy: .public))")
+    setNotice(.waitingForSharer)
+    // Everyone pauses together: this device stops, and its stall suspension makes the group wait.
+    listener?.holdForSharer()
+    bridge?.holdForSharer()
+  }
+
+  /// A message only the sharer sends arrived. If they were missing, the group continues.
+  private func sharerHeard() {
+    guard role == .listener else { return }
+    lastSharerContact = now()
+    guard sharerMissingSince != nil else { return }
+    sharerMissingSince = nil
+    Self.logger.info("Listen Together: the sharer is back")
+    if notice == .waitingForSharer { setNotice(nil) }
+    bridge?.releaseSharerHold()
   }
 }

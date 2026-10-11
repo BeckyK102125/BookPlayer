@@ -3,8 +3,10 @@ import BookPlayerKit
 import Combine
 import Foundation
 
-/// The listener's own player. It plays received pieces one at a time on the shared "book time" timeline.
-/// Remote commands (`apply*`) are never reported back; the user's own actions (`user*`) are.
+/// The listener's own player. It plays received pieces on the shared "book time" timeline. The next
+/// piece, once it has arrived, is queued behind the current one (`AVQueuePlayer`), so playback runs on
+/// across piece boundaries without a gap (addendum 3, decision 4). Remote commands (`apply*`) are never
+/// reported back; the user's own actions (`user*`) are.
 @MainActor
 final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLogger {
   @Published private(set) var bookTime: TimeInterval = 0
@@ -17,10 +19,18 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// Play or pause was pressed while the group waits for this device's piece. Nothing is sent to the
   /// others (a pause there would stop everyone for no reason); the service says what is happening.
   var onToggleWhileWaiting: (() -> Void)?
+  /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
+  /// is no longer needed can end (path 3).
+  var onPositionReady: (() -> Void)?
 
-  private let player = AVPlayer()
+  private let player = AVQueuePlayer()
   private nonisolated(unsafe) var timeObserver: Any?
   private var loadedPieceIndex: Int?
+  /// The piece queued behind the current one (it plays on by itself when the current one ends).
+  private(set) var queuedPieceIndex: Int?
+  /// Which piece each item in the queue plays, and its status observation (for the log).
+  private var pieceIndexByItem: [ObjectIdentifier: Int] = [:]
+  private var itemObservations: [ObjectIdentifier: AnyCancellable] = [:]
   /// The piece we are currently waiting for; cleared when it arrives or another piece loads.
   private var waitingPieceIndex: Int? {
     didSet { if isWaitingForPiece != (waitingPieceIndex != nil) { isWaitingForPiece = waitingPieceIndex != nil } }
@@ -48,10 +58,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
     ) { [weak self] time in
       MainActor.assumeIsolated {
-        guard let self, let index = self.loadedPieceIndex,
-          !self.isSeeking,
-          let piece = self.timeline.pieces.first(where: { $0.index == index }),
-          time.isNumeric
+        guard let self, !self.isSeeking, time.isNumeric,
+          let item = self.player.currentItem,
+          let index = self.pieceIndexByItem[ObjectIdentifier(item)],
+          let piece = self.timeline.pieces.first(where: { $0.index == index })
         else { return }
         self.bookTime = piece.bookStart + time.seconds
       }
@@ -60,9 +70,29 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       .receive(on: DispatchQueue.main)
       .sink { [weak self] note in
         MainActor.assumeIsolated {
-          guard let self, (note.object as? AVPlayerItem) === self.player.currentItem else { return }
-          self.advanceToNextPiece()
+          guard let self, let item = note.object as? AVPlayerItem else { return }
+          self.itemPlayedToEnd(item)
         }
+      }
+      .store(in: &disposeBag)
+    NotificationCenter.default.publisher(for: AVPlayerItem.failedToPlayToEndTimeNotification)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] note in
+        let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError
+        MainActor.assumeIsolated {
+          guard let self, let item = note.object as? AVPlayerItem,
+            let index = self.pieceIndexByItem[ObjectIdentifier(item)]
+          else { return }
+          Self.logger.error(
+            "Listen Together: piece \(index, privacy: .public) failed to play to its end: \(error?.domain ?? "", privacy: .public) \(error?.code ?? 0, privacy: .public)")
+        }
+      }
+      .store(in: &disposeBag)
+    // The queue moved on by itself (the current piece ended and the queued one took over).
+    player.publisher(for: \.currentItem)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated { self?.queueAdvanced() }
       }
       .store(in: &disposeBag)
     NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)
@@ -97,7 +127,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func pieceArrived(index: Int, url: URL) {
     timeline.markArrived(index: index, url: url)
     // We were waiting for this piece: load it in place (paused). The caller decides when to resume.
-    if waitingPieceIndex == index { load(at: bookTime) }
+    if waitingPieceIndex == index {
+      load(at: bookTime)
+    } else {
+      // The piece after the loaded one: queue it now, so it plays on without a gap.
+      enqueueSuccessorIfArrived()
+    }
   }
 
   func isReady(at bookTime: TimeInterval) -> Bool { timeline.isReady(at: bookTime) }
@@ -187,10 +222,22 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     applyRate(newRate)
   }
 
+  /// The person sharing is missing (decision 9): stop here without telling anyone (the service's
+  /// suspension makes the whole group wait). When they are back, the coordinator resumes the group.
+  func holdForSharer() {
+    guard isPlaying else { return }
+    let position = currentPosition
+    player.pause()
+    isPlaying = false
+    bookTime = position
+  }
+
   func stop() {
     player.pause()
-    player.replaceCurrentItem(with: nil)
+    player.removeAllItems()
+    forgetItems(keeping: [])
     loadedPieceIndex = nil
+    queuedPieceIndex = nil
     isSeeking = false
     if let timeObserver { player.removeTimeObserver(timeObserver) }
     timeObserver = nil
@@ -221,8 +268,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   ) -> Bool {
     self.bookTime = bookTime
     guard let url = timeline.url(forPiece: piece.index) else {
-      player.replaceCurrentItem(with: nil)
+      player.removeAllItems()
+      forgetItems(keeping: [])
       loadedPieceIndex = nil
+      queuedPieceIndex = nil
       isSeeking = false
       if requestIfMissing, waitingPieceIndex != piece.index {
         waitingPieceIndex = piece.index
@@ -231,11 +280,15 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       return false
     }
     waitingPieceIndex = nil
-    if loadedPieceIndex != piece.index {
-      let item = AVPlayerItem(url: url)
-      item.audioTimePitchAlgorithm = .timeDomain
-      player.replaceCurrentItem(with: item)
+    if loadedPieceIndex != piece.index || player.currentItem == nil {
+      // Another piece: the queue starts over with it (and the piece after it, if here).
+      player.removeAllItems()
+      forgetItems(keeping: [])
+      queuedPieceIndex = nil
+      let item = makeItem(url: url, index: piece.index)
+      player.insert(item, after: nil)
       loadedPieceIndex = piece.index
+      enqueueSuccessorIfArrived()
     }
     isSeeking = true
     seekGeneration += 1
@@ -249,7 +302,96 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
         if let self, self.seekGeneration == generation { self.isSeeking = false }
       }
     }
+    onPositionReady?()
     return true
+  }
+
+  private func makeItem(url: URL, index: Int) -> AVPlayerItem {
+    let item = AVPlayerItem(url: url)
+    item.audioTimePitchAlgorithm = .timeDomain
+    let id = ObjectIdentifier(item)
+    pieceIndexByItem[id] = index
+    let pathExtension = url.pathExtension
+    // Diagnostics (decision 11): a piece that can't be decoded is logged with its error.
+    itemObservations[id] = item.publisher(for: \.status)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak item] status in
+        guard status == .failed else { return }
+        let error = item?.error as NSError?
+        MainActor.assumeIsolated {
+          Self.logger.error(
+            "Listen Together: piece \(index, privacy: .public) (\(pathExtension, privacy: .public)) can't be played: \(error?.domain ?? "", privacy: .public) \(error?.code ?? 0, privacy: .public) \(error?.localizedDescription ?? "")")
+        }
+      }
+    return item
+  }
+
+  /// Forgets every item that is no longer in the queue (and `keeping`, for one being added).
+  private func forgetItems(keeping: [AVPlayerItem]) {
+    let live = Set((player.items() + keeping).map(ObjectIdentifier.init))
+    pieceIndexByItem = pieceIndexByItem.filter { live.contains($0.key) }
+    itemObservations = itemObservations.filter { live.contains($0.key) }
+  }
+
+  /// Queues the piece after the loaded one behind it, if it has arrived and nothing is queued yet.
+  private func enqueueSuccessorIfArrived() {
+    guard queuedPieceIndex == nil, let loaded = loadedPieceIndex, let current = player.currentItem,
+      let next = timeline.piece(after: loaded), let url = timeline.url(forPiece: next.index)
+    else { return }
+    let item = makeItem(url: url, index: next.index)
+    guard player.canInsert(item, after: current) else {
+      forgetItems(keeping: [])
+      return
+    }
+    player.insert(item, after: current)
+    queuedPieceIndex = next.index
+  }
+
+  /// The queue's current item changed. When it is the queued piece (the previous one played out), it
+  /// becomes the loaded piece and the one after it is queued in turn. Changes made by `load` are
+  /// already accounted for and do nothing here.
+  private func queueAdvanced() {
+    guard let item = player.currentItem, let index = pieceIndexByItem[ObjectIdentifier(item)],
+      index != loadedPieceIndex, index == queuedPieceIndex
+    else { return }
+    loadedPieceIndex = index
+    queuedPieceIndex = nil
+    waitingPieceIndex = nil
+    forgetItems(keeping: [])
+    enqueueSuccessorIfArrived()
+  }
+
+  /// Test seam: the current piece played out and the queue moved to the queued one.
+  func queueAdvancedForTesting() {
+    player.advanceToNextItem()
+    queueAdvanced()
+  }
+
+  enum PieceEndDecision: Equatable {
+    /// The next piece is queued and plays on by itself.
+    case queuedNextPlays(Int)
+    /// The next piece has not arrived: wait for it (the group waits too).
+    case waitForNext(Int)
+    case endOfBook
+  }
+
+  /// What happens when piece `index` plays to its end, with `queued` behind it.
+  nonisolated static func decisionAtEnd(of index: Int, queued: Int?, timeline: PieceTimeline) -> PieceEndDecision {
+    guard let next = timeline.piece(after: index) else { return .endOfBook }
+    if queued == next.index { return .queuedNextPlays(next.index) }
+    return .waitForNext(next.index)
+  }
+
+  /// A piece played to its end. If the next one was queued, the queue already continues (seamless);
+  /// otherwise the next piece is loaded, or waited for.
+  private func itemPlayedToEnd(_ item: AVPlayerItem) {
+    guard let index = pieceIndexByItem[ObjectIdentifier(item)], index == loadedPieceIndex else { return }
+    switch Self.decisionAtEnd(of: index, queued: queuedPieceIndex, timeline: timeline) {
+    case .queuedNextPlays:
+      queueAdvanced()
+    case .waitForNext, .endOfBook:
+      advanceToNextPiece()
+    }
   }
 
   /// Where the player really is, computed from the player rather than the last periodic tick.

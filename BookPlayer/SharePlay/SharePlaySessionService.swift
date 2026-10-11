@@ -16,7 +16,21 @@ enum ListenTogetherState: Equatable {
     case normal
     case sendFailed
     case unavailable
+    /// Listener: the person sharing pressed End (addendum 3, decision 9).
+    case sharerEnded
+    /// Listener: the person sharing was gone for `sharerReturnLimit` (addendum 3, decision 9).
+    case sharerLeft
   }
+}
+
+/// Ongoing conditions of a running session that are not a state of their own (addendum 3). Logic
+/// only: the visible and spoken text for them is added in Task B.
+enum ListenTogetherNotice: Equatable {
+  /// Listener: nothing heard from the person sharing for a while (or they left the roster). The
+  /// group is paused until they are back, for at most `sharerReturnLimit`.
+  case waitingForSharer
+  /// Sharer: a piece failed and is being tried again. The session goes on.
+  case retryingSend
 }
 
 /// Starts, joins and ends Listen Together sessions. The sharer splits and uploads the book;
@@ -48,6 +62,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// True while this device listens with its own copy: nothing is downloaded and the End hint says
   /// the copy is kept.
   @Published private(set) var isUsingOwnCopy = false
+  /// An ongoing condition of the running session (waiting for the sharer, retrying a piece). Nil
+  /// when there is none, and always nil outside a session.
+  @Published private(set) var notice: ListenTogetherNotice?
+  /// Listener: why the last session ended, when the person sharing ended it or left (decision 9,
+  /// Becky's ruling: one message, then nothing of that session remains). Kept until the message has
+  /// been shown (`acknowledgeEndNotice()`) or a new session starts. The session itself, its player,
+  /// row and temporary copy are already gone when this is set.
+  @Published private(set) var endNotice: ListenTogetherState.EndReason?
 
   var invitationUsesOwnCopy: Bool { invitationOwnCopy != nil }
 
@@ -59,8 +81,36 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Remembers, per device, that the first-share note was seen.
   let defaults: UserDefaults
   static let firstShareNoteSeenKey = "listenTogetherFirstShareNoteSeen"
-  /// Pause between upload attempts. Test seam.
-  var uploadRetryDelay: Duration = .seconds(1)
+  /// The idle timer, background tasks and app state (addendum 3, decision 6).
+  let appSystem: ListenTogetherAppSystem
+  /// Waits out a back-off before a piece is tried again. Test seam (back-off lengths without waiting).
+  var retrySleep: @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+  /// Makes the file for one piece. Test seam (no AVFoundation).
+  var pieceExporter: @MainActor (PlannedPiece, [SourceFile], URL) async throws -> ExportedPiece = {
+    try await BookSplitter().export($0, from: $1, to: $2)
+  }
+  /// Where the group is on the book timeline, for choosing the next piece. Test seam; nil reads the
+  /// sharer's own player.
+  var groupPositionProvider: (@MainActor () -> TimeInterval)?
+  /// Runs `action` after `delay`, for the session's repeating checks (heartbeat, sharer presence,
+  /// state requests). Separate from `schedule`, so tests of one-off waits see only those. Test seam.
+  var scheduleSessionTimer: @MainActor (Duration, @escaping @MainActor () -> Void) -> Void = { delay, action in
+    Task { @MainActor in
+      try? await Task.sleep(for: delay)
+      action()
+    }
+  }
+  /// Builds the coordinator control for a session's bridge. Test seam; nil uses the real
+  /// AVDelegatingPlaybackCoordinator.
+  var coordinatorControlFactory: (@MainActor () -> ListenTogetherCoordinatorControlling)?
+  /// The sharer says "still here" this often.
+  static let heartbeatInterval: Duration = .seconds(5)
+  /// A listener asks for the manifest and piece map this often until it has them.
+  static let stateRequestInterval: Duration = .seconds(5)
+  /// A listener that hears nothing from the person sharing for longer than this waits for them.
+  static let sharerSilenceLimit: TimeInterval = 15
+  /// ...and ends the session if they are not back after this long.
+  static let sharerReturnLimit: TimeInterval = 60
   /// Shows Apple's sharing sheet when there is no FaceTime call. Set by MainCoordinator; nil means the
   /// "Couldn't open sharing" alert is shown instead.
   weak var sharingSheetPresenter: ListenTogetherSharingSheetPresenting?
@@ -142,6 +192,19 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// The user's own actions, sent one after another in the order they happened (one consumer).
   var outbox: AsyncStream<ListenTogetherMessage>.Continuation?
   var outboxTask: Task<Void, Never>?
+  /// Sharer: which piece goes next (follows the group, and listeners' requests).
+  var pieceScheduler: PieceUploadScheduler?
+  /// Sharer: the current back-off wait; woken when the app becomes active or the session ends.
+  let retryWaiter = ListenTogetherRetryWaiter()
+  /// Sharer: the idle timer is held off while pieces are left to send; the value it had before.
+  var keepsScreenAwake = false
+  var idleTimerBeforeSharing = false
+  /// Listener: when the person sharing was last heard from, and since when they are missing.
+  var lastSharerContact: Date?
+  var sharerMissingSince: Date?
+  /// Listener: the roster has had someone besides this device (so a roster of one means the sharer left).
+  var hasSeenOtherParticipants = false
+  private var appStateObservation: AnyCancellable?
 
   // SharePlay plumbing.
   private var observeTask: Task<Void, Never>?
@@ -179,6 +242,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     announcer: ListenTogetherAnnouncer? = nil,
     defaults: UserDefaults = .standard,
     ownCopyFinder: ListenTogetherOwnCopyFinding? = nil,
+    appSystem: ListenTogetherAppSystem? = nil,
     transportFactory: @escaping @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
       = { GroupSessionTransport(session: $0, downloadFolder: $1) }
   ) {
@@ -189,8 +253,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.transportFactory = transportFactory
     self.defaults = defaults
     self.ownCopyFinder = ownCopyFinder
+    // Built here rather than as a default argument, which would run outside the main actor.
+    self.appSystem = appSystem ?? UIKitListenTogetherAppSystem()
     let groupStateObserver = GroupStateObserver()
     self.isEligibleForGroupSession = { groupStateObserver.isEligibleForGroupSession }
+    observeAppState()
   }
 
   var isInSession: Bool { role != nil }
@@ -201,6 +268,21 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setState(_ newState: ListenTogetherState) { state = newState }
   func setListener(_ player: ListenerPlayer?) { listener = player }
   func setOwnCopy(_ value: Bool) { isUsingOwnCopy = value }
+  func setNotice(_ value: ListenTogetherNotice?) { if notice != value { notice = value } }
+
+  /// App state changes reach `appStateChanged(to:)` for the service's lifetime.
+  private func observeAppState() {
+    appStateObservation = appSystem.appStateChanges
+      .sink { [weak self] appState in
+        MainActor.assumeIsolated { self?.appStateChanged(to: appState) }
+      }
+  }
+
+  /// The listener's message after "The person sharing ended/left" has been shown.
+  func acknowledgeEndNotice() { endNotice = nil }
+
+  /// A new session starts: an older ending message is no longer relevant.
+  func clearEndNotice() { endNotice = nil }
 
   // MARK: Starting and joining
 
@@ -742,6 +824,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     outbox = nil
     outboxTask?.cancel()
     outboxTask = nil
+    pieceScheduler = nil
+    retryWaiter.wake()
+    setKeepingScreenAwake(false)
+    lastSharerContact = nil
+    sharerMissingSince = nil
+    hasSeenOtherParticipants = false
+    notice = nil
     localEventsBag.removeAll()
     bridge?.invalidate()
     bridge = nil
@@ -771,6 +860,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if leaveTransport { transport?.leave() }
     if let shareID { storage.remove(shareID: shareID) }
     announcer.announce(announcement ?? ListenTogetherAnnouncements.ended())
+    Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
+    if reason == .sharerEnded || reason == .sharerLeft { endNotice = reason }
     state = .ended(reason: reason)
     scheduleReturnToIdle()
   }

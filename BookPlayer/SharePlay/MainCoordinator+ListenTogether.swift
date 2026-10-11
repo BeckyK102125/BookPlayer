@@ -195,8 +195,6 @@ extension MainCoordinator {
   enum NeedsCopyPresentationStep: Equatable {
     case shown
     case retry
-    /// Not shown after every attempt (locked, in the background): say it instead (announcement, and a
-    /// notification only with permission the user already gave).
     /// The app isn't active: the notice is kept and shown when the app next becomes active, unless its
     /// session ended or it is older than `needsCopyNoticeLifetime` by then (then it is discarded).
     case waitForActive

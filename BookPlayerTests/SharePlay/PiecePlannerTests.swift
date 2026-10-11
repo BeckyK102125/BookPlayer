@@ -13,24 +13,86 @@ final class PiecePlannerTests: XCTestCase {
     XCTAssertEqual(pieces[0].duration, 600)
   }
 
-  func testLargeFileCutsOnChapterBoundaries() {
-    // 10 h, 280 MB → ~7.8 KB/s; chapters every hour (~28 MB each) → pieces of 3 chapters (~84 MB).
-    let pieces = PiecePlanner.plan(
-      files: [SourceFile(url: url, bookStart: 0, duration: 36_000, byteSize: 280_000_000)],
-      chapterStarts: stride(from: 0.0, to: 36_000, by: 3600).map { $0 })
-    XCTAssertEqual(pieces.map(\.bookStart), [0, 10_800, 21_600, 32_400])
-    XCTAssertTrue(pieces.allSatisfy { $0.estimatedBytes <= ListenTogetherLimits.maxPieceBytes })
-    XCTAssertEqual(pieces.last.map { $0.bookStart + $0.duration }, 36_000)
-    assertTiles(pieces, files: [SourceFile(url: url, bookStart: 0, duration: 36_000, byteSize: 280_000_000)])
+  // MARK: - Small pieces (addendum 3, decision 1)
+
+  func testManyTwoMinuteChaptersAreGroupedUpToTheTarget() {
+    // 1 h, 30 MB, a chapter every 2 minutes: six chapters (12 min) per piece, cut at chapter starts.
+    let files = [SourceFile(url: url, bookStart: 0, duration: 3600, byteSize: 30_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: stride(from: 0.0, to: 3600, by: 120).map { $0 })
+    XCTAssertEqual(pieces.map(\.bookStart), [0, 720, 1440, 2160, 2880])
+    XCTAssertTrue(pieces.allSatisfy { !$0.isWholeFile && $0.duration == 720 })
+    assertTiles(pieces, files: files)
+    assertWithinLimit(pieces)
   }
 
-  func testChapterLargerThanLimitIsSplitEvenly() {
-    // One 200 MB file with a single chapter → 3 equal pieces.
+  func testOneTenHourChapterIsSplitIntoPartsOfAboutTheTarget() {
+    let files = [SourceFile(url: url, bookStart: 0, duration: 36_000, byteSize: 280_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: [0])
+    XCTAssertEqual(pieces.count, 50)
+    XCTAssertTrue(pieces.allSatisfy { abs($0.duration - PiecePlanner.targetDuration) < 0.001 })
+    assertTiles(pieces, files: files)
+    assertWithinLimit(pieces)
+  }
+
+  func testBookWithoutChaptersIsSplitIntoPartsOfAboutTheTarget() {
+    // 50 minutes: five parts of 10 minutes (never longer than the 15 minute maximum).
+    let files = [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 20_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: [])
+    XCTAssertEqual(pieces.count, 5)
+    XCTAssertEqual(pieces[1].bookStart, 600, accuracy: 0.001)
+    XCTAssertTrue(pieces.allSatisfy { $0.duration <= PiecePlanner.maxDuration })
+    assertTiles(pieces, files: files)
+  }
+
+  func testMultiFileBookKeepsFileBoundariesAsCuts() {
+    let a = SourceFile(url: URL(fileURLWithPath: "/tmp/01.mp3"), bookStart: 0, duration: 600, byteSize: 5_000_000)
+    let b = SourceFile(url: URL(fileURLWithPath: "/tmp/02.mp3"), bookStart: 600, duration: 2000, byteSize: 16_000_000)
+    let c = SourceFile(url: URL(fileURLWithPath: "/tmp/03.mp3"), bookStart: 2600, duration: 300, byteSize: 2_000_000)
+    let pieces = PiecePlanner.plan(files: [a, b, c], chapterStarts: [0, 600, 2600])
+    XCTAssertEqual(pieces.map(\.sourceIndex), [0, 1, 1, 1, 2])
+    XCTAssertEqual(pieces.map(\.isWholeFile), [true, false, false, false, true])
+    XCTAssertEqual(pieces.map(\.index), [0, 1, 2, 3, 4])
+    assertTiles(pieces, files: [a, b, c])
+  }
+
+  func testMixedChaptersGroupShortOnesAndSplitLongOnes() {
+    // Four 2-minute chapters, a 30-minute chapter, then a 28:40 chapter.
+    let files = [SourceFile(url: url, bookStart: 0, duration: 4000, byteSize: 40_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: [0, 120, 240, 360, 480, 2280])
+    let starts = pieces.map(\.bookStart)
+    XCTAssertEqual(starts.count, 7)
+    for (got, want) in zip(starts, [0, 480, 1080, 1680, 2280, 2853.333, 3426.667]) {
+      XCTAssertEqual(got, want, accuracy: 0.01)
+    }
+    assertTiles(pieces, files: files)
+  }
+
+  func testHighBitrateKeepsPiecesUnderTheByteCap() {
+    // 200 KB/s: 12 minutes would be 144 MB, so pieces are shorter.
+    let files = [SourceFile(url: url, bookStart: 0, duration: 1800, byteSize: 360_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: [0])
+    XCTAssertGreaterThanOrEqual(pieces.count, 4)
+    assertTiles(pieces, files: files)
+    assertWithinLimit(pieces)
+  }
+
+  func testHourLongChaptersAreSplitAndEveryChapterStartIsACut() {
+    let files = [SourceFile(url: url, bookStart: 0, duration: 36_000, byteSize: 280_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: stride(from: 0.0, to: 36_000, by: 3600).map { $0 })
+    XCTAssertEqual(pieces.count, 50)
+    let starts = Set(pieces.map { $0.bookStart.rounded() })
+    for hour in stride(from: 0.0, to: 36_000, by: 3600) { XCTAssertTrue(starts.contains(hour), "cut at \(hour)") }
+    assertTiles(pieces, files: files)
+    assertWithinLimit(pieces)
+  }
+
+  func testChapterLargerThanTheMaximumIsSplitEvenly() {
+    // One 50-minute chapter: five equal parts of 10 minutes.
     let pieces = PiecePlanner.plan(
       files: [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 200_000_000)],
       chapterStarts: [0])
-    XCTAssertEqual(pieces.count, 3)
-    XCTAssertEqual(pieces[1].bookStart, 1000, accuracy: 0.001)
+    XCTAssertEqual(pieces.count, 5)
+    XCTAssertEqual(pieces[1].bookStart, 600, accuracy: 0.001)
     XCTAssertTrue(pieces.allSatisfy { $0.estimatedBytes <= ListenTogetherLimits.maxPieceBytes })
     assertTiles(pieces, files: [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 200_000_000)])
   }
@@ -38,20 +100,13 @@ final class PiecePlannerTests: XCTestCase {
   func testMultiFileBookKeepsBookTimeAndIndexes() {
     let a = URL(fileURLWithPath: "/tmp/01.mp3"), b = URL(fileURLWithPath: "/tmp/02.mp3")
     let pieces = PiecePlanner.plan(
-      files: [SourceFile(url: a, bookStart: 0, duration: 1200, byteSize: 20_000_000),
-              SourceFile(url: b, bookStart: 1200, duration: 1500, byteSize: 25_000_000)],
-      chapterStarts: [0, 1200])
+      files: [SourceFile(url: a, bookStart: 0, duration: 600, byteSize: 10_000_000),
+              SourceFile(url: b, bookStart: 600, duration: 800, byteSize: 13_000_000)],
+      chapterStarts: [0, 600])
     XCTAssertEqual(pieces.map(\.index), [0, 1])
     XCTAssertEqual(pieces.map(\.sourceIndex), [0, 1])
-    XCTAssertEqual(pieces[1].bookStart, 1200)
+    XCTAssertEqual(pieces[1].bookStart, 600)
     XCTAssertEqual(pieces[1].sourceStart, 0)
-  }
-
-  func testUploadOrderStartsAtCurrentPiece() {
-    let pieces = PiecePlanner.plan(
-      files: [SourceFile(url: url, bookStart: 0, duration: 36_000, byteSize: 280_000_000)],
-      chapterStarts: stride(from: 0.0, to: 36_000, by: 3600).map { $0 })
-    XCTAssertEqual(pieces.uploadOrder(startingAt: 15_000).map(\.index), [1, 2, 3, 0])
   }
 
   // MARK: - Tiling and limit invariants
@@ -94,11 +149,11 @@ final class PiecePlannerTests: XCTestCase {
     let a = SourceFile(url: URL(fileURLWithPath: "/tmp/01.mp3"), bookStart: 0, duration: 600, byteSize: 5_000_000)
     let b = SourceFile(url: URL(fileURLWithPath: "/tmp/02.mp3"), bookStart: 600, duration: 3000, byteSize: 200_000_000)
     let pieces = PiecePlanner.plan(files: [a, b], chapterStarts: [0, 600, 1200])
-    // B: chapter at 1200 is file-relative 600; span 600..3000 is 160 MB, so it is split in two.
-    XCTAssertEqual(pieces.map(\.sourceIndex), [0, 1, 1, 1])
-    XCTAssertEqual(pieces.map(\.sourceStart), [0, 0, 600, 1800])
-    XCTAssertEqual(pieces.map(\.bookStart), [0, 600, 1200, 2400])
-    XCTAssertEqual(pieces.map(\.duration), [600, 600, 1200, 1200])
+    // B: chapter at 1200 is file-relative 600; the 40-minute span 600..3000 is split into four parts.
+    XCTAssertEqual(pieces.map(\.sourceIndex), [0, 1, 1, 1, 1, 1])
+    XCTAssertEqual(pieces.map(\.sourceStart), [0, 0, 600, 1200, 1800, 2400])
+    XCTAssertEqual(pieces.map(\.bookStart), [0, 600, 1200, 1800, 2400, 3000])
+    XCTAssertEqual(pieces.map(\.duration), [600, 600, 600, 600, 600, 600])
     assertTiles(pieces, files: [a, b])
     assertWithinLimit(pieces)
   }

@@ -53,4 +53,25 @@ enum ListenTogetherMessage: Codable, Equatable {
   /// leaves. The transport turns it into `TransportEvent.participantDeclined`. Carries nothing about
   /// what that person owns.
   case declinedNoCopy
+  /// Listener: "send me the manifest and the piece map". Sent on join and every few seconds until the
+  /// manifest is here (and while a received piece has no index); the sharer answers by sending both again.
+  case requestState
+  /// Sharer: "still here", every few seconds. Listeners that stop hearing the sharer wait for them.
+  case heartbeat
+  /// Listener: the group waits for this piece on this device; the sharer sends it next.
+  case needPiece(index: Int)
+
+  /// The kind of message, for logs (never its contents).
+  var kind: String {
+    switch self {
+    case .manifest: return "manifest"
+    case .pieceUploaded: return "pieceUploaded"
+    case .action: return "action"
+    case .sessionEnding: return "sessionEnding"
+    case .declinedNoCopy: return "declinedNoCopy"
+    case .requestState: return "requestState"
+    case .heartbeat: return "heartbeat"
+    case .needPiece: return "needPiece"
+    }
+  }
 }
