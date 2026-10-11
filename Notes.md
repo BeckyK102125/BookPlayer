@@ -750,3 +750,22 @@ Parent de1f5731. Inputs: own-copy-fix-round-1.md (rulings), own-copy-code-review
   joined line, decline on present, newer notice, timeout cause, own share during check, send-mode join);
   green "Executed 59 tests, with 0 failures". 20 SharePlay classes: 261/0. Full: "Executed 833 tests,
   with 0 failures", ** TEST SUCCEEDED ** (first run). TSan 20 classes: 261/0, 0 ThreadSanitizer warnings.
+
+## 2026-10-11 - listen-together-own-copy - own copy fix round 2
+Parent 7bf22248. Inputs: own-copy-rereview-1.md (N1, M-a, M-b), coordinator rulings 1-4.
+- N1 (1): ListenTogetherPendingDecline.watchInvalidation (test seam; production = session.$state sink
+  for .invalidated). declineWithoutCopy keeps that observation in `noticeObservation` (apart from
+  invitationBag, which clearInvitation empties). On invalidation the notice and its decline are cleared
+  with no send; MainCoordinator bumps needsCopyPresentationGeneration whenever the notice becomes nil.
+- N1 (2): ListenTogetherNeedsCopyNotice.createdAt from the service's `now`; needsCopyNoticeIsCurrent()
+  discards a notice older than 60 s (abandon = plain leave, no alert, no send). Checked at
+  didBecomeActive and before every presentation attempt.
+- M-a (3): active with no presenter now retries every 0.5 s until shown or expired (step returns
+  .retry while active), instead of waiting for a didBecomeActive that may not come.
+- M-b (4): tests for an invalid synchsafe ID3 size (falls back to file start) and a size==0 mdat.
+- TDD: red with stubs "Executed 63 tests, with 9 failures": the invalidation test, the age test and the
+  step-function test failed; the two hash tests passed in red (behaviour already implemented in round 1;
+  they pin it). Green 63/0. 20 SharePlay classes 265/0; full "Executed 837 tests, with 0 failures",
+  ** TEST SUCCEEDED ** (first run); TSan 20 classes 265/0, 0 ThreadSanitizer warnings.
+- Guide: the message appears if BookPlayer is opened within a minute; dropped after that or when the
+  sharer stopped.

@@ -1,4 +1,5 @@
 import BookPlayerKit
+import Combine
 import Foundation
 
 // MARK: The sharer's setting
@@ -182,6 +183,8 @@ struct ListenTogetherNeedsCopyNotice: Equatable, Identifiable {
   let id = UUID()
   let bookTitle: String
   let cause: Cause
+  /// When the notice was made (the service's clock): it is discarded unshown once too old.
+  var createdAt = Date()
 
   var title: String {
     switch cause {
@@ -212,4 +215,7 @@ struct ListenTogetherNeedsCopyNotice: Equatable, Identifiable {
 struct ListenTogetherPendingDecline {
   let send: @MainActor () -> Void
   let abandon: @MainActor () -> Void
+  /// Calls the handler when the invitation's session ends (the sharer stopped); the notice waiting for
+  /// it is then dropped without a send. Returns the observation to keep. Test seam.
+  var watchInvalidation: (@escaping @MainActor () -> Void) -> AnyCancellable? = { _ in nil }
 }

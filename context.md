@@ -20,8 +20,8 @@ Current goal: addendum 2, "Both have the book": a listener who owns the book pla
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - Tracked on origin: `develop`, `listen-together-messages` (both 9c70dd06), `listen-together-lock-screen`
   (63e9578b), `shareplay-listen-together` (e634f5c7). Becky and Michael are testing develop on devices.
-- `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731) and its fix
-  round 1 in this commit (parent de1f5731). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at 9c70dd06)
+- `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731), fix round
+  1 (7bf22248) and fix round 2 in this commit (parent 7bf22248). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at 9c70dd06)
   belongs to another session (TestFlight archive); not touched here.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 - Never committed: BuildConfiguration/Debug.xcconfig (gitignored; holds the signing below).
@@ -73,11 +73,11 @@ Current goal: addendum 2, "Both have the book": a listener who owns the book pla
   start); joined line ~300 ms after the player's title focus (fallback 1.5 s); owners-only decline sent
   only when the alert is on screen, notice kept until the app is active; 4 s join delay only in
   owners-only; timeout says "Couldn't check your library"; own share during the check drops the
-  invitation; picker's extra label removed.
+  invitation; picker label removed. Round 2: waiting notice dropped unshown on session end or after 60 s.
 
 ## Test evidence (2026-10-11, addendum 2)
-- Fix round 1: 20 SharePlay classes 261/0; full 833/0 ** TEST SUCCEEDED **; TSan 20 classes 261/0, 0
-  warnings. (Addendum 2 first pass: 247 SharePlay, 819 full.)
+- Fix round 2: 20 SharePlay classes 265/0; full 837/0 ** TEST SUCCEEDED **; TSan 20 classes 265/0, 0
+  warnings. (Fix round 1: 261/833; addendum 2 first pass: 247/819.)
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
 -only-testing:BookPlayerTests test (focused/TSan: `-only-testing:BookPlayerTests/<Class>` for the 20

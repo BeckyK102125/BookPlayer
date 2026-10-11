@@ -490,6 +490,46 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertNil(service.needsCopyNotice)
   }
 
+  /// Fix round 2 (N1): the sharer's session ended while the notice waited: no alert, no send.
+  func testAWaitingNoticeIsDroppedWhenTheSessionEnds() async {
+    let service = makeService()
+    var sent = 0, abandoned = 0
+    var invalidate: (@MainActor () -> Void)?
+    await service.prepareInvitation(
+      details(ownersOnly: true),
+      decline: ListenTogetherPendingDecline(
+        send: { sent += 1 }, abandon: { abandoned += 1 },
+        watchInvalidation: { handler in invalidate = handler; return nil }))
+    XCTAssertNotNil(service.needsCopyNotice)
+    let ended = try? XCTUnwrap(invalidate)
+    ended?()
+    XCTAssertNil(service.needsCopyNotice)
+    XCTAssertFalse(service.needsCopyNoticeIsCurrent())
+    service.needsCopyNoticePresented()
+    service.acknowledgeNeedsCopyNotice()
+    XCTAssertEqual(sent, 0)
+    XCTAssertEqual(abandoned, 0, "the session is already gone")
+  }
+
+  /// Fix round 2 (N1): a notice older than 60 s is discarded unshown: no alert, no decline message.
+  func testANoticeOlderThanTheLimitIsDiscardedUnshown() async {
+    let service = makeService()
+    var clock = Date(timeIntervalSince1970: 5_000)
+    service.now = { clock }
+    var sent = 0, abandoned = 0
+    await service.prepareInvitation(
+      details(ownersOnly: true),
+      decline: ListenTogetherPendingDecline(send: { sent += 1 }, abandon: { abandoned += 1 }))
+    clock = clock.addingTimeInterval(59)
+    XCTAssertTrue(service.needsCopyNoticeIsCurrent())
+    clock = clock.addingTimeInterval(2)
+    XCTAssertFalse(service.needsCopyNoticeIsCurrent())
+    XCTAssertNil(service.needsCopyNotice)
+    service.needsCopyNoticePresented()
+    XCTAssertEqual(sent, 0)
+    XCTAssertEqual(abandoned, 1, "left without a message")
+  }
+
   func testANewerNoticeAbandonsTheOlderPendingDecline() async {
     let service = makeService()
     var log: [String] = []

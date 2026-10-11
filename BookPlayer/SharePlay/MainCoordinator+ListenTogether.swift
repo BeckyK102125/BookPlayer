@@ -197,32 +197,37 @@ extension MainCoordinator {
     case retry
     /// Not shown after every attempt (locked, in the background): say it instead (announcement, and a
     /// notification only with permission the user already gave).
-    /// Not shown now (app not active, or no screen to present from after the retries): the notice is
-    /// kept and shown when the app next becomes active. Never dropped (a11y I3).
+    /// The app isn't active: the notice is kept and shown when the app next becomes active, unless its
+    /// session ended or it is older than `needsCopyNoticeLifetime` by then (then it is discarded).
     case waitForActive
     case notNeeded
   }
 
-  /// What to do after attempt number `attempt` (1-based). Shown only while the app is active, with the
-  /// invitation's retry window. Test seam.
+  /// What to do after attempt number `attempt` (1-based). Shown only while the app is active; retried
+  /// every 0.5 s while active until shown or the notice expires. Test seam.
   nonisolated static func needsCopyPresentationStep(
     presented: Bool, attempt: Int, hasNotice: Bool, isActive: Bool
   ) -> NeedsCopyPresentationStep {
     if presented { return .shown }
     guard hasNotice else { return .notNeeded }
     guard isActive else { return .waitForActive }
-    return attempt < invitationMaxAttempts ? .retry : .waitForActive
+    // Active but nothing to present from: keep trying; the notice's age limit ends it (fix round 2).
+    return .retry
   }
 
   /// The app became active: a notice still waiting is shown now.
   fileprivate func showWaitingNeedsCopyNotice() {
-    guard sharePlayService.needsCopyNotice != nil, needsCopyAlertController == nil else { return }
+    guard needsCopyAlertController == nil, sharePlayService.needsCopyNoticeIsCurrent() else { return }
     needsCopyPresentationGeneration += 1
     attemptNeedsCopyPresentation(generation: needsCopyPresentationGeneration, attempt: 1)
   }
 
   fileprivate func needsCopyNoticeChanged(_ notice: ListenTogetherNeedsCopyNotice?) {
-    guard notice != nil else { return }
+    guard notice != nil else {
+      // Closed, or dropped (its session ended, or too old): any retry chain still waiting stops.
+      needsCopyPresentationGeneration += 1
+      return
+    }
     if let controller = needsCopyAlertController {
       // A newer notice replaces one still on screen (rare: two owners-only shares in a row).
       needsCopyAlertController = nil
@@ -234,7 +239,8 @@ extension MainCoordinator {
 
   private func attemptNeedsCopyPresentation(generation: Int, attempt: Int) {
     guard generation == needsCopyPresentationGeneration, needsCopyAlertController == nil else { return }
-    let notice = sharePlayService.needsCopyNotice
+    // A notice whose session ended or that is older than the limit is discarded here, unshown.
+    let notice = sharePlayService.needsCopyNoticeIsCurrent() ? sharePlayService.needsCopyNotice : nil
     let isActive = UIApplication.shared.applicationState == .active
     var presented = false
     if let notice, isActive {

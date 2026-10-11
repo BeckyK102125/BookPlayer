@@ -156,6 +156,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private var pendingInvitationDecline: ListenTogetherPendingDecline?
   /// The decline that waits for the "You need your own copy" alert to be on screen.
   private var noticeDecline: ListenTogetherPendingDecline?
+  /// Watches the notice's session: if it ends while the notice waits, the notice is dropped.
+  private var noticeObservation: AnyCancellable?
   private var invitationCheckTask: Task<Void, Never>?
   /// Shares cancelled while preparing (End, or Cancel in the sharing sheet). If `activate()` was already
   /// in flight, their session can still arrive; it is left, never offered as an invitation. Each id is
@@ -573,13 +575,26 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     // A newer notice replaces an older one that was never shown: that one is left without a message.
     noticeDecline?.abandon()
     noticeDecline = decline
-    needsCopyNotice = ListenTogetherNeedsCopyNotice(bookTitle: bookTitle, cause: cause)
+    let notice = ListenTogetherNeedsCopyNotice(bookTitle: bookTitle, cause: cause, createdAt: now())
+    // Kept apart from invitationBag (cleared above): the session is watched until the notice is gone.
+    noticeObservation = decline?.watchInvalidation { [weak self] in
+      self?.needsCopySessionEnded(noticeID: notice.id)
+    }
+    needsCopyNotice = notice
   }
 
   static func decline(for session: GroupSession<ListenTogetherActivity>) -> ListenTogetherPendingDecline {
     ListenTogetherPendingDecline(
       send: { ListenTogetherDecline.sendAndLeave(session) },
-      abandon: { session.leave() })
+      abandon: { session.leave() },
+      watchInvalidation: { [weak session] handler in
+        session?.$state
+          .receive(on: DispatchQueue.main)
+          .sink { state in
+            guard case .invalidated = state else { return }
+            MainActor.assumeIsolated { handler() }
+          }
+      })
   }
 
   /// "Joined. Playing your copy." is said this long after the player's title has VoiceOver focus, so
@@ -610,12 +625,39 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     decline?.send()
   }
 
+  /// A waiting "You need your own copy" notice is only shown this long after it was made. Older, the
+  /// invitation it explains is long gone: it is discarded unshown (no alert, no decline message).
+  static let needsCopyNoticeLifetime: TimeInterval = 60
+
+  /// True when a notice is waiting and still young enough to show. A too-old notice is discarded here
+  /// (its session is left without a message). Checked before every presentation attempt.
+  func needsCopyNoticeIsCurrent() -> Bool {
+    guard let notice = needsCopyNotice else { return false }
+    guard now().timeIntervalSince(notice.createdAt) > Self.needsCopyNoticeLifetime else { return true }
+    noticeDecline?.abandon()
+    clearNeedsCopyNotice()
+    return false
+  }
+
+  /// The invitation's session ended while its notice waited: nothing to tell anyone any more.
+  private func needsCopySessionEnded(noticeID: UUID) {
+    guard needsCopyNotice?.id == noticeID else { return }
+    clearNeedsCopyNotice()
+  }
+
+  private func clearNeedsCopyNotice() {
+    noticeDecline = nil
+    noticeObservation = nil
+    needsCopyNotice = nil
+  }
+
   /// The "You need your own copy" alert was closed (OK or escape).
   func acknowledgeNeedsCopyNotice() {
     needsCopyNotice = nil
     // Never shown (should not happen: only the alert acknowledges): leave without a message.
     noticeDecline?.abandon()
     noticeDecline = nil
+    noticeObservation = nil
   }
 
   /// Leave was chosen on "Leave Listen Together to play this book?": the listener session ends with

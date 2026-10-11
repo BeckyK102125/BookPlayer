@@ -239,9 +239,11 @@ final class BookFingerprintTests: XCTestCase {
     typealias C = MainCoordinator
     XCTAssertEqual(C.needsCopyPresentationStep(presented: true, attempt: 1, hasNotice: true, isActive: true), .shown)
     XCTAssertEqual(C.needsCopyPresentationStep(presented: false, attempt: 1, hasNotice: true, isActive: true), .retry)
+    // Fix round 2 (M-a): active but nothing to present from keeps retrying; the notice's 60 s age limit
+    // ends it, never a wait for an activation that may not come.
     XCTAssertEqual(
-      C.needsCopyPresentationStep(presented: false, attempt: C.invitationMaxAttempts, hasNotice: true, isActive: true),
-      .waitForActive)
+      C.needsCopyPresentationStep(presented: false, attempt: C.invitationMaxAttempts * 5, hasNotice: true, isActive: true),
+      .retry)
     XCTAssertEqual(
       C.needsCopyPresentationStep(presented: false, attempt: 1, hasNotice: true, isActive: false), .waitForActive)
     XCTAssertEqual(
@@ -318,6 +320,19 @@ final class BookFingerprintTests: XCTestCase {
     tag += Data(repeating: 0x41, count: bodySize)
     if footer { tag += Data("3DI".utf8) + Data([4, 0, 0x10]) + synchsafe(bodySize) }
     return tag
+  }
+
+  func testID3TagWithAnInvalidSynchsafeSizeFallsBackToTheFileStart() throws {
+    // 0x80 in a synchsafe byte is not allowed: not parsed, the file start is hashed.
+    let bytes = Data("ID3".utf8) + Data([4, 0, 0, 0x00, 0x80, 0x10, 0x00]) + Data(repeating: 9, count: 2_000) + audio
+    let url = try write(bytes, "invalid.mp3")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: url), sha(bytes))
+  }
+
+  func testMP4MdatRunningToTheEndOfTheFile() throws {
+    // size == 0: the atom runs to the end of the file.
+    let url = try write(ftyp + atom("moov", Data(count: 300)) + be32(0) + Data("mdat".utf8) + audio, "toend.m4a")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: url), sha(audio))
   }
 
   func testMP3HashSkipsTheID3Tag() throws {
