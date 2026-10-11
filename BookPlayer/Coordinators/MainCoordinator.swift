@@ -50,6 +50,8 @@ class MainCoordinator: NSObject {
   weak var listenTogetherAlertController: UIViewController?
   var listenTogetherAlertGeneration = 0
   var listenTogetherAlertSubscriptions = Set<AnyCancellable>()
+  /// A listener cover still up when its ending alert was shown over it (fix round 1, I2): closed after OK.
+  weak var stuckListenerCover: UIViewController?
 
   var playerState: PlayerState { AppServices.shared.playerState }
 

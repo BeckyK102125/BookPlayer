@@ -46,11 +46,14 @@ final class ListenTogetherSpeaker: NSObject, ListenTogetherSpeaking {
   }
 
   private struct InFlight {
+    /// Retained, so its identity can't be reused while the entry exists (code M3).
+    let utterance: AVSpeechUtterance
     let key: String
     let backgroundTask: ListenTogetherBackgroundTask
   }
 
-  /// Utterances queued or being spoken, by identity.
+  /// Utterances queued or being spoken, by identity. An entry also goes when its background time runs
+  /// out, so a sentence that never reports back can't block its key for good.
   private var inFlight: [ObjectIdentifier: InFlight] = [:]
   private var sampleGeneration = 0
   private let callObserver: CXCallObserver?
@@ -137,8 +140,10 @@ final class ListenTogetherSpeaker: NSObject, ListenTogetherSpeaking {
     // them would override that choice.
     utterance.prefersAssistiveTechnologySettings = true
     let id = ObjectIdentifier(utterance)
-    let task = ListenTogetherBackgroundTask(system: appSystem, name: "Listen Together speech")
-    inFlight[id] = InFlight(key: key, backgroundTask: task)
+    let task = ListenTogetherBackgroundTask(system: appSystem, name: "Listen Together speech") { [weak self] in
+      self?.inFlight.removeValue(forKey: id)
+    }
+    inFlight[id] = InFlight(utterance: utterance, key: key, backgroundTask: task)
     synthesizer.speak(utterance)
   }
 

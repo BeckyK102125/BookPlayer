@@ -71,11 +71,13 @@ final class ListenTogetherBackgroundTask {
   private let system: ListenTogetherAppSystem
   private var identifier: UIBackgroundTaskIdentifier = .invalid
 
-  init(system: ListenTogetherAppSystem, name: String) {
+  /// `onExpire` runs when the system's background time runs out, after the task has ended.
+  init(system: ListenTogetherAppSystem, name: String, onExpire: (@MainActor () -> Void)? = nil) {
     self.system = system
     identifier = system.beginBackgroundTask(named: name) { [weak self] in
-      SharePlaySessionService.logger.info("Listen Together: background time ran out during a piece")
+      SharePlaySessionService.logger.info("Listen Together: background time ran out (\(name, privacy: .public))")
       self?.end()
+      onExpire?()
     }
   }
 

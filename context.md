@@ -9,7 +9,7 @@ session only and deleted when it ends; playback stays in sync; everything works 
 Current goal: addendum 3 (reliable sending, visible messages, spoken errors), after a field test where
 the session ended 0.4 s after Play (most likely a failed piece on the sharer). Task A (engine) is done
 (87f4a744 .. 9cedab87). Task B (visible messages R41, Leave/Cancel Sharing, R40 fixes, "Speak error
-messages") is implemented on top of 9cedab87, awaiting review.
+messages") is done on top of 9cedab87 (482ba093, 572d267b) plus fix round 1 (this commit), awaiting re-review.
 Addendum 2 ("Both have the book") is done on this branch.
 - Spec: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md
 - Addendum 2: docs/superpowers/specs/2026-10-10-shareplay-listen-together-addendum-2.md
@@ -26,7 +26,7 @@ Addendum 2 ("Both have the book") is done on this branch.
   (63e9578b), `shareplay-listen-together` (e634f5c7). Becky and Michael are testing develop on devices.
 - `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731), fix rounds
   (7bf22248, 0b5aacdd), addendum 3 ruling (1598e8d4), Task A (87f4a744, de116941, d786c79e, 9cedab87),
-  Task B (code commit on 9cedab87, then this docs commit). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
+  Task B (482ba093, 572d267b), Task B fix round 1 (this commit, parent 572d267b). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
   9c70dd06) belongs to another session (TestFlight archive); not touched here.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 - Never committed: BuildConfiguration/Debug.xcconfig (gitignored; holds the signing below).
@@ -54,30 +54,30 @@ Addendum 2 ("Both have the book") is done on this branch.
   announcement / announcement / speech only); an alert never also announces. Alerts queue in
   ListenTogetherMessageDelivery (one at a time, newest ending replaces pending ones, dropped by a new
   invitation/session); MainCoordinator presents them (UIAlertController, title only, OK = cancel style).
-- Sharer End / sharer left (60 s) / couldn't prepare: tearDown first (no "ended" announcement, no banner),
-  then one alert ~0.5 s after the listener cover's onDismiss (ListenTogetherCoverTracker); after OK focus
-  goes to the mini player when shown. Not active: one local notification if already permitted, else a
-  pending alert on next active. sharerLeft uses the spec's sentence (guidance differs; see report).
+- Sharer End / sharer left (60 s) / couldn't prepare / connection ended (.connectionEnded: invalidation or
+  stream end not by own End/Leave; listener and sharer sentences): tearDown first (no announcement, no
+  banner), then one alert ~0.5 s after the listener cover has gone (onDismiss or the screen's onDisappear;
+  2 s watchdog, also checked on becoming active; a cover still up is closed after OK). After OK focus goes
+  to the mini player. Background: notification if permitted; unlocked + VoiceOver off also keeps the alert;
+  .inactive keeps the alert. sharerLeft uses the spec's sentence (guidance differs; see report).
 - E12 unavailable, E13 didn't start, E14 prepare failed (EndReason .sendFailed renamed .prepareFailed):
-  alerts. Banner status lines: waiting for the person sharing (+ "within a minute" only in the roster
-  grace), waiting for the book (+ percent), retrying a piece (sharer), paused by another listener,
-  someone couldn't join (sharer). Zoom caption under the listener controls (VoiceOver hidden) = play
+  alerts. Banner status lines: waiting for the person sharing (+ minute line; roster grace only, said
+  once), waiting for the book (+ percent), "Can't reach the person sharing..." (silence, not said),
+  retrying a piece (sharer, also the row), paused by another listener, someone couldn't join (sharer). Zoom caption under the listener controls (VoiceOver hidden) = play
   button value. Play while the sharer is missing does nothing and says why; lock-screen play is silent.
 - Settings > Playback > Listen Together > Messages: "Speak error messages" (off, listenTogetherSpeakErrors)
-  + "Hear a Sample". ListenTogetherSpeaker: one AVSpeechSynthesizer, prefersAssistiveTechnologySettings
+  + "Hear a Sample"; rows on the system background, switch tint tested per theme. ListenTogetherSpeaker: one AVSpeechSynthesizer, prefersAssistiveTechnologySettings
   only, usesApplicationAudioSession=false, mixToTelephonyUplink=false, silent with VoiceOver (checked at
   speak time; stops when it turns on) and in connected calls, background task per utterance.
 - Leave Listen Together (listener, asks once; confirmation lives in ListenTogetherListenerScreen),
   Cancel Sharing (preparing, at once), End Listen Together (sharer). R40 fixes: Join/Not Now with
   symbols; primary colour for status icon, transport icons, Chapters, Speed (+ gauge), A9 texts.
-- Task A (87f4a744 .. 9cedab87): ~12 min pieces, send-ahead scheduler (.needPiece), piece failures never
-  end the session (back-off 2/5/15/30 s), sharer kept awake + background task per piece, AVQueuePlayer,
-  .requestState, heartbeat; sharer leaving the roster -> 60 s grace -> .sharerLeft; silence only shows
-  .waitingForSharer; ended shares never rejoined; diagnostics with domain/code. Details in Notes.md.
+- Task A (87f4a744 .. 9cedab87): ~12 min pieces, send-ahead, failures never end the session, sharer kept
+  awake, AVQueuePlayer, heartbeat, roster grace -> .sharerLeft, diagnostics. Details in Notes.md.
 
 ## Test evidence (2026-10-11, addendum 3 Task B)
-- 24 SharePlay classes 373/0 (new: ListenTogetherMessagesTests 31, ListenTogetherSpeakerTests 9,
-  ListenTogetherContrastTests 3); full 945/0 ** TEST SUCCEEDED **; TSan 24 classes 373/0, 0 warnings.
+- Fix round 1: 24 SharePlay classes 392/0 (Messages 48, Speaker 10, Contrast 4); full 964/0
+  ** TEST SUCCEEDED **; TSan 24 classes 392/0, 0 warnings.
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
 Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests" -only-testing:BookPlayerTests test
 (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`). Session tests use
@@ -135,8 +135,8 @@ still apply; see Notes.md and the a11y guidance files.
 - Audio session deactivation at listener end runs on main (M7, deliberately not moved: see report).
 
 ## Open problems and next steps (in order)
-1. Review Task B (code + a11y). Its device checks are in reliable-sending-task-B-report.md (ducking, Siri
-   voice, speech while locked, alert after the cover, Zoom 3x, AX5, focus after OK and after Leave).
+1. Re-review Task B fix round 1. Device checks: reliable-sending-task-B-report.md, "Fix round 1".
+   Parked: sharer End action sheet at the bottom (a11y M9), iOS 26.0 accessory status visibility (M10).
 2. Two-device run of Task A + B (list above); record results here and in Notes.md.
 3. Merge into develop (ask; Becky and Michael test develop).
 4. Change A (streamed-book alert) of addendum 1. 5. Upstream PR decision later.

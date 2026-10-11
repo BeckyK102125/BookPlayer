@@ -13,15 +13,15 @@ struct ListenTogetherBanner: View {
   var onRemovedWhileFocused: (() -> Void)?
   /// False on "Getting the book", which draws the session button itself, full width under the card.
   var showsActionButton = true
-  /// Listener: Leave asks through the listener screen's confirmation (kept there, so it survives the
-  /// book details arriving). Nil: the banner asks itself.
+  /// Listener: Leave asks through the listener screen's one confirmation (kept there, so it survives
+  /// the book details arriving). Without it the banner offers no Leave at all (fix round 1, I3): a
+  /// banner-owned question would vanish when the banner is rebuilt.
   var onRequestLeave: (() -> Void)?
   @EnvironmentObject private var theme: ThemeViewModel
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AccessibilityFocusState private var focus: Field?
   @State private var isConfirmingEnd = false
-  @State private var isConfirmingLeave = false
   /// Focus is reset by SwiftUI when its element goes away, often before the removal's onChange runs,
   /// so the last focused element and when focus was lost are remembered.
   @State private var lastFocus: Field?
@@ -41,7 +41,10 @@ struct ListenTogetherBanner: View {
   }
 
   private var sessionAction: ListenTogetherSessionAction? {
-    ListenTogetherSessionAction.action(for: service.state, usesOwnCopy: service.isUsingOwnCopy)
+    guard let action = ListenTogetherSessionAction.action(for: service.state, usesOwnCopy: service.isUsingOwnCopy),
+      ListenTogetherSessionAction.isOffered(action.kind, hasHostLeave: onRequestLeave != nil)
+    else { return nil }
+    return action
   }
 
   var body: some View {
@@ -74,7 +77,6 @@ struct ListenTogetherBanner: View {
       guard actionIsGone else { return }
       // The session ended some other way while a confirmation was up: nothing left to confirm.
       isConfirmingEnd = false
-      isConfirmingLeave = false
       removed(.end, hadFocus: hadFocusJustNow(.end))
     }
     .confirmationDialog(
@@ -91,7 +93,6 @@ struct ListenTogetherBanner: View {
     } message: {
       Text("listen_together_end_hint_sharer".localized)
     }
-    .listenTogetherLeaveConfirmation(isPresented: $isConfirmingLeave, service: service)
   }
 
   private func content(line: ListenTogetherStatusLine) -> some View {
@@ -163,11 +164,7 @@ struct ListenTogetherBanner: View {
     case .endForEveryone:
       isConfirmingEnd = true
     case .leave:
-      if let onRequestLeave {
-        onRequestLeave()
-      } else {
-        isConfirmingLeave = true
-      }
+      onRequestLeave?()
     }
   }
 
@@ -237,6 +234,7 @@ struct ListenTogetherSessionButton: View {
 struct ListenTogetherLeaveConfirmation: ViewModifier {
   @Binding var isPresented: Bool
   @ObservedObject var service: SharePlaySessionService
+  var onCancel: () -> Void = {}
 
   func body(content: Content) -> some View {
     content
@@ -246,7 +244,7 @@ struct ListenTogetherLeaveConfirmation: ViewModifier {
       }
       .alert("listen_together_leave_confirm_title".localized, isPresented: $isPresented) {
         Button("listen_together_leave_button".localized, role: .destructive) { service.leave() }
-        Button("cancel_button".localized, role: .cancel) {}
+        Button("cancel_button".localized, role: .cancel) { onCancel() }
       } message: {
         Text(ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: service.isUsingOwnCopy))
       }
@@ -254,8 +252,10 @@ struct ListenTogetherLeaveConfirmation: ViewModifier {
 }
 
 extension View {
-  func listenTogetherLeaveConfirmation(isPresented: Binding<Bool>, service: SharePlaySessionService) -> some View {
-    modifier(ListenTogetherLeaveConfirmation(isPresented: isPresented, service: service))
+  func listenTogetherLeaveConfirmation(
+    isPresented: Binding<Bool>, service: SharePlaySessionService, onCancel: @escaping () -> Void = {}
+  ) -> some View {
+    modifier(ListenTogetherLeaveConfirmation(isPresented: isPresented, service: service, onCancel: onCancel))
   }
 }
 

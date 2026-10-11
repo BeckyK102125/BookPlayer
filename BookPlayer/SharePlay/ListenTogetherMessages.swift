@@ -13,6 +13,11 @@ enum ListenTogetherUserMessage: Hashable {
   case sharerLeft
   /// Listener: the person sharing couldn't prepare the book at all.
   case sharerCouldNotPrepare
+  /// Listener: the session was invalidated, or its messages stopped, without an end message (the
+  /// FaceTime call ended, the connection dropped).
+  case connectionEnded
+  /// Sharer: the same, not caused by their own End.
+  case connectionEndedSharer
   /// Sharer: the book couldn't be prepared at all; the session ends (E14).
   case prepareFailed
   /// Listen Together isn't available (E12).
@@ -44,7 +49,8 @@ enum ListenTogetherUserMessage: Hashable {
 
   var kind: Kind {
     switch self {
-    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .unavailable, .didntStart:
+    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
+      .prepareFailed, .unavailable, .didntStart:
       return .alert
     case .waitingForSharer, .retryingSend, .waitingForBook:
       return .status
@@ -60,7 +66,10 @@ enum ListenTogetherUserMessage: Hashable {
     switch self {
     case .sharerEnded: return "listen_together_sharer_ended".localized
     case .sharerLeft: return "listen_together_sharer_left".localized
-    case .sharerCouldNotPrepare, .prepareFailed: return "listen_together_prepare_failed".localized
+    case .sharerCouldNotPrepare: return "listen_together_sharer_could_not_prepare".localized
+    case .connectionEnded: return "listen_together_connection_ended".localized
+    case .connectionEndedSharer: return "listen_together_connection_ended_sharer".localized
+    case .prepareFailed: return "listen_together_prepare_failed".localized
     case .unavailable: return "listen_together_unavailable".localized
     case .didntStart: return "listen_together_didnt_start_announcement".localized
     case .waitingForSharer: return "listen_together_waiting_for_sharer".localized
@@ -77,6 +86,8 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerEnded: return "sharerEnded"
     case .sharerLeft: return "sharerLeft"
     case .sharerCouldNotPrepare: return "sharerCouldNotPrepare"
+    case .connectionEnded: return "connectionEnded"
+    case .connectionEndedSharer: return "connectionEndedSharer"
     case .prepareFailed: return "prepareFailed"
     case .unavailable: return "unavailable"
     case .didntStart: return "didntStart"
@@ -92,8 +103,8 @@ enum ListenTogetherUserMessage: Hashable {
   /// "Waiting for the book", the person's own actions or "The person sharing is back".
   var speaks: Bool {
     switch self {
-    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .unavailable, .didntStart,
-      .waitingForSharer, .retryingSend, .alertShownElsewhere:
+    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
+      .prepareFailed, .unavailable, .didntStart, .waitingForSharer, .retryingSend, .alertShownElsewhere:
       return true
     case .sharerBack, .waitingForBook:
       return false
@@ -103,7 +114,9 @@ enum ListenTogetherUserMessage: Hashable {
   /// The session ended because of someone else, or could not run at all.
   var isEnding: Bool {
     switch self {
-    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed: return true
+    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
+      .prepareFailed:
+      return true
     default: return false
     }
   }
@@ -111,20 +124,22 @@ enum ListenTogetherUserMessage: Hashable {
   /// A listener's ending: shown only after the listener cover has left (guidance A.0).
   var waitsForListenerCover: Bool {
     switch self {
-    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare: return true
+    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded: return true
     default: return false
     }
   }
 
   /// The one message for a session that ended for `reason`; nil when the end was the person's own
-  /// action (their End or Leave) and is handled by the existing announcement.
-  static func ending(for reason: ListenTogetherState.EndReason) -> ListenTogetherUserMessage? {
+  /// action (their End or Leave) and is handled by the existing announcement. `wasListener`: the role
+  /// the session had (a connection that ended reads differently for the sharer).
+  static func ending(for reason: ListenTogetherState.EndReason, wasListener: Bool = true) -> ListenTogetherUserMessage? {
     switch reason {
     case .sharerEnded: return .sharerEnded
     case .sharerLeft: return .sharerLeft
     case .sharerCouldNotPrepare: return .sharerCouldNotPrepare
+    case .connectionEnded: return wasListener ? .connectionEnded : .connectionEndedSharer
     case .prepareFailed: return .prepareFailed
-    case .normal, .unavailable: return nil
+    case .normal, .left, .unavailable: return nil
     }
   }
 }
@@ -139,8 +154,24 @@ struct ListenTogetherDeliveryPlan: Equatable {
   var speaksNow = false
   /// Ask the speaker when the alert is on screen.
   var speaksWithAlert = false
-  /// App not active: one local notification when permission was already given, else a pending alert.
+  /// App in the background: one local notification when permission was already given, else a pending
+  /// alert.
   var notifiesOrWaits = false
+  /// Also keep the alert pending after a notification (fix round 1, a11y I2): unlocked phone with
+  /// VoiceOver off, where the notification is only a short banner at the screen's edge.
+  var keepsAlertAfterNotification = false
+}
+
+/// Where the person is when a message arrives (fix round 1).
+struct ListenTogetherDeliveryContext: Equatable {
+  /// Only `.background` counts as away: an `.inactive` app (Control Center, Siri, a call banner) is in
+  /// front and gets the alert once it is active again (a11y I1).
+  var appState: ListenTogetherAppState = .active
+  /// Locked (protected data unavailable).
+  var isLocked = false
+  var isVoiceOverRunning = false
+
+  var isAway: Bool { appState == .background }
 }
 
 /// One Listen Together alert at a time (guidance A.4). FIFO; at most one pending ending: a newer
@@ -223,7 +254,7 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   let speaker: ListenTogetherSpeaking
   let coverTracker: ListenTogetherCoverTracker
   let focusRequests: ListenTogetherFocusRequests
-  private let isAppActive: @MainActor () -> Bool
+  private let context: @MainActor () -> ListenTogetherDeliveryContext
   /// Posts a local notification and returns true, only when permission was already given (never
   /// asks). Test seam.
   var postNotification: @MainActor (_ title: String, _ body: String) async -> Bool = { title, body in
@@ -240,35 +271,51 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   private var coverWaits = Set<AnyCancellable>()
 
   /// After the listener cover has gone: VoiceOver focus first, then the queued sentence, so moving
-  /// focus can't cut the sentence off (leave guidance, "After leaving").
+  /// focus can't cut the sentence off (leave guidance, "After leaving"; a11y M4: 500 ms gap).
   static let afterCoverFocusDelay: Duration = .milliseconds(500)
-  static let afterCoverAnnouncementDelay: Duration = .milliseconds(300)
+  static let afterCoverAnnouncementDelay: Duration = .milliseconds(500)
+  /// The longest a message waits for the listener cover to report that it has gone (fix round 1, I2).
+  /// Past it the cover is taken as gone; if it is in fact still up, the alert is shown over it.
+  static let coverWaitLimit: Duration = .seconds(2)
+  /// True after `coverWaitLimit` passed without the cover reporting its dismissal. MainCoordinator then
+  /// closes a cover that is still up once the alert's OK is chosen. Logged.
+  private(set) var coverWaitTimedOut = false
+  /// When the oldest item waiting for the cover was queued (for the check on becoming active).
+  private var coverWaitStartedAt: Date?
+  /// Test seam.
+  var now: () -> Date = Date.init
 
   init(
     announcer: ListenTogetherAnnouncer,
     speaker: ListenTogetherSpeaking,
     coverTracker: ListenTogetherCoverTracker,
     focusRequests: ListenTogetherFocusRequests,
-    isAppActive: @escaping @MainActor () -> Bool
+    context: @escaping @MainActor () -> ListenTogetherDeliveryContext
   ) {
     self.announcer = announcer
     self.speaker = speaker
     self.coverTracker = coverTracker
     self.focusRequests = focusRequests
-    self.isAppActive = isAppActive
+    self.context = context
   }
 
-  nonisolated static func plan(for message: ListenTogetherUserMessage, isActive: Bool) -> ListenTogetherDeliveryPlan {
+  nonisolated static func plan(
+    for message: ListenTogetherUserMessage, context: ListenTogetherDeliveryContext
+  ) -> ListenTogetherDeliveryPlan {
     var plan = ListenTogetherDeliveryPlan()
     switch message.kind {
     case .alert:
-      if isActive {
+      if !context.isAway {
         plan.showsAlert = true
         plan.speaksWithAlert = message.speaks
       } else {
         // A.0: no announcement from the background (unreliable, and the later alert would repeat it).
         plan.notifiesOrWaits = true
         plan.speaksNow = message.speaks
+        // Unlocked and VoiceOver off: the notification is a short edge banner (outside a Zoom
+        // viewport), so the alert also waits for the return. Locked or VoiceOver: the notification is
+        // read on the lock screen and is the one message.
+        plan.keepsAlertAfterNotification = !context.isLocked && !context.isVoiceOverRunning
       }
     case .status:
       plan.announces = true
@@ -284,7 +331,7 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   /// Shows, announces or speaks `message` as its plan says. `onClose` runs once the alert has been
   /// closed (or the notification posted instead).
   func deliver(_ message: ListenTogetherUserMessage, onClose: (@MainActor () -> Void)? = nil) {
-    let plan = Self.plan(for: message, isActive: isAppActive())
+    let plan = Self.plan(for: message, context: context())
     if plan.announces { announcer.announce(message.text) }
     if plan.speaksNow { speaker.speak(message.text, key: message.key) }
     if plan.showsAlert {
@@ -292,7 +339,8 @@ final class ListenTogetherMessageDelivery: ObservableObject {
     } else if plan.notifiesOrWaits {
       Task { @MainActor [weak self] in
         guard let self else { return }
-        if await self.postNotification("listen_together_title".localized, message.text) {
+        let posted = await self.postNotification("listen_together_title".localized, message.text)
+        if posted, !plan.keepsAlertAfterNotification {
           // The notification is the one message: no alert later (A.0).
           onClose?()
         } else {
@@ -314,12 +362,42 @@ final class ListenTogetherMessageDelivery: ObservableObject {
     for removed in before.subtracting(after) { closeActions.removeValue(forKey: removed)?() }
     if after.contains(item.id), let onClose { closeActions[item.id] = onClose }
     alerts = queue
+    if message.waitsForListenerCover { startCoverWatchdog() }
   }
+
+  /// I2: a listener's ending never waits for the cover for longer than `coverWaitLimit`.
+  private func startCoverWatchdog() {
+    guard coverTracker.isListenerCoverOnScreen else { return }
+    if coverWaitStartedAt == nil { coverWaitStartedAt = now() }
+    schedule(Self.coverWaitLimit) { [weak self] in self?.forceCoverGoneIfOverdue() }
+  }
+
+  /// Takes the cover as gone when an item has waited `coverWaitLimit` for it. Also called when the app
+  /// becomes active (timers may not have run in the background). Returns true when it forced it.
+  @discardableResult
+  func forceCoverGoneIfOverdue() -> Bool {
+    guard coverTracker.isListenerCoverOnScreen else {
+      coverWaitStartedAt = nil
+      return false
+    }
+    let waiting = alerts.pending.contains { $0.message.waitsForListenerCover } || !coverWaits.isEmpty
+    guard waiting, let started = coverWaitStartedAt,
+      now().timeIntervalSince(started) >= Double(Self.coverWaitLimit.components.seconds)
+    else { return false }
+    SharePlaySessionService.logger.info("Listen Together: the listener cover did not report its dismissal; going on")
+    coverWaitTimedOut = true
+    coverWaitStartedAt = nil
+    coverTracker.coverDismissed()
+    return true
+  }
+
+  /// MainCoordinator handled a cover that had not reported its dismissal.
+  func acknowledgeCoverWaitTimeout() { coverWaitTimedOut = false }
 
   /// MainCoordinator put the alert on screen: it is spoken now (unless it already was).
   func alertPresented(_ id: UUID) {
     guard alerts.markPresented(id), let item = alerts.onScreen else { return }
-    if Self.plan(for: item.message, isActive: true).speaksWithAlert, !item.isSpoken {
+    if Self.plan(for: item.message, context: .init()).speaksWithAlert, !item.isSpoken {
       speaker.speak(item.message.text, key: item.message.key)
     }
   }
@@ -350,11 +428,13 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   }
 
   /// Runs `action` once the listener cover is no longer on screen (at once when it isn't).
+  /// Never waits longer than `coverWaitLimit` (fix round 1, I2).
   func whenListenerCoverGone(_ action: @escaping @MainActor () -> Void) {
     guard coverTracker.isListenerCoverOnScreen else {
       action()
       return
     }
+    let once = ListenTogetherOnce(action)
     var cancellable: AnyCancellable?
     cancellable = coverTracker.$isListenerCoverOnScreen
       .dropFirst()
@@ -362,20 +442,31 @@ final class ListenTogetherMessageDelivery: ObservableObject {
       .sink { [weak self] _ in
         MainActor.assumeIsolated {
           if let cancellable { self?.coverWaits.remove(cancellable) }
-          action()
+          once.run()
         }
       }
     if let cancellable { coverWaits.insert(cancellable) }
+    if coverWaitStartedAt == nil { coverWaitStartedAt = now() }
+    schedule(Self.coverWaitLimit) { [weak self] in
+      guard let self else { return }
+      if let cancellable, self.coverWaits.contains(cancellable) {
+        self.coverWaits.remove(cancellable)
+        SharePlaySessionService.logger.info("Listen Together: the listener cover did not report its dismissal (leave)")
+        once.run()
+      }
+      self.forceCoverGoneIfOverdue()
+    }
   }
 
   /// Only with permission the user already gave; never prompts.
   static func postNotificationIfAllowed(title: String, body: String) async -> Bool {
     let center = UNUserNotificationCenter.current()
     let settings = await center.notificationSettings()
-    switch settings.authorizationStatus {
-    case .authorized, .provisional, .ephemeral: break
-    default: return false
-    }
+    // Only a notification that is shown as an alert counts as seen (code M1): provisional and
+    // ephemeral ones go quietly to Notification Center. BookPlayer has no willPresent delegate and never
+    // asks for permission, so this path runs only for people who allowed notifications elsewhere, and
+    // only in the background.
+    guard settings.authorizationStatus == .authorized, settings.alertSetting == .enabled else { return false }
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body

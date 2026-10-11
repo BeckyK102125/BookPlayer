@@ -535,8 +535,6 @@ Usilovne pracujeme na poskytovaní bezproblémového zážitku, ak je to možné
 "listen_together_started_late_announcement" = "Listen Together started.";
 "listen_together_join_hint" = "Pauses your current book and starts listening together.";
 "listen_together_end_hint_sharer" = "Ends Listen Together for everyone.";
-"listen_together_end_hint_listener" = "Leaves Listen Together and deletes the downloaded book.";
-"listen_together_end_hint_preparing" = "Cancels sharing.";
 "listen_together_end_confirm_title" = "End Listen Together?";
 "listen_together_status_sharing_waiting" = "Listen Together, waiting for others, sharing";
 "listen_together_status_listening_one" = "Listen Together, 1 person, listening";
@@ -576,7 +574,6 @@ Usilovne pracujeme na poskytovaní bezproblémového zážitku, ak je to možné
 "listen_together_invitation_own_copy_no_author" = "Listen to %@ together. You have this book, so BookPlayer plays your copy. Nothing is downloaded. Your own place in the book is not changed.";
 "listen_together_join_hint_own_copy" = "Pauses your current book and plays your copy together.";
 "listen_together_joined_own_copy" = "Joined. Playing your copy.";
-"listen_together_end_hint_listener_own_copy" = "Leaves Listen Together. Your own copy is kept.";
 "listen_together_need_copy_title" = "You need your own copy";
 "listen_together_need_copy_message" = "The person sharing is only listening with people who have this book. BookPlayer did not find %@ in your library, so you can't join. A different recording of the same book does not match.";
 "listen_together_copy_unusable_title" = "Your copy can't be used";
@@ -609,6 +606,12 @@ Usilovne pracujeme na poskytovaní bezproblémového zážitku, ak je to možné
 "listen_together_cancel_sharing_button" = "Cancel Sharing";
 "settings_listen_together_speak_header" = "Messages";
 "settings_listen_together_speak_toggle" = "Speak error messages";
-"settings_listen_together_speak_footer" = "When this is on, BookPlayer reads Listen Together problems aloud, for example when the person sharing ends Listen Together. It uses the voice and speed set in Settings > Accessibility > Spoken Content. It stays quiet while VoiceOver is on, because VoiceOver already reads these messages.";
+"settings_listen_together_speak_footer" = "When this is on, BookPlayer reads Listen Together problems aloud, for example when the person sharing ends Listen Together. It uses the voice and speed set in Settings, Accessibility, Spoken Content. It stays quiet while VoiceOver is on, because VoiceOver already reads these messages, and during phone and FaceTime calls.";
 "settings_listen_together_speak_sample_button" = "Hear a Sample";
 "settings_listen_together_speak_sample_text" = "This is how Listen Together problems are read aloud.";
+"listen_together_connection_ended" = "Listen Together ended because the connection to the person sharing was lost.";
+"listen_together_connection_ended_sharer" = "Listen Together ended because the call or connection ended.";
+"listen_together_sharer_could_not_prepare" = "The person sharing couldn't prepare the book. Listen Together ended.";
+"listen_together_sharer_quiet" = "Can't reach the person sharing. The book keeps playing.";
+"listen_together_row_value_sharer_quiet" = "can't reach the person sharing, %@";
+"listen_together_row_value_sharing_retrying" = "couldn't send part of the book, trying again, %@";

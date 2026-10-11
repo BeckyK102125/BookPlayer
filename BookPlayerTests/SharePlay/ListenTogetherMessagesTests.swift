@@ -46,16 +46,32 @@ final class ListenTogetherMessagesTests: XCTestCase {
     try? FileManager.default.removeItem(at: root)
   }
 
-  private func makeDelivery(active: Bool = true) -> ListenTogetherMessageDelivery {
+  private var locked = true
+  private var voiceOver = false
+
+  private func makeDelivery(active: Bool = true, focus: ListenTogetherFocusRequests? = nil) -> ListenTogetherMessageDelivery {
+    let focus = focus ?? ListenTogetherFocusRequests()
     system.appState = active ? .active : .background
     let system = self.system!
     let delivery = ListenTogetherMessageDelivery(
       announcer: ListenTogetherAnnouncer(post: { [weak self] in self?.posted.append($0) }),
-      speaker: speaker, coverTracker: tracker, focusRequests: ListenTogetherFocusRequests(),
-      isAppActive: { system.appState == .active })
+      speaker: speaker, coverTracker: tracker, focusRequests: focus,
+      context: { [unowned self] in
+        ListenTogetherDeliveryContext(
+          appState: system.appState, isLocked: self.locked, isVoiceOverRunning: self.voiceOver)
+      })
     delivery.schedule = timers.schedule
+    delivery.now = clock
     return delivery
   }
+
+  private func clock() -> Date {
+    let elapsed = timers.now.components
+    return base.addingTimeInterval(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
+  }
+
+  private static let active = ListenTogetherDeliveryContext()
+  private static let lockedAway = ListenTogetherDeliveryContext(appState: .background, isLocked: true)
 
   private func makeService() -> SharePlaySessionService {
     let playerManager = PlayerManagerProtocolMock()
@@ -73,10 +89,8 @@ final class ListenTogetherMessagesTests: XCTestCase {
     service.schedule = timers.schedule
     service.messages.schedule = timers.schedule
     service.messages.postNotification = { _, _ in false }
-    service.now = { [unowned self] in
-      let elapsed = self.timers.now.components
-      return self.base.addingTimeInterval(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
-    }
+    service.now = { [unowned self] in self.clock() }
+    service.messages.now = { [unowned self] in self.clock() }
     let control = self.control!
     service.coordinatorControlFactory = { control }
     services.append(service)
@@ -109,8 +123,8 @@ final class ListenTogetherMessagesTests: XCTestCase {
 
   func testNoMessageEverGetsBothAnAlertAndAnAnnouncement() {
     for message in Self.allMessages {
-      for active in [true, false] {
-        let plan = ListenTogetherMessageDelivery.plan(for: message, isActive: active)
+      for active in [Self.active, Self.lockedAway, .init(appState: .background), .init(appState: .inactive)] {
+        let plan = ListenTogetherMessageDelivery.plan(for: message, context: active)
         let alertLike = plan.showsAlert || plan.notifiesOrWaits
         XCTAssertFalse(alertLike && plan.announces, "\(message) active=\(active)")
         XCTAssertFalse(plan.speaksNow && plan.speaksWithAlert, "\(message) spoken once")
@@ -119,31 +133,34 @@ final class ListenTogetherMessagesTests: XCTestCase {
   }
 
   func testAlertMessagesWhenActive() {
-    for message in [Message.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .unavailable, .didntStart] {
+    for message in [
+      Message.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
+      .prepareFailed, .unavailable, .didntStart,
+    ] {
       XCTAssertEqual(
-        ListenTogetherMessageDelivery.plan(for: message, isActive: true),
+        ListenTogetherMessageDelivery.plan(for: message, context: Self.active),
         ListenTogetherDeliveryPlan(showsAlert: true, speaksWithAlert: true), "\(message)")
       XCTAssertEqual(
-        ListenTogetherMessageDelivery.plan(for: message, isActive: false),
+        ListenTogetherMessageDelivery.plan(for: message, context: Self.lockedAway),
         ListenTogetherDeliveryPlan(speaksNow: true, notifiesOrWaits: true), "\(message)")
     }
   }
 
   func testStatusMessagesAnnounceOnceAndOnlyErrorsAreSpoken() {
     XCTAssertEqual(
-      ListenTogetherMessageDelivery.plan(for: .waitingForSharer, isActive: true),
+      ListenTogetherMessageDelivery.plan(for: .waitingForSharer, context: Self.active),
       ListenTogetherDeliveryPlan(announces: true, speaksNow: true))
     XCTAssertEqual(
-      ListenTogetherMessageDelivery.plan(for: .retryingSend, isActive: false),
+      ListenTogetherMessageDelivery.plan(for: .retryingSend, context: Self.lockedAway),
       ListenTogetherDeliveryPlan(announces: true, speaksNow: true))
     XCTAssertEqual(
-      ListenTogetherMessageDelivery.plan(for: .waitingForBook, isActive: true),
+      ListenTogetherMessageDelivery.plan(for: .waitingForBook, context: Self.active),
       ListenTogetherDeliveryPlan(announces: true), "normal buffering is never spoken")
     XCTAssertEqual(
-      ListenTogetherMessageDelivery.plan(for: .sharerBack, isActive: true),
+      ListenTogetherMessageDelivery.plan(for: .sharerBack, context: Self.active),
       ListenTogetherDeliveryPlan(announces: true), "VoiceOver only")
     XCTAssertEqual(
-      ListenTogetherMessageDelivery.plan(for: .alertShownElsewhere(text: "x", key: "k"), isActive: true),
+      ListenTogetherMessageDelivery.plan(for: .alertShownElsewhere(text: "x", key: "k"), context: Self.active),
       ListenTogetherDeliveryPlan(speaksNow: true))
   }
 
@@ -284,13 +301,10 @@ final class ListenTogetherMessagesTests: XCTestCase {
     let focus = ListenTogetherFocusRequests()
     var focused = 0
     let bag = focus.miniPlayer.sink { focused += 1 }
-    let delivery = ListenTogetherMessageDelivery(
-      announcer: ListenTogetherAnnouncer(post: { [weak self] in self?.posted.append($0) }),
-      speaker: speaker, coverTracker: tracker, focusRequests: focus, isAppActive: { true })
-    delivery.schedule = timers.schedule
+    let delivery = makeDelivery(focus: focus)
     tracker.coverAppeared()
     delivery.afterListenerCoverGone(announce: "You left Listen Together.")
-    timers.advance(by: .seconds(5))
+    timers.advance(by: .seconds(1))
     XCTAssertEqual(focused, 0)
     XCTAssertEqual(posted, [], "nothing while the cover is still up")
     tracker.coverDismissed()
@@ -299,8 +313,13 @@ final class ListenTogetherMessagesTests: XCTestCase {
     timers.advance(by: .milliseconds(1))
     XCTAssertEqual(focused, 1, "focus moves first")
     XCTAssertEqual(posted, [])
-    timers.advance(by: .milliseconds(300))
+    timers.advance(by: .milliseconds(499))
+    XCTAssertEqual(posted, [], "500 ms after the focus move (a11y M4)")
+    timers.advance(by: .milliseconds(1))
     XCTAssertEqual(posted, ["You left Listen Together."], "then the sentence, once")
+    timers.advance(by: .seconds(5))
+    XCTAssertEqual(focused, 1, "the cover watchdog doesn't run it again")
+    XCTAssertEqual(posted.count, 1)
     withExtendedLifetime(bag) {}
   }
 
@@ -465,15 +484,20 @@ final class ListenTogetherMessagesTests: XCTestCase {
     }
   }
 
-  func testSharerWaitWinsAndTheMinuteLineOnlyDuringTheGrace() {
+  func testSharerWaitOnlyDuringTheGraceAndQuietOtherwise() {
     let state = ListenTogetherState.listening(participants: 2, downloaded: 1)
-    var conditions = ListenTogetherStatusConditions(notice: .waitingForSharer, isWaitingForPiece: true)
+    var conditions = ListenTogetherStatusConditions(notice: .waitingForSharer)
     var line = try! XCTUnwrap(ListenTogetherStatus.line(for: state, conditions: conditions))
-    XCTAssertEqual(line.text, "Waiting for the person sharing")
-    XCTAssertNil(line.detail, "silence never ends the session, so no minute")
-    XCTAssertEqual(line.icon, .hourglass)
+    XCTAssertEqual(line.text, "Can't reach the person sharing. The book keeps playing.", "silence only (a11y I4)")
+    XCTAssertNil(line.detail)
+    XCTAssertNil(ListenTogetherStatus.waitingCaption(conditions), "Play still works: no caption")
+    conditions.isWaitingForPiece = true
+    line = try! XCTUnwrap(ListenTogetherStatus.line(for: state, conditions: conditions))
+    XCTAssertEqual(line.text, "Waiting for the book", "a piece wait wins over the quiet line")
     conditions.isSharerGraceRunning = true
     line = try! XCTUnwrap(ListenTogetherStatus.line(for: state, conditions: conditions))
+    XCTAssertEqual(line.text, "Waiting for the person sharing")
+    XCTAssertEqual(line.icon, .hourglass)
     XCTAssertEqual(line.detail, "If they are not back within a minute, Listen Together ends.")
     XCTAssertEqual(line.spoken, "Waiting for the person sharing. If they are not back within a minute, Listen Together ends.")
     XCTAssertEqual(ListenTogetherStatus.waitingCaption(conditions), "Waiting for the person sharing")
@@ -506,7 +530,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
     let value = ListenTogetherRow.value(
       state: .listening(participants: 2, downloaded: 1), joinedTitle: nil,
       listener: .init(title: "Moby Dick", isPlaying: false, isWaiting: true), sharerTitle: nil,
-      waitingForSharer: true)
+      sharerPresence: .away)
     XCTAssertEqual(value, "waiting for the person sharing, Moby Dick")
   }
 
@@ -535,5 +559,196 @@ final class ListenTogetherMessagesTests: XCTestCase {
 
     XCTAssertNil(ListenTogetherSessionAction.action(for: .ended(reason: .normal)))
     XCTAssertNil(ListenTogetherSessionAction.action(for: .idle))
+  }
+
+  // MARK: Fix round 1
+
+  func testAnInactiveAppStillGetsTheAlert() {
+    let plan = ListenTogetherMessageDelivery.plan(for: .sharerEnded, context: .init(appState: .inactive))
+    XCTAssertTrue(plan.showsAlert, "Control Center or Siri over BookPlayer is not away (a11y I1)")
+    XCTAssertFalse(plan.notifiesOrWaits)
+  }
+
+  func testAwayUnlockedWithoutVoiceOverNotifiesAndKeepsTheAlert() {
+    var context = ListenTogetherDeliveryContext(appState: .background, isLocked: false, isVoiceOverRunning: false)
+    XCTAssertTrue(ListenTogetherMessageDelivery.plan(for: .sharerEnded, context: context).keepsAlertAfterNotification)
+    context.isLocked = true
+    XCTAssertFalse(ListenTogetherMessageDelivery.plan(for: .sharerEnded, context: context).keepsAlertAfterNotification)
+    context = .init(appState: .background, isLocked: false, isVoiceOverRunning: true)
+    XCTAssertFalse(
+      ListenTogetherMessageDelivery.plan(for: .sharerEnded, context: context).keepsAlertAfterNotification,
+      "VoiceOver reads the notification; no duplicate")
+  }
+
+  func testUnlockedAwayPostsTheNotificationAndTheAlertWaitsForTheReturn() async {
+    locked = false
+    let delivery = makeDelivery(active: false)
+    var notifications = 0
+    delivery.postNotification = { _, _ in
+      notifications += 1
+      return true
+    }
+    var closed = 0
+    delivery.deliver(.sharerEnded) { closed += 1 }
+    await waitUntil { delivery.alerts.next != nil }
+    XCTAssertEqual(notifications, 1)
+    XCTAssertEqual(delivery.alerts.next?.message, .sharerEnded)
+    XCTAssertEqual(delivery.alerts.next?.isSpoken, true, "already spoken; not spoken again")
+    XCTAssertEqual(closed, 0, "closed by OK on return")
+  }
+
+  func testAStuckCoverIsTakenAsGoneAfterTwoSeconds() {
+    let delivery = makeDelivery()
+    tracker.coverAppeared()
+    delivery.deliver(.sharerEnded)
+    delivery.deliver(.unavailable)
+    timers.advance(by: .milliseconds(1999))
+    XCTAssertTrue(tracker.isListenerCoverOnScreen)
+    XCTAssertFalse(delivery.coverWaitTimedOut)
+    timers.advance(by: .milliseconds(1))
+    XCTAssertFalse(tracker.isListenerCoverOnScreen, "never waits for ever (code I2)")
+    XCTAssertTrue(delivery.coverWaitTimedOut, "MainCoordinator closes a cover still up after OK")
+    let step = MainCoordinator.listenTogetherAlertStep(
+      isActive: true, waitsForCover: true, isCoverOnScreen: tracker.isListenerCoverOnScreen, isOtherAlertOnScreen: false)
+    XCTAssertEqual(step, .present)
+    let first = try! XCTUnwrap(delivery.alerts.next)
+    delivery.alertPresented(first.id)
+    delivery.alertClosed(first.id)
+    XCTAssertEqual(delivery.alerts.next?.message, .unavailable, "the queue behind it is not blocked")
+  }
+
+  func testTheCoverCheckOnBecomingActive() {
+    let delivery = makeDelivery()
+    delivery.schedule = { _, _ in }   // timers don't run in the background
+    tracker.coverAppeared()
+    delivery.deliver(.sharerLeft)
+    XCTAssertFalse(delivery.forceCoverGoneIfOverdue(), "not overdue yet")
+    timers.advance(by: .seconds(3))
+    XCTAssertTrue(delivery.forceCoverGoneIfOverdue())
+    XCTAssertFalse(tracker.isListenerCoverOnScreen)
+  }
+
+  func testLeaveWithAStuckCoverStillFocusesAndAnnounces() {
+    let focus = ListenTogetherFocusRequests()
+    var focused = 0
+    let bag = focus.miniPlayer.sink { focused += 1 }
+    let delivery = makeDelivery(focus: focus)
+    tracker.coverAppeared()
+    delivery.afterListenerCoverGone(announce: "You left Listen Together.")
+    timers.advance(by: .seconds(4))
+    XCTAssertEqual(focused, 1)
+    XCTAssertEqual(posted, ["You left Listen Together."])
+    withExtendedLifetime(bag) {}
+  }
+
+  func testInvalidationWhileListeningIsOneAlertWithoutAnnouncement() async {
+    let (service, transport, _) = await startListeningWithManifest()
+    posted = []
+    transport.emit(.invalidated)
+    await waitUntil { service.messages.alerts.next != nil }
+    XCTAssertEqual(service.messages.alerts.next?.message, .connectionEnded)
+    XCTAssertEqual(
+      service.messages.alerts.next?.message.text,
+      "Listen Together ended because the connection to the person sharing was lost.")
+    XCTAssertEqual(posted, [])
+    XCTAssertNil(ListenTogetherStatus.visibleText(for: service.state), "no banner")
+    XCTAssertEqual(service.endNotice, .connectionEnded)
+  }
+
+  func testTheStreamEndingIsTheSameEnding() async {
+    let (service, transport, _) = await startListeningWithManifest()
+    posted = []
+    transport.leave()   // the event stream ends without an end message
+    await waitUntil { service.messages.alerts.next != nil }
+    XCTAssertEqual(service.messages.alerts.next?.message, .connectionEnded)
+    XCTAssertEqual(posted, [])
+  }
+
+  func testOneEndingPerSession() async {
+    let (service, transport, _) = await startListeningWithManifest()
+    transport.emit(.message(.sessionEnding))
+    transport.emit(.invalidated)
+    await waitUntil { service.messages.alerts.next != nil }
+    try? await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(service.messages.alerts.pending.map(\.message), [.sharerEnded], "never replaced by a vaguer one")
+
+    let (other, otherTransport, _) = await startListeningWithManifest()
+    other.end()
+    otherTransport.emit(.invalidated)
+    try? await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(other.messages.alerts.pending.map(\.message), [], "an own End followed by invalidation: nothing")
+  }
+
+  func testSharerInvalidationHasItsOwnSentence() {
+    let service = makeService(), transport = FakeTransport()
+    service.startSharingSession(with: transport, item: PlayableItem.stub(currentTime: 0, duration: 10), shareID: UUID())
+    service.tearDown(reason: .connectionEnded)
+    XCTAssertEqual(service.messages.alerts.next?.message, .connectionEndedSharer)
+    XCTAssertEqual(
+      service.messages.alerts.next?.message.text, "Listen Together ended because the call or connection ended.")
+    XCTAssertNil(service.endNotice)
+  }
+
+  func testListenerPrepareFailureSentence() {
+    XCTAssertEqual(
+      Message.sharerCouldNotPrepare.text, "The person sharing couldn't prepare the book. Listen Together ended.")
+  }
+
+  func testSilenceIsQuietAndNeverSaysBack() async {
+    let service = makeService(), transport = FakeTransport()
+    service.startListening(with: transport, shareID: UUID())
+    posted = []
+    timers.advance(by: .seconds(20))
+    XCTAssertEqual(service.notice, .waitingForSharer)
+    XCTAssertFalse(service.isSharerGraceRunning)
+    XCTAssertFalse(posted.contains { $0.contains("person sharing") }, "nothing announced (a11y I4)")
+    XCTAssertEqual(speaker.spoken, [], "nothing spoken")
+    transport.emit(.message(.heartbeat))
+    await waitUntil { service.notice == nil }
+    XCTAssertFalse(posted.contains("The person sharing is back."))
+  }
+
+  func testRowValuesForTheSharerQuietAndRetrying() {
+    let quiet = ListenTogetherRow.value(
+      state: .listening(participants: 2, downloaded: 1), joinedTitle: nil,
+      listener: .init(title: "Moby Dick", isPlaying: true, isWaiting: false), sharerTitle: nil,
+      sharerPresence: .quiet)
+    XCTAssertEqual(quiet, "can't reach the person sharing, Moby Dick")
+    let retrying = ListenTogetherRow.value(
+      state: .sharing(participants: 2), joinedTitle: nil, listener: nil, sharerTitle: "Moby Dick",
+      isRetryingSend: true)
+    XCTAssertEqual(retrying, "couldn't send part of the book, trying again, Moby Dick")
+  }
+
+  func testLeaveIsOfferedOnlyWhereTheHostOwnsTheQuestion() {
+    XCTAssertFalse(ListenTogetherSessionAction.isOffered(.leave, hasHostLeave: false), "no banner-owned question (I3)")
+    XCTAssertTrue(ListenTogetherSessionAction.isOffered(.leave, hasHostLeave: true))
+    XCTAssertTrue(ListenTogetherSessionAction.isOffered(.endForEveryone, hasHostLeave: false))
+    XCTAssertTrue(ListenTogetherSessionAction.isOffered(.cancelSharing, hasHostLeave: false))
+  }
+
+  func testLeaveHasNoEndedBanner() async {
+    let (service, _, _) = await startListeningWithManifest()
+    service.leave()
+    XCTAssertEqual(service.state, .ended(reason: .left))
+    XCTAssertNil(ListenTogetherStatus.visibleText(for: service.state), "it didn't end for everyone (a11y M6)")
+  }
+
+  func testAlertRetryBacksOff() {
+    XCTAssertEqual(MainCoordinator.listenTogetherAlertRetryDelay(retry: 0), 0.5)
+    XCTAssertEqual(MainCoordinator.listenTogetherAlertRetryDelay(retry: 1), 1)
+    XCTAssertEqual(MainCoordinator.listenTogetherAlertRetryDelay(retry: 3), 4)
+    XCTAssertEqual(MainCoordinator.listenTogetherAlertRetryDelay(retry: 10), 5)
+  }
+
+  func testTheNeedsCopyNoticeDoesNotAgeBehindAnotherAlert() {
+    let service = makeService()
+    service.declineWithoutCopy(bookTitle: "Moby Dick", cause: .notFound)
+    service.pauseNeedsCopyNoticeAging()
+    timers.advance(by: .seconds(120))
+    XCTAssertTrue(service.needsCopyNoticeIsCurrent(), "held back by another alert (a11y M7)")
+    service.resumeNeedsCopyNoticeAging()
+    timers.advance(by: .seconds(61))
+    XCTAssertFalse(service.needsCopyNoticeIsCurrent())
   }
 }

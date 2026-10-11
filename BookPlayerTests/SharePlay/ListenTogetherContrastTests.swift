@@ -3,14 +3,17 @@ import UIKit
 import XCTest
 
 /// R40/R41: every Listen Together text, icon and button colour pair passes in all 22 theme variants
-/// (11 themes, light and dark) from Themes.json. The pairs used: the theme's primary colour on its
-/// background (status text and icons, the session button's label and outline, Not Now, the transport
-/// icons, Chapters, Speed, Hear a Sample), and the background colour on a primary fill (Join).
+/// (11 themes, light and dark) from Themes.json. The pairs used, each on the background it is drawn on:
+/// the theme's primary colour on its system background (status text and icons, the session button's
+/// label and outline, Not Now, the transport icons, Chapters, Speed, and the Settings rows "Speak error
+/// messages" and "Hear a Sample", which are drawn on the system background since fix round 1), the
+/// background colour on a primary fill (Join), and the switch's on-track and thumb.
 final class ListenTogetherContrastTests: XCTestCase {
   private struct Variant {
     let name: String
     let primary: UIColor
     let background: UIColor
+    let link: UIColor
   }
 
   private func variants() throws -> [Variant] {
@@ -23,7 +26,9 @@ final class ListenTogetherContrastTests: XCTestCase {
       for mode in ["light", "dark"] {
         let primary = try XCTUnwrap(theme["\(mode)PrimaryHex"] as? String)
         let background = try XCTUnwrap(theme["\(mode)SystemBackgroundHex"] as? String)
-        result.append(Variant(name: "\(title) \(mode)", primary: color(primary), background: color(background)))
+        let link = try XCTUnwrap(theme["\(mode)AccentHex"] as? String)
+        result.append(Variant(
+          name: "\(title) \(mode)", primary: color(primary), background: color(background), link: color(link)))
       }
     }
     return result
@@ -55,6 +60,16 @@ final class ListenTogetherContrastTests: XCTestCase {
         ListenTogetherContrast.ratio(variant.background, variant.primary), 4.5, "label: \(variant.name)")
       XCTAssertGreaterThanOrEqual(
         ListenTogetherContrast.ratio(variant.primary, variant.background), 3.0, "fill: \(variant.name)")
+    }
+  }
+
+  /// a11y I6: the "Speak error messages" switch is visible in every variant: its on-track at least 3:1
+  /// on the row and the white thumb at least 3:1 on the track.
+  func testToggleTintIsVisibleEverywhere() throws {
+    for variant in try variants() {
+      let tint = ListenTogetherContrast.toggleTint(link: variant.link, primary: variant.primary, row: variant.background)
+      XCTAssertGreaterThanOrEqual(ListenTogetherContrast.ratio(tint, variant.background), 3, "track: \(variant.name)")
+      XCTAssertGreaterThanOrEqual(ListenTogetherContrast.ratio(.white, tint), 3, "thumb: \(variant.name)")
     }
   }
 }

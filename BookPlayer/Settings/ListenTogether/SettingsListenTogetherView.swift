@@ -19,10 +19,13 @@ struct SettingsListenTogetherView: View {
   /// "Speak error messages" (addendum 3, decision 8): off by default, per device.
   @AppStorage(ListenTogetherSpeaker.settingKey) private var speaksErrors = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     Form {
-      ThemedSection {
+      // Plain sections on the theme's background (a11y I5): primary text is at least 6.40:1 there in every
+      // theme, while the usual tertiary row background drops to 4.43:1 in Sky dark.
+      Section {
         Picker(selection: $mode) {
           ForEach(ListenTogetherSharingMode.allCases, id: \.self) { option in
             Text(option.title)
@@ -50,16 +53,19 @@ struct SettingsListenTogetherView: View {
           .foregroundStyle(theme.primaryColor)
           .fixedSize(horizontal: false, vertical: true)
       }
+      .listRowBackground(theme.systemBackgroundColor)
 
       // Guidance B.1: the visible text is the toggle's label (no custom accessibilityLabel), so VoiceOver
       // reads "Speak error messages, switch button, off" and Voice Control matches it.
-      ThemedSection {
+      Section {
         Toggle(isOn: $speaksErrors) {
           Text("settings_listen_together_speak_toggle".localized)
             .bpFont(.body)
             .foregroundStyle(theme.primaryColor)
             .fixedSize(horizontal: false, vertical: true)
         }
+        // a11y I6: track at least 3:1 on the row and the thumb at least 3:1 on the track, every theme.
+        .tint(theme.listenTogetherToggleTint(for: colorScheme))
         if speaksErrors {
           // B.2: lets the person check the voice and volume. Speaks even with VoiceOver on.
           Button {
@@ -90,6 +96,7 @@ struct SettingsListenTogetherView: View {
           .foregroundStyle(theme.primaryColor)
           .fixedSize(horizontal: false, vertical: true)
       }
+      .listRowBackground(theme.systemBackgroundColor)
       .animation(reduceMotion ? nil : .default, value: speaksErrors)
     }
     .scrollContentBackground(.hidden)

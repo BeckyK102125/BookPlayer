@@ -519,7 +519,8 @@ extension SharePlaySessionService {
       // The stream ended without an explicit end message: the session is over.
       guard let self, self.transport === transport else { return }
       Self.logger.info("Listen Together: the event stream ended")
-      self.tearDown(reason: .normal)
+      // Not this device's own End or Leave (those tear down first): say why (fix round 1, I1).
+      self.tearDown(reason: .connectionEnded)
     }
   }
 
@@ -565,7 +566,8 @@ extension SharePlaySessionService {
       Self.logger.info("Listen Together: the group session was invalidated")
       // An invalidated session can't be joined again (fix round 2).
       if let shareID { rememberEndedShare(shareID) }
-      tearDown(reason: .normal)
+      // One ending per session: after a more specific reason tearDown has already run and returns.
+      tearDown(reason: .connectionEnded)
     case .participantsChanged(let count, let ids):
       Self.logger.info("Listen Together: participants \(ids.isEmpty ? count : ids.count, privacy: .public)")
       noteRoster(count: count, ids: ids)
@@ -866,6 +868,8 @@ extension SharePlaySessionService {
     setSharerGraceRunning(true)
     listener?.isHeldForSharer = true
     updateSharerNotice()
+    // E3: status + one announcement + Speak, for the grace only (a11y I4).
+    messages.deliver(.waitingForSharer)
     // Everyone pauses together: this device stops, and its stall suspension makes the group wait.
     listener?.holdForSharer()
     bridge?.holdForSharer()
@@ -877,6 +881,7 @@ extension SharePlaySessionService {
     Self.logger.info("Listen Together: the sharer is back")
     setSharerGraceRunning(false)
     listener?.isHeldForSharer = false
+    messages.deliver(.sharerBack)
     bridge?.releaseSharerHold()
     updateSharerNotice()
   }

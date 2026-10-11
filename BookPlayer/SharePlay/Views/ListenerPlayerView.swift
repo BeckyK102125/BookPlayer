@@ -20,7 +20,10 @@ struct ListenerPlayerView: View {
   /// replaces the "getting the book" screen inside a cover that is already up.
   var initialFocusDelay: Duration = .milliseconds(600)
   /// "Leave Listen Together?" is up: the title focus move is skipped so it doesn't pull focus from it.
-  var isConfirmingLeave = false
+  /// A binding, so the delayed check reads the current value (code M2).
+  var isConfirmingLeave: Binding<Bool> = .constant(false)
+  /// Bumped to move VoiceOver focus to the title (Cancel after the screen swap, a11y M5).
+  var titleFocusRequest = 0
   /// Leave Listen Together: asks through the listener screen.
   var onRequestLeave: (() -> Void)?
   /// Escape: closes the screen only; never ends, pauses or starts anything.
@@ -55,10 +58,16 @@ struct ListenerPlayerView: View {
     .task {
       // Wait for the cover to finish presenting; an earlier request is often lost.
       try? await Task.sleep(for: initialFocusDelay)
-      guard !isConfirmingLeave else { return }
+      guard !isConfirmingLeave.wrappedValue else { return }
       focus = .title
       // Own copy: "Joined. Playing your copy." comes after the title, never over it (a11y I2).
       service.listenerTitleFocused()
+    }
+    .onChange(of: titleFocusRequest) {
+      Task {
+        try? await Task.sleep(for: .milliseconds(300))
+        focus = .title
+      }
     }
     .sheet(isPresented: $showingChapters, onDismiss: focusChapterAfterJump) {
       ListenerChaptersView(listener: listener, currentIndex: currentChapterIndex)

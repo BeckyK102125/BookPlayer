@@ -60,7 +60,7 @@ enum ListenTogetherStatus {
       // The person's own End (E15): the short ended banner stays.
       return "listen_together_ended".localized
     case .ended(.prepareFailed), .ended(.unavailable), .ended(.sharerEnded), .ended(.sharerLeft),
-      .ended(.sharerCouldNotPrepare):
+      .ended(.sharerCouldNotPrepare), .ended(.connectionEnded), .ended(.left):
       return nil
     case .idle, .needsFaceTime, .invitation:
       return nil
@@ -76,9 +76,10 @@ enum ListenTogetherStatus {
     return visibleText(for: state)
   }
 
-  /// The full status line (guidance A.1, C). Priorities: listener, the person sharing missing, then
-  /// waiting for a piece, then paused by another listener; sharer, retrying a piece, then paused by
-  /// another listener. "Someone couldn't join" is a second line under the sharer's status.
+  /// The full status line (guidance A.1, C). Priorities: listener, the person sharing out of the session
+  /// (the grace), then waiting for a piece, then the person sharing quiet, then paused by another
+  /// listener; sharer, retrying a piece, then paused by another listener. "Someone couldn't join" is a
+  /// second line under the sharer's status.
   static func line(
     for state: ListenTogetherState, conditions: ListenTogetherStatusConditions = .init()
   ) -> ListenTogetherStatusLine? {
@@ -86,10 +87,9 @@ enum ListenTogetherStatus {
     let baseSpoken = spokenText(for: state) ?? base
     switch state {
     case .listening(_, let downloaded):
-      if conditions.notice == .waitingForSharer {
+      if conditions.isSharerGraceRunning {
         let text = "listen_together_waiting_for_sharer".localized
-        // The minute only applies once the person sharing has left the session (fix round 1, I2).
-        let detail = conditions.isSharerGraceRunning ? "listen_together_waiting_for_sharer_detail".localized : nil
+        let detail = "listen_together_waiting_for_sharer_detail".localized
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, detail), icon: .hourglass)
       }
       if conditions.isWaitingForPiece {
@@ -98,6 +98,11 @@ enum ListenTogetherStatus {
         let detail = downloaded < 1 ? base : nil
         let spokenDetail = downloaded < 1 ? baseSpoken : nil
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, spokenDetail), icon: .hourglass)
+      }
+      if conditions.notice == .waitingForSharer {
+        // Silence only (a11y I4): the book keeps playing, so this is not "waiting"; nothing is announced.
+        let text = "listen_together_sharer_quiet".localized
+        return ListenTogetherStatusLine(text: text, detail: nil, spoken: text, icon: .hourglass)
       }
       if conditions.isPausedByOther {
         let text = "listen_together_status_paused_by_other".localized
@@ -125,9 +130,7 @@ enum ListenTogetherStatus {
   /// (the banner and the play button's value carry it). Also the play button's value. Nil when
   /// playback isn't held.
   static func waitingCaption(_ conditions: ListenTogetherStatusConditions) -> String? {
-    if conditions.notice == .waitingForSharer, conditions.isSharerGraceRunning || conditions.isWaitingForPiece {
-      return "listen_together_waiting_for_sharer".localized
-    }
+    if conditions.isSharerGraceRunning { return "listen_together_waiting_for_sharer".localized }
     if conditions.isWaitingForPiece { return "listen_together_waiting_download".localized }
     return nil
   }
@@ -185,6 +188,12 @@ struct ListenTogetherSessionAction: Equatable {
     case .idle, .needsFaceTime, .invitation, .ended:
       return nil
     }
+  }
+
+  /// Leave is offered only where the host owns the confirmation (fix round 1, I3); the other actions
+  /// are always offered.
+  static func isOffered(_ kind: Kind, hasHostLeave: Bool) -> Bool {
+    kind != .leave || hasHostLeave
   }
 
   /// The "Leave Listen Together?" message (own copy: the copy stays).

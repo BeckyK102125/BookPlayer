@@ -147,4 +147,13 @@ final class ListenTogetherSpeakerTests: XCTestCase {
     XCTAssertEqual(synthesizer.spoken.count, 2, "one sample per restart, never stacked")
     XCTAssertEqual(speaker.queuedCount, 1)
   }
+
+  func testAnUtteranceWhoseTimeRanOutNoLongerBlocksItsKey() {
+    let speaker = makeSpeaker()
+    speaker.speak("x", key: "sharerEnded")
+    system.expireAll()
+    XCTAssertEqual(speaker.queuedCount, 0, "removed on expiry (code M3)")
+    speaker.speak("x", key: "sharerEnded")
+    XCTAssertEqual(synthesizer.spoken.count, 2)
+  }
 }

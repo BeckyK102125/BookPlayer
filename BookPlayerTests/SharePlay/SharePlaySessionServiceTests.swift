@@ -141,10 +141,12 @@ final class SharePlaySessionServiceTests: XCTestCase {
     Task { await service.beginListening(with: transport, shareID: id) }
     await waitUntil { service.state != .idle }
     transport.emit(.invalidated)
-    await waitUntil { service.state == .ended(reason: .normal) }
+    await waitUntil { !service.isInSession }
     XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
-    XCTAssertEqual(service.state, .ended(reason: .normal))
-    XCTAssertEqual(posted.last, ListenTogetherAnnouncements.ended())
+    // Task B fix round 1 (I1): not the person's own End, so one alert says why; no announcement.
+    XCTAssertEqual(service.endNotice, .connectionEnded)
+    XCTAssertFalse(posted.contains(ListenTogetherAnnouncements.ended()))
+    XCTAssertEqual(service.messages.alerts.next?.message, .connectionEnded)
   }
 
   func testManifestResentWhenParticipantsIncrease() async throws {

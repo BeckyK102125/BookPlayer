@@ -925,3 +925,41 @@ reliable-sending-a11y-guidance.md, leave-button-a11y-guidance.md, reviewer-commo
   Checker line in ListenTogetherOwnCopyTests).
 - New files were registered by copying an existing file's four pbxproj entries (build file, file ref,
   group child, sources phase) with fresh 24-hex ids (script in the session scratchpad).
+
+## 2026-10-11 - listen-together-own-copy - addendum 3 Task B, fix round 1
+Parent 572d267b. Inputs: reliable-sending-task-B-fix-1.md (rulings), -code-review.md, -a11y-review.md.
+- I1: EndReason.connectionEnded for `.invalidated` and the event stream ending while still in session
+  (own End/Leave tear down first, so one ending per session). Listener alert "Listen Together ended
+  because the connection to the person sharing was lost." (waits for the cover, endNotice); sharer
+  "Listen Together ended because the call or connection ended.". No announcement, no banner.
+- I2: cover wait bounded: the listener screen's onDisappear also reports the cover gone; a 2 s watchdog
+  after an ending is queued (and the same limit in whenListenerCoverGone, run once); re-checked on
+  didBecomeActive (`forceCoverGoneIfOverdue`); the tracker is reset when a new session starts. If a
+  full-screen cover is still up, the alert shows over it and the cover is dismissed after OK, focus to the
+  mini player 0.5 s later. Both fallbacks are logged.
+- I3/M6: the getting-book banner gets onRequestLeave; the banner has no Leave question of its own and
+  offers Leave only when the host owns the question (`ListenTogetherSessionAction.isOffered`).
+- I1/I2 (a11y): plan takes a context (app state, locked = protected data unavailable, VoiceOver). Only
+  `.background` is away; `.inactive` keeps the alert. Away + unlocked + VoiceOver off: notification and the
+  alert stays pending (already spoken). Notification counts only when `.authorized` with alerts enabled.
+- I4: "Waiting for the person sharing" (announced, spoken, minute line, caption, row "waiting for the
+  person sharing") only in the roster grace; delivered where the grace starts/ends ("is back" only then).
+  Silence: "Can't reach the person sharing. The book keeps playing." status and row value, nothing said.
+- I5/I6/M8: Settings Listen Together sections are plain Sections on the system background; the switch tint
+  is chosen per theme (link, primary, or link blended toward black/white in 5 % steps) so the track is
+  3:1 on the row and the white thumb 3:1 on the track; test over 22 variants; test comment corrected.
+- I7: sharer row value "couldn't send part of the book, trying again, %@" while retrying.
+- Minors: listener prepare-failure sentence; Leave = EndReason.left (no "ended" banner, also leave to play
+  own book); focus-to-announcement gap 500 ms; Cancel after the getting-book -> player swap focuses the
+  title; isConfirmingLeave read through a binding; speaker keeps its utterances and drops an entry when its
+  background time runs out (log names the task); invitation waits while a message alert is up (not counted
+  towards giving up), message alerts wait for the invitation, retry backs off 0.5 s -> 5 s; needs-copy
+  notice doesn't age while held back by a message alert; footer without ">" and mentions calls; three unused
+  end_hint keys removed from all lproj; guide updated (no ducking claim, background rules, new sentences).
+- Parked (device checks): sharer End action sheet position at Zoom (a11y M9); iOS 26.0 accessory status (M10).
+- TDD: new tests first; red check with the cover watchdog, the inactive rule and the invalidation reason
+  reverted: ListenTogetherMessagesTests 48 tests, 11 failures. Green after restoring.
+- Results: 24 SharePlay classes 392/0 (Messages 48, Speaker 10, Contrast 4; old invalidation test updated).
+  Full: "Executed 964 tests, with 0 failures", ** TEST SUCCEEDED **. TSan 24 classes 392/0, 0
+  ThreadSanitizer warnings (same pre-existing CoreData performance-checker line). One SharePlay run hung after
+  its results (known xcodebuild hang); killed and rerun.

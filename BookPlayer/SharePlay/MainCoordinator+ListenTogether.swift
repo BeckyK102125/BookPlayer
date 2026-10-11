@@ -31,6 +31,9 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
       .sink { [weak self] _ in
         MainActor.assumeIsolated {
           self?.showWaitingNeedsCopyNotice()
+          // Timers may not have run in the background: a cover that never reported its dismissal is
+          // taken as gone now if the wait is over (fix round 1, I2).
+          self?.sharePlayService.messages.forceCoverGoneIfOverdue()
           self?.scheduleListenTogetherAlert()
         }
       }
@@ -104,6 +107,14 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
 
   private func attemptInvitationPresentation(generation: Int, attempt: Int) {
     guard generation == invitationPresentationGeneration, invitationController == nil else { return }
+    // One Listen Together alert or sheet at a time (code M4): while a message alert is up the invitation
+    // waits, and these waits don't count towards giving up.
+    if listenTogetherAlertController != nil {
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.invitationRetryDelay) { [weak self] in
+        MainActor.assumeIsolated { self?.attemptInvitationPresentation(generation: generation, attempt: attempt) }
+      }
+      return
+    }
     var presented = false
     if case .invitation(let title, let author) = sharePlayService.state {
       presented = presentInvitation(title: title, author: author)
@@ -241,8 +252,11 @@ extension MainCoordinator {
 
   private func attemptNeedsCopyPresentation(generation: Int, attempt: Int) {
     guard generation == needsCopyPresentationGeneration, needsCopyAlertController == nil else { return }
-    // One Listen Together alert at a time (A.4): wait while a message alert is up.
+    if listenTogetherAlertController == nil { sharePlayService.resumeNeedsCopyNoticeAging() }
+    // One Listen Together alert at a time (A.4): wait while a message alert is up. The notice doesn't age
+    // meanwhile, so it can't run out unseen behind another alert (a11y M7).
     if listenTogetherAlertController != nil {
+      sharePlayService.pauseNeedsCopyNoticeAging()
       DispatchQueue.main.asyncAfter(deadline: .now() + Self.invitationRetryDelay) { [weak self] in
         MainActor.assumeIsolated { self?.attemptNeedsCopyPresentation(generation: generation, attempt: attempt + 1) }
       }
@@ -278,6 +292,7 @@ extension MainCoordinator {
     let alert = ListenTogetherNeedsCopyAlert.make(notice) { [weak self] in
       guard let self else { return }
       self.needsCopyAlertController = nil
+      self.scheduleListenTogetherAlert()
       if self.sharePlayService.needsCopyNotice?.id == notice.id { self.sharePlayService.acknowledgeNeedsCopyNotice() }
     }
     needsCopyAlertController = alert
@@ -342,16 +357,22 @@ extension MainCoordinator {
       .store(in: &listenTogetherAlertSubscriptions)
   }
 
+  /// The wait before attempt `retry` (0 = after a trigger): 0.5 s, then backing off to 5 s while
+  /// another alert stays up (code M4). Pure; unit tested.
+  nonisolated static func listenTogetherAlertRetryDelay(retry: Int) -> TimeInterval {
+    min(listenTogetherAlertDelay * pow(2, Double(max(retry, 0))), 5)
+  }
+
   /// Starts a new attempt chain after the settle delay; an older chain stops.
-  func scheduleListenTogetherAlert() {
+  func scheduleListenTogetherAlert(retry: Int = 0) {
     listenTogetherAlertGeneration += 1
     let generation = listenTogetherAlertGeneration
-    DispatchQueue.main.asyncAfter(deadline: .now() + Self.listenTogetherAlertDelay) { [weak self] in
-      MainActor.assumeIsolated { self?.attemptListenTogetherAlert(generation: generation) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.listenTogetherAlertRetryDelay(retry: retry)) { [weak self] in
+      MainActor.assumeIsolated { self?.attemptListenTogetherAlert(generation: generation, retry: retry) }
     }
   }
 
-  private func attemptListenTogetherAlert(generation: Int) {
+  private func attemptListenTogetherAlert(generation: Int, retry: Int) {
     guard generation == listenTogetherAlertGeneration, listenTogetherAlertController == nil else { return }
     let messages = sharePlayService.messages
     guard let item = messages.alerts.next else { return }
@@ -359,20 +380,34 @@ extension MainCoordinator {
       isActive: UIApplication.shared.applicationState == .active,
       waitsForCover: item.message.waitsForListenerCover,
       isCoverOnScreen: messages.coverTracker.isListenerCoverOnScreen,
-      isOtherAlertOnScreen: needsCopyAlertController != nil || isAskingToLeaveListenTogether)
+      isOtherAlertOnScreen: needsCopyAlertController != nil || isAskingToLeaveListenTogether
+        || invitationController != nil)
     switch step {
     case .waitForActive, .waitForCover:
       // didBecomeActive and the cover's dismissal start a new chain.
       return
     case .retry:
-      scheduleListenTogetherAlert()
+      scheduleListenTogetherAlert(retry: retry + 1)
     case .present:
-      if !presentListenTogetherAlert(item) { scheduleListenTogetherAlert() }
+      if !presentListenTogetherAlert(item) { scheduleListenTogetherAlert(retry: retry + 1) }
     }
   }
 
   private func presentListenTogetherAlert(_ item: ListenTogetherAlertQueue.Item) -> Bool {
     guard let top = topmostPresenter() else { return false }
+    // The cover never reported its dismissal (watchdog): if a full-screen cover is in fact still up, the
+    // alert is shown over it and the cover is closed after OK (fix round 1, I2).
+    let messages = sharePlayService.messages
+    stuckListenerCover = nil
+    if item.message.waitsForListenerCover, messages.coverWaitTimedOut {
+      messages.acknowledgeCoverWaitTimeout()
+      if let cover = mainController?.presentedViewController, !cover.isBeingDismissed,
+        cover.modalPresentationStyle == .fullScreen
+      {
+        SharePlaySessionService.logger.info("Listen Together: showing the ending over a listener cover still on screen")
+        stuckListenerCover = cover
+      }
+    }
     let alert = ListenTogetherMessageAlert.make(title: item.message.text) { [weak self] in
       self?.listenTogetherAlertClosed(item)
     }
@@ -392,8 +427,17 @@ extension MainCoordinator {
     if item.message.waitsForListenerCover {
       // A.0: OK (or the scrub) only closes it; then focus goes to the mini player when it is shown,
       // otherwise VoiceOver's default applies. Never to the removed Listen Together row.
-      DispatchQueue.main.asyncAfter(deadline: .now() + Self.listenTogetherAlertFocusDelay) {
-        MainActor.assumeIsolated { ListenTogetherFocusRequests.shared.requestMiniPlayerFocus() }
+      let focus = { (delay: TimeInterval) in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+          MainActor.assumeIsolated { ListenTogetherFocusRequests.shared.requestMiniPlayerFocus() }
+        }
+      }
+      if let cover = stuckListenerCover, cover.presentingViewController != nil, !cover.isBeingDismissed {
+        stuckListenerCover = nil
+        cover.presentingViewController?.dismiss(animated: true) { focus(0.5) }
+      } else {
+        stuckListenerCover = nil
+        focus(Self.listenTogetherAlertFocusDelay)
       }
     }
     scheduleListenTogetherAlert()

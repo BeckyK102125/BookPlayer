@@ -74,9 +74,11 @@ People listening do not need their own copy of the book, unless the person shari
 10. Wait until someone has joined and you hear the book playing before you lock the phone.
 11. While the book is still being sent, your iPhone does not lock by itself if BookPlayer is on screen. Keep BookPlayer open while the book is sent if you can: it is sent in small parts, starting where you are listening. If you switch to another app or lock the phone, the sending can pause; listeners who are waiting for the book keep waiting and may see that they are waiting for the person sharing. Listen Together does not end because of it, and the sending carries on when you come back to BookPlayer.
 
-If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives. While it tries again, the status line on your player says "Couldn't send part of the book. Trying again." until the part has been sent. VoiceOver says it once each time this starts.
+If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives. While it tries again, the status line on your player says "Couldn't send part of the book. Trying again." until the part has been sent, and the Listen Together row above the tab bar says "couldn't send part of the book, trying again". VoiceOver says it once each time this starts.
 
-If BookPlayer can't read the book's files at all, nothing can be sent. A message says "Couldn't prepare the book for sharing. Listen Together ended." Choose OK.
+If BookPlayer can't read the book's files at all, nothing can be sent. A message says "Couldn't prepare the book for sharing. Listen Together ended." Choose OK. Listeners see "The person sharing couldn't prepare the book. Listen Together ended."
+
+If the call or the connection ends without anyone choosing End, the person sharing sees "Listen Together ended because the call or connection ended." and listeners see "Listen Together ended because the connection to the person sharing was lost." Each is a message with OK.
 
 While BookPlayer is still preparing, the button in the status line is **Cancel Sharing**. It stops at once; nothing has been sent and nobody has joined.
 
@@ -174,9 +176,9 @@ When the person sharing ends Listen Together, every listener gets one message: "
 
 If the person sharing leaves Listen Together (they are no longer in the session, for example their iPhone lost its connection or BookPlayer was closed), everyone pauses and waits. The status line says "Waiting for the person sharing" and "If they are not back within a minute, Listen Together ends." Play does nothing while you wait (it says why). If they are back within a minute, the book carries on and VoiceOver says "The person sharing is back." If not, Listen Together ends for everyone with one message, "The person sharing left. Listen Together ended.", the same way as above.
 
-If the person sharing is still in the session but their iPhone has gone quiet (for example they switched to another app or locked the phone while the book was still being sent), listeners may see "Waiting for the person sharing". This never ends Listen Together: it carries on as soon as the person sharing comes back to BookPlayer.
+If the person sharing is still in the session but their iPhone has gone quiet (for example they switched to another app or locked the phone while the book was still being sent), listeners may see "Can't reach the person sharing. The book keeps playing." Nothing is announced or spoken for this, because the book goes on. This never ends Listen Together.
 
-If BookPlayer is not open or the phone is locked when Listen Together ends this way, and you have already allowed notifications for BookPlayer, one notification says why; nothing more is shown later. Without notification permission (BookPlayer never asks for it), the message appears when you next open BookPlayer, unless a new invitation or session comes first.
+If BookPlayer is in the background when Listen Together ends this way and you have allowed notifications, a notification says why. With VoiceOver off, the same message also appears in BookPlayer when you return to it. With the phone locked or VoiceOver on, the notification is the one message. Without notification permission (BookPlayer never asks for it), the message appears when you next open BookPlayer, unless a new invitation or session comes first. If only Control Center, Siri or a call banner is over BookPlayer, the message appears as soon as it closes.
 
 ## Messages you can see and hear
 
@@ -186,7 +188,7 @@ Every problem and every ending caused by someone else is shown on screen as well
 - Ongoing things (getting the book, waiting for the book, waiting for the person sharing, trying to send part of the book again, paused by another listener) appear in the status line next to the controls, and stay until they change.
 - With VoiceOver, each message is read once.
 
-**Speak error messages.** In **Settings, Playback, Listen Together**, under "Messages", turn on **Speak error messages** to have BookPlayer read Listen Together problems aloud, for example when the person sharing ends Listen Together. It is off by default. It uses the voice and speed set in **Settings, Accessibility, Spoken Content**. It stays quiet while VoiceOver is on, because VoiceOver already reads these messages, and it never speaks during a phone or FaceTime call. It also works with the screen locked; the book gets quieter for the sentence and does not pause. When it is on, **Hear a Sample** reads a short sentence so you can check the voice and volume.
+**Speak error messages.** In **Settings, Playback, Listen Together**, under "Messages", turn on **Speak error messages** to have BookPlayer read Listen Together problems aloud, for example when the person sharing ends Listen Together. It is off by default. It uses the voice and speed set in **Settings, Accessibility, Spoken Content**. It stays quiet while VoiceOver is on, because VoiceOver already reads these messages, and it never speaks during a phone or FaceTime call. It also works with the screen locked; the book keeps playing while the sentence is read. When it is on, **Hear a Sample** reads a short sentence so you can check the voice and volume.
 
 After Listen Together has ended, the same invitation can't be used to join again until BookPlayer is restarted. The person sharing can start Listen Together again with a new invitation.
 

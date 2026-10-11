@@ -2,6 +2,7 @@ import BookPlayerKit
 import Combine
 import Foundation
 import GroupActivities
+import UIKit
 
 enum ListenTogetherState: Equatable {
   case idle
@@ -24,6 +25,12 @@ enum ListenTogetherState: Equatable {
     case sharerLeft
     /// Listener: the person sharing couldn't read the book's files, so the share ended at the start.
     case sharerCouldNotPrepare
+    /// The group session was invalidated, or its messages stopped, without an end message and not by
+    /// this device's own End or Leave (fix round 1, I1): the FaceTime call ended, the connection dropped.
+    case connectionEnded
+    /// Listener: this device left (Leave Listen Together, or Leave to play its own book). No "ended"
+    /// banner, which would suggest it ended for everyone (a11y M6).
+    case left
   }
 }
 
@@ -272,6 +279,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private var noticeDecline: ListenTogetherPendingDecline?
   /// Watches the notice's session: if it ends while the notice waits, the notice is dropped.
   private var noticeObservation: AnyCancellable?
+  /// The notice's age stands still while it is held back by another Listen Together alert.
+  private var needsCopyAgingPausedAt: Date?
+  private var needsCopyPausedTotal: TimeInterval = 0
   private var invitationCheckTask: Task<Void, Never>?
   /// Shares cancelled while preparing (End, or Cancel in the sharing sheet). If `activate()` was already
   /// in flight, their session can still arrive; it is left, never offered as an invitation. Each id is
@@ -313,7 +323,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.messages = ListenTogetherMessageDelivery(
       announcer: self.announcer, speaker: speaker ?? ListenTogetherSpeaker.shared,
       coverTracker: coverTracker ?? .shared, focusRequests: focusRequests ?? .shared,
-      isAppActive: { system.appState == .active })
+      context: {
+        ListenTogetherDeliveryContext(
+          appState: system.appState, isLocked: !UIApplication.shared.isProtectedDataAvailable,
+          isVoiceOverRunning: UIAccessibility.isVoiceOverRunning)
+      })
     let groupStateObserver = GroupStateObserver()
     self.isEligibleForGroupSession = { groupStateObserver.isEligibleForGroupSession }
     observeAppState()
@@ -334,20 +348,15 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
 
-  /// A new notice is said once per episode (guidance A.2, C): "Waiting for the person sharing" when
-  /// it starts, "The person sharing is back." when it clears during the session, and "Couldn't send
-  /// part of the book. Trying again." once until every piece is sent again. Teardown clears the notice
-  /// directly, so an ending never says "is back".
+  /// "Couldn't send part of the book. Trying again." is said once per episode (guidance A.2, C5), until
+  /// every piece is sent again.
   func setNotice(_ value: ListenTogetherNotice?) {
     guard notice != value else { return }
     let old = notice
     notice = value
-    switch (old, value) {
-    case (_, .waitingForSharer?): messages.deliver(.waitingForSharer)
-    case (_, .retryingSend?): messages.deliver(.retryingSend)
-    case (.waitingForSharer?, nil): messages.deliver(.sharerBack)
-    default: break
-    }
+    // "Waiting for the person sharing" and "is back" belong to the roster grace only (a11y I4); they
+    // are delivered where the grace starts and ends. Silence alone is a quiet status line.
+    if old != .retryingSend, value == .retryingSend { messages.deliver(.retryingSend) }
   }
 
   /// App state changes reach `appStateChanged(to:)` for the service's lifetime.
@@ -366,6 +375,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func clearEndNotice() {
     endNotice = nil
     messages.dropPendingAlerts()
+    // A cover flag left over from an earlier session never outlives it (fix round 1, I2).
+    if listener == nil { messages.coverTracker.coverDismissed() }
   }
 
   // MARK: Starting and joining
@@ -744,6 +755,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     noticeDecline?.abandon()
     noticeDecline = decline
     let notice = ListenTogetherNeedsCopyNotice(bookTitle: bookTitle, cause: cause, createdAt: now())
+    resetNeedsCopyAging()
     // Kept apart from invitationBag (cleared above): the session is watched until the notice is gone.
     noticeObservation = decline?.watchInvalidation { [weak self] in
       self?.needsCopySessionEnded(noticeID: notice.id)
@@ -801,10 +813,34 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// (its session is left without a message). Checked before every presentation attempt.
   func needsCopyNoticeIsCurrent() -> Bool {
     guard let notice = needsCopyNotice else { return false }
-    guard now().timeIntervalSince(notice.createdAt) > Self.needsCopyNoticeLifetime else { return true }
+    guard needsCopyNoticeAge(notice) > Self.needsCopyNoticeLifetime else { return true }
     noticeDecline?.abandon()
     clearNeedsCopyNotice()
     return false
+  }
+
+  /// How long the notice has waited, not counting time spent behind another Listen Together alert.
+  private func needsCopyNoticeAge(_ notice: ListenTogetherNeedsCopyNotice) -> TimeInterval {
+    var paused = needsCopyPausedTotal
+    if let since = needsCopyAgingPausedAt { paused += now().timeIntervalSince(since) }
+    return now().timeIntervalSince(notice.createdAt) - paused
+  }
+
+  /// Another Listen Together alert is on screen: the waiting notice doesn't age meanwhile (a11y M7).
+  func pauseNeedsCopyNoticeAging() {
+    guard needsCopyNotice != nil, needsCopyAgingPausedAt == nil else { return }
+    needsCopyAgingPausedAt = now()
+  }
+
+  func resumeNeedsCopyNoticeAging() {
+    guard let since = needsCopyAgingPausedAt else { return }
+    needsCopyPausedTotal += now().timeIntervalSince(since)
+    needsCopyAgingPausedAt = nil
+  }
+
+  private func resetNeedsCopyAging() {
+    needsCopyAgingPausedAt = nil
+    needsCopyPausedTotal = 0
   }
 
   /// The invitation's session ended while its notice waited: nothing to tell anyone any more.
@@ -814,6 +850,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   }
 
   private func clearNeedsCopyNotice() {
+    resetNeedsCopyAging()
     noticeDecline = nil
     noticeObservation = nil
     needsCopyNotice = nil
@@ -821,6 +858,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   /// The "You need your own copy" alert was closed (OK or escape).
   func acknowledgeNeedsCopyNotice() {
+    resetNeedsCopyAging()
     needsCopyNotice = nil
     // Never shown (should not happen: only the alert acknowledges): leave without a message.
     noticeDecline?.abandon()
@@ -833,7 +871,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func leaveForOwnBook(announcement: String) {
     guard role == .listener else { return }
     if let shareID { endedShareIDs.insert(shareID) }
-    tearDown(reason: .normal, announcement: announcement)
+    tearDown(reason: .left, announcement: announcement)
   }
 
   /// "Leave Listen Together" (listener, leave guidance): this device leaves and deletes its temporary
@@ -842,7 +880,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func leave() {
     guard role == .listener else { return }
     if let shareID { endedShareIDs.insert(shareID) }
-    tearDown(reason: .normal, announces: false)
+    tearDown(reason: .left, announces: false)
     messages.afterListenerCoverGone(announce: "listen_together_left_for_own_book".localized)
   }
 
@@ -921,6 +959,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     guard isInSession else { return }
     let transport = self.transport
     let shareID = self.shareID
+    let wasListener = role == .listener
     role = nil
     eventLoop?.cancel()
     eventLoop = nil
@@ -978,13 +1017,17 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.shareID = nil
     if leaveTransport { transport?.leave() }
     if let shareID { storage.remove(shareID: shareID) }
-    let message = ListenTogetherUserMessage.ending(for: reason)
+    let message = ListenTogetherUserMessage.ending(for: reason, wasListener: wasListener)
     if announces, message == nil { announcer.announce(announcement ?? ListenTogetherAnnouncements.ended()) }
     Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
-    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare].contains(reason) { endNotice = reason }
+    if wasListener, [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded].contains(reason) {
+      endNotice = reason
+    }
     // Never offered or joined again in this app session. `.unavailable` has no share (it ends before
     // one starts), and an own End or Leave records it before tearing down.
-    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed].contains(reason), let shareID {
+    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .connectionEnded].contains(reason),
+      let shareID
+    {
       endedShareIDs.insert(shareID)
     }
     state = .ended(reason: reason)

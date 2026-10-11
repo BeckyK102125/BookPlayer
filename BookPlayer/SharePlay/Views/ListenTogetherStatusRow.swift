@@ -47,11 +47,20 @@ enum ListenTogetherRow {
     var isWaiting: Bool
   }
 
+  /// What the person sharing is doing, for the listener's row value (C.2, a11y I4).
+  enum SharerPresence: Equatable {
+    case present
+    /// Silent, still in the session: the book keeps playing.
+    case quiet
+    /// Out of the session: the group waits up to a minute.
+    case away
+  }
+
   /// The row's value: the state word and the book title. The label is always "Listen Together", so
   /// a change is read as a new value while the row is focused, and Voice Control matches the label.
   static func value(
     state: ListenTogetherState, joinedTitle: String?, listener: ListenerSnapshot?, sharerTitle: String?,
-    waitingForSharer: Bool = false
+    sharerPresence: SharerPresence = .present, isRetryingSend: Bool = false
   ) -> String? {
     switch role(state: state, hasListener: listener != nil) {
     case .listener:
@@ -66,11 +75,13 @@ enum ListenTogetherRow {
       }
       let title = listener.title.isEmpty ? "voiceover_no_title".localized : listener.title
       let key: String
-      if waitingForSharer {
+      if sharerPresence == .away {
         // C.2: the bigger problem wins.
         key = "listen_together_row_value_waiting_sharer"
       } else if listener.isWaiting {
         key = "listen_together_row_value_waiting"
+      } else if sharerPresence == .quiet {
+        key = "listen_together_row_value_sharer_quiet"
       } else if listener.isPlaying {
         key = "listen_together_row_value_playing"
       } else {
@@ -78,6 +89,11 @@ enum ListenTogetherRow {
       }
       return String.localizedStringWithFormat(key.localized, title)
     case .sharer:
+      if isRetryingSend {
+        // a11y I7: the row is the only status a sharer sees with the player closed.
+        let title = sharerTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "voiceover_no_title".localized
+        return String.localizedStringWithFormat("listen_together_row_value_sharing_retrying".localized, title)
+      }
       guard let sharerTitle, !sharerTitle.isEmpty else {
         return "listen_together_row_value_sharing_untitled".localized
       }
@@ -134,7 +150,9 @@ struct ListenTogetherStatusRow: View {
     let role = ListenTogetherRow.role(state: service.state, hasListener: service.listener != nil)
     let value = ListenTogetherRow.value(
       state: service.state, joinedTitle: service.joinedTitle, listener: snapshot,
-      sharerTitle: playerManager.currentItem?.title, waitingForSharer: service.notice == .waitingForSharer)
+      sharerTitle: playerManager.currentItem?.title,
+      sharerPresence: service.isSharerGraceRunning ? .away : (service.notice == .waitingForSharer ? .quiet : .present),
+      isRetryingSend: service.notice == .retryingSend)
     Group {
       if let role, let value {
         Button { activate(role) } label: { content(value: value) }

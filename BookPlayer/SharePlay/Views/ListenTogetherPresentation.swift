@@ -184,6 +184,10 @@ struct ListenTogetherListenerScreen: View {
   /// (the cover has been up for a while; the long wait is only for a fresh presentation).
   @State private var cameFromGettingBook = false
   @State private var isConfirmingLeave = false
+  /// The player replaced "getting the book" while the question was up: Cancel then returns focus to the
+  /// player's title, because the Leave button it came from no longer exists (a11y M5).
+  @State private var swappedWhileConfirming = false
+  @State private var titleFocusRequest = 0
 
   var body: some View {
     Group {
@@ -191,7 +195,8 @@ struct ListenTogetherListenerScreen: View {
         ListenerPlayerView(
           service: service, listener: listener,
           initialFocusDelay: cameFromGettingBook ? .milliseconds(150) : .milliseconds(600),
-          isConfirmingLeave: isConfirmingLeave,
+          isConfirmingLeave: $isConfirmingLeave,
+          titleFocusRequest: titleFocusRequest,
           onRequestLeave: { isConfirmingLeave = true },
           onClose: onClose)
       } else {
@@ -199,7 +204,19 @@ struct ListenTogetherListenerScreen: View {
           .onAppear { cameFromGettingBook = true }
       }
     }
-    .listenTogetherLeaveConfirmation(isPresented: $isConfirmingLeave, service: service)
+    .onChange(of: service.listener != nil) { _, hasListener in
+      if hasListener, isConfirmingLeave { swappedWhileConfirming = true }
+    }
+    .onChange(of: isConfirmingLeave) { _, confirming in
+      if confirming { swappedWhileConfirming = false }
+    }
+    .listenTogetherLeaveConfirmation(isPresented: $isConfirmingLeave, service: service) {
+      guard swappedWhileConfirming else { return }
+      swappedWhileConfirming = false
+      titleFocusRequest += 1
+    }
+    // Second signal that the cover has gone, in case its onDismiss never arrives (fix round 1, I2).
+    .onDisappear { ListenTogetherCoverTracker.shared.coverDismissed() }
   }
 }
 
@@ -243,8 +260,10 @@ struct ListenerGettingBookView: View {
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
         }
+        // The status element's Leave action asks through the screen's one confirmation too (I3).
         ListenTogetherBanner(
-          service: service, onRemovedWhileFocused: { isTitleFocused = true }, showsActionButton: false)
+          service: service, onRemovedWhileFocused: { isTitleFocused = true }, showsActionButton: false,
+          onRequestLeave: onRequestLeave)
         // The screen's action: one control, full width, outside the status card.
         if let action = ListenTogetherSessionAction.action(for: service.state, usesOwnCopy: service.isUsingOwnCopy) {
           ListenTogetherSessionButton(action: action, isFullWidth: true) { onRequestLeave() }
