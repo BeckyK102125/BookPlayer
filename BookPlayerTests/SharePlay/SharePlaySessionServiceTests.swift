@@ -219,6 +219,109 @@ final class SharePlaySessionServiceTests: XCTestCase {
     XCTAssertNil(SharePlaySessionService.silentRate(for: .speedChanged(rate: 1.5), target: target))
     XCTAssertNil(SharePlaySessionService.silentRate(for: .paused, target: target))
   }
+
+  // MARK: Fix wave 2: no gap after the join (A-I2)
+
+  /// Join and End in the same main-actor turn: the session is set up synchronously, so End finds it
+  /// and leaves it (it used to be lost in the gap before an async setup ran).
+  func testListenerSetupIsSynchronousSoAnImmediateEndLeaves() {
+    let service = makeService(), transport = FakeTransport(), id = UUID()
+    XCTAssertTrue(service.startListening(with: transport, shareID: id))
+    XCTAssertTrue(service.isListenerSession)
+    XCTAssertEqual(service.state, .listening(participants: 1, downloaded: 0))
+
+    service.end()
+
+    XCTAssertTrue(transport.left)
+    XCTAssertFalse(service.isInSession)
+    XCTAssertEqual(service.state, .ended(reason: .normal))
+  }
+
+  /// A second share arriving right after the join is not offered on top of the session.
+  func testSecondShareRightAfterJoinIsBusy() {
+    let service = makeService(), transport = FakeTransport()
+    service.startListening(with: transport, shareID: UUID())
+    XCTAssertEqual(service.decision(forIncoming: UUID()), .busy)
+  }
+
+  /// Setting up a second session while one runs changes nothing (the caller then leaves its transport).
+  func testSecondSetupWhileInASessionIsRefused() throws {
+    let service = makeService(), first = FakeTransport(), second = FakeTransport()
+    let id = UUID()
+    XCTAssertTrue(service.startListening(with: first, shareID: id))
+    XCTAssertFalse(service.startListening(with: second, shareID: UUID()))
+    XCTAssertFalse(service.startSharingSession(with: second, item: try makeSharedItem(), shareID: UUID()))
+    XCTAssertEqual(service.state, .listening(participants: 1, downloaded: 0))
+    service.end()
+    XCTAssertTrue(first.left)
+  }
+
+  /// The sharer's bookkeeping is synchronous too: End straight after it ends the session, and the
+  /// session is left once the end message has been sent.
+  func testSharerSetupIsSynchronousSoAnImmediateEndEnds() async throws {
+    let service = makeService(), transport = FakeTransport()
+    XCTAssertTrue(service.startSharingSession(with: transport, item: try makeSharedItem(), shareID: UUID()))
+    XCTAssertTrue(service.isInSession)
+    XCTAssertFalse(service.isListenerSession)
+
+    service.end()
+
+    XCTAssertFalse(service.isInSession)
+    XCTAssertEqual(service.state, .ended(reason: .normal))
+    await waitUntil { transport.left }
+    XCTAssertTrue(transport.left)
+    XCTAssertEqual(transport.sent, [.sessionEnding])
+  }
+
+  /// M2: the sharer's end message gets a short time; a send that never finishes can't hold the leave.
+  func testTimeLimitReturnsWhileTheWorkIsStillRunning() async {
+    var release: CheckedContinuation<Void, Never>?
+    var finished = false
+    await SharePlaySessionService.withTimeLimit(.milliseconds(1)) {
+      await withCheckedContinuation { release = $0 }
+      finished = true
+    }
+    XCTAssertFalse(finished, "returned at the limit, not when the work finished")
+    release?.resume()
+  }
+
+  /// M3: the user's own actions are sent one after another, in the order they happened.
+  func testLocalActionsAreSentInOrder() async {
+    let service = makeService(), transport = FakeTransport(), id = UUID()
+    service.startListening(with: transport, shareID: id)
+    transport.emit(.message(.manifest(manifest(id))))
+    await waitUntil { service.listener != nil }
+    let listener = try? XCTUnwrap(service.listener)
+
+    listener?.userSetRate(1.5)
+    listener?.userSetRate(2)
+    listener?.userSetRate(1.25)
+    await waitUntil { transport.sent.count >= 3 }
+
+    XCTAssertEqual(transport.sent, [
+      .action(.speedChanged(rate: 1.5)), .action(.speedChanged(rate: 2)), .action(.speedChanged(rate: 1.25)),
+    ])
+  }
+
+  /// Minor: play/pause while the group is held for this listener's piece says "waiting", sends nothing.
+  func testToggleWhileWaitingAnnouncesWaitingAndSendsNothing() async {
+    let service = makeService(), transport = FakeTransport(), id = UUID()
+    service.startListening(with: transport, shareID: id)
+    transport.emit(.message(.manifest(manifest(id))))
+    await waitUntil { service.listener != nil }
+    guard let listener = service.listener else { return XCTFail("no listener") }
+    // No stall suspension on the real (session-less) coordinator here: under Thread Sanitizer, ending
+    // one aborts inside CoreMedia (see fix-wave-2-report.md). The wait itself is what this test needs.
+    listener.onNeedsPiece = nil
+    listener.applyPlay(at: 0, rate: 1)   // the group plays, the piece is missing
+    XCTAssertTrue(listener.isWaitingForPiece)
+    posted = []
+
+    listener.userTogglePlay()
+
+    XCTAssertEqual(posted, ["listen_together_waiting_download".localized])
+    XCTAssertTrue(transport.sent.isEmpty)
+  }
 }
 
 @MainActor

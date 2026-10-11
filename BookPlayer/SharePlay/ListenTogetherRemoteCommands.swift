@@ -149,6 +149,24 @@ final class ListenTogetherRemoteCommands {
       .store(in: &bag)
   }
 
+  /// Entry point for AppDelegate's MediaPlayer handlers and Magic Tap. They are closures and an
+  /// override formed in the MainActor AppDelegate, but MediaPlayer does not declare which thread it
+  /// calls them on, so the main-actor assumption is made explicit here: on the main thread the command
+  /// is handled directly; anywhere else it is handled on the main queue first (never a data race).
+  nonisolated static func route(_ command: Command) -> MPRemoteCommandHandlerStatus? {
+    onMain { shared.handle(command) }
+  }
+
+  /// `isRouting`, read on the main actor (see `route(_:)`).
+  nonisolated static var isRoutingNow: Bool {
+    onMain { shared.isRouting }
+  }
+
+  private nonisolated static func onMain<T: Sendable>(_ work: @MainActor @Sendable () -> T) -> T {
+    if Thread.isMainThread { return MainActor.assumeIsolated(work) }
+    return DispatchQueue.main.sync { MainActor.assumeIsolated(work) }
+  }
+
   /// True while remote commands go to the shared book.
   var isRouting: Bool {
     guard let service, case .listening = service.state else { return false }

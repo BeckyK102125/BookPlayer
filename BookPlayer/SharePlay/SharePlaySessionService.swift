@@ -69,8 +69,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// arrives later is accepted while nothing else is going on (`lateShare`).
   static let sheetSessionTimeout: Duration = .seconds(20)
   /// The sheet never reported a result (app backgrounded, screen locked, sheet taken down from under
-  /// it): after this long the pending share is released so Listen Together is offered again.
+  /// it): after this long the pending share is released so Listen Together is offered again. While the
+  /// sheet is still on screen nothing is released or announced: the check simply runs again later.
   static let sheetWatchdog: Duration = .seconds(120)
+  /// The sharer's end message gets this long before the session is left anyway.
+  static let endMessageTimeout: Duration = .seconds(2)
 
   // Active session. Reset by `tearDown(reason:)`.
   var role: Role?
@@ -93,6 +96,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var announcedWaiting = false
   var localEventsBag = Set<AnyCancellable>()
   var eventLoop: Task<Void, Never>?
+  /// Sharer: the export and upload pipeline. Cancelled by `tearDown`, so no export keeps running after End.
+  var sharingTask: Task<Void, Never>?
+  /// The user's own actions, sent one after another in the order they happened (one consumer).
+  var outbox: AsyncStream<ListenTogetherMessage>.Continuation?
+  var outboxTask: Task<Void, Never>?
 
   // SharePlay plumbing.
   private var observeTask: Task<Void, Never>?
@@ -134,6 +142,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   }
 
   var isInSession: Bool { role != nil }
+  /// True while this device listens to someone else's share (from Join until the session ends).
+  var isListenerSession: Bool { role == .listener }
 
   /// Setters for SharePlaySessionService+Session.swift; the published properties stay read-only elsewhere.
   func setState(_ newState: ListenTogetherState) { state = newState }
@@ -170,6 +180,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   /// True while someone else's share is waiting for Join or Not Now.
   var hasPendingInvitation: Bool { pendingInvitation != nil }
+
+  private var isShowingInvitation: Bool {
+    if case .invitation = state { return true }
+    return false
+  }
 
   /// The needs-FaceTime alert was dismissed.
   func acknowledgeNeedsFaceTime() {
@@ -245,7 +260,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     latestSheetShareID = shareID
     if state == .needsFaceTime { state = .idle }
     // If the sheet never reports back, don't leave Listen Together hidden (and invitations ignored).
-    schedule(Self.sheetWatchdog) { [weak self] in self?.releaseSheetShare(shareID) }
+    scheduleSheetWatchdog(shareID)
     let activity = ListenTogetherActivity(shareID: shareID, title: item.title, author: item.author)
     let outcome = await presenter.presentSharingSheet(for: activity)
     sharingSheetFinished(outcome, shareID: shareID)
@@ -268,6 +283,28 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       schedule(Self.sheetAnnouncementDelay) { [weak self] in self?.sheetPreparingMoment(shareID) }
       schedule(Self.sheetSessionTimeout) { [weak self] in self?.releaseSheetShare(shareID) }
     }
+  }
+
+  /// W-I2: the watchdog never speaks over an open sheet. While the sheet is still presented it checks
+  /// again later; once the sheet is gone (and still no result) the share is released.
+  private func scheduleSheetWatchdog(_ shareID: UUID) {
+    schedule(Self.sheetWatchdog) { [weak self] in
+      guard let self, self.pendingShareID == shareID else { return }
+      switch Self.sheetWatchdogAction(isSheetStillPresented: self.sharingSheetPresenter?.isSharingSheetPresented ?? false) {
+      case .checkAgainLater: self.scheduleSheetWatchdog(shareID)
+      case .release: self.releaseSheetShare(shareID)
+      }
+    }
+  }
+
+  enum SheetWatchdogAction: Equatable {
+    case checkAgainLater
+    case release
+  }
+
+  /// What the watchdog does when it fires. Test seam.
+  nonisolated static func sheetWatchdogAction(isSheetStillPresented: Bool) -> SheetWatchdogAction {
+    isSheetStillPresented ? .checkAgainLater : .release
   }
 
   /// Shortly after a send: if our session hasn't arrived yet, show and announce "Preparing".
@@ -300,16 +337,21 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private func releaseSheetShare(_ shareID: UUID) {
     guard pendingShareID == shareID, let item = pendingItem, !isInSession else { return }
     clearPendingShare()
+    // Only the latest late share is kept. An older one is cancelled, so its session (if it still
+    // arrives) is left rather than started or offered to ourselves as an invitation.
+    if let replaced = lateShare, replaced.id != shareID { cancelledShareIDs.insert(replaced.id) }
     lateShare = (shareID, item)
     state = .idle
     announceSheetResult("listen_together_didnt_start_announcement".localized, for: shareID)
   }
 
   /// Announced after the sheet's screen change has settled, and only if nothing has happened since: no
-  /// newer share, nothing pending, no session. A locked phone may not speak it (the guide says so).
+  /// newer share, nothing pending, no session, no invitation on screen. A locked phone may not speak it
+  /// (the guide says so).
   private func announceSheetResult(_ text: String, for shareID: UUID) {
     schedule(Self.sheetAnnouncementDelay) { [weak self] in
-      guard let self, self.latestSheetShareID == shareID, self.pendingShareID == nil, !self.isInSession
+      guard let self, self.latestSheetShareID == shareID, self.pendingShareID == nil, !self.isInSession,
+        self.pendingInvitation == nil, !self.isShowingInvitation
       else { return }
       self.announcer.announce(text)
     }
@@ -391,7 +433,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let transport = transportFactory(session, folder)
     activeSession = session
     session.join()
-    Task { await self.beginListening(with: transport, shareID: shareID) }
+    // A-I2: set up in the same main-actor turn as the join, so End (or a second invitation) can never
+    // fall into a gap where the session is joined but this device is not yet listening.
+    if !startListening(with: transport, shareID: shareID) {
+      activeSession = nil
+      joinedTitle = nil
+      transport.leave()
+    }
   }
 
   /// Does nothing unless an invitation is waiting.
@@ -419,16 +467,46 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     guard isInSession else { return }
     if role == .sharer, let transport {
       tearDown(reason: .normal, leaveTransport: false)
+      // The end message gets a short time; the session is left whatever happens, so a stalled
+      // messenger can't keep this device in a session the UI already says has ended.
       Task {
-        do {
-          try await transport.send(.sessionEnding)
-        } catch {
-          Self.logger.error("Listen Together: could not send the end message: \(error.localizedDescription)")
+        await Self.withTimeLimit(Self.endMessageTimeout) {
+          do {
+            try await transport.send(.sessionEnding)
+          } catch {
+            Self.logger.error("Listen Together: could not send the end message: \(error.localizedDescription)")
+          }
         }
         transport.leave()
       }
     } else {
       tearDown(reason: .normal)
+    }
+  }
+
+  /// Runs `work`, but returns after `limit` at the latest. The work is not awaited past the limit (a
+  /// task group would wait for it), so a send that ignores cancellation can't hold the caller.
+  static func withTimeLimit(_ limit: Duration, _ work: @escaping @MainActor () async -> Void) async {
+    @MainActor final class Once {
+      var continuation: CheckedContinuation<Void, Never>?
+      var timer: Task<Void, Never>?
+    }
+    let once = Once()
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      once.continuation = continuation
+      let finish: @MainActor () -> Void = {
+        once.timer?.cancel()
+        once.continuation?.resume()
+        once.continuation = nil
+      }
+      once.timer = Task { @MainActor in
+        try? await Task.sleep(for: limit)
+        finish()
+      }
+      Task { @MainActor in
+        await work()
+        finish()
+      }
     }
   }
 
@@ -442,12 +520,19 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     role = nil
     eventLoop?.cancel()
     eventLoop = nil
+    sharingTask?.cancel()
+    sharingTask = nil
+    outbox?.finish()
+    outbox = nil
+    outboxTask?.cancel()
+    outboxTask = nil
     localEventsBag.removeAll()
     bridge?.invalidate()
     bridge = nil
     listener?.stop()
     listener = nil
     joinedTitle = nil
+    sharerTarget?.stop()
     sharerTarget = nil
     self.transport = nil
     activeSession = nil
@@ -556,11 +641,22 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let transport = transportFactory(session, folder)
     activeSession = session
     session.join()
-    if late {
-      // The user last heard "didn't start"; say that it did after all.
-      announcer.announce("listen_together_started_late_announcement".localized)
+    // A-I2: the session's bookkeeping happens in this turn; only the export and upload are async.
+    guard startSharingSession(with: transport, item: item, shareID: shareID) else {
+      activeSession = nil
+      transport.leave()
+      return
     }
-    Task { await self.beginSharing(with: transport, item: item, shareID: shareID) }
+    if let text = startedAnnouncement(forShare: shareID, late: late) { announcer.announce(text) }
+    sharingTask = Task { await self.uploadPieces(of: item, shareID: shareID, over: transport) }
+  }
+
+  /// What is said when our own session arrives: "Listen Together started" after the sharing sheet
+  /// (the sheet itself gives no confirmation, and a late session follows "didn't start"); nothing on a
+  /// FaceTime call, where the system shows SharePlay starting. Said once either way. Test seam.
+  func startedAnnouncement(forShare shareID: UUID, late: Bool) -> String? {
+    guard late || shareID == latestSheetShareID else { return nil }
+    return "listen_together_started_late_announcement".localized
   }
 
   private func offerInvitation(_ session: GroupSession<ListenTogetherActivity>) {

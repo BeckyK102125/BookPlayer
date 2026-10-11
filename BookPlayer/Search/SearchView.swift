@@ -91,7 +91,8 @@ struct SearchView: View {
   private func loadPlayer(with relativePath: String) {
     Task {
       do {
-        try await playerLoaderService.loadPlayer(relativePath, autoplay: true)
+        // False: the user chose to stay in Listen Together (R38); don't open the player.
+        guard try await playerLoaderService.loadPlayer(relativePath, autoplay: true) else { return }
         playerState.showPlayerBinding.wrappedValue = true
       } catch {
         loadingState.error = error

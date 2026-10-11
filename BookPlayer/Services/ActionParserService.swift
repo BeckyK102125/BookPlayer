@@ -208,7 +208,12 @@ class ActionParserService {
       }
     } else {
       self.removeAction(action)
-      playerManager.playPause()
+      // Starting the book asks first during a Listen Together listener session (R38).
+      if let playerLoaderService = AppServices.shared.coreServices?.playerLoaderService {
+        Task { @MainActor in await playerLoaderService.playPauseLoadedBook() }
+      } else {
+        playerManager.playPause()
+      }
     }
   }
 
@@ -254,7 +259,12 @@ class ActionParserService {
       loadedItem.relativePath == bookIdentifier
     {
       self.removeAction(action)
-      playerManager.play()
+      // Starting the book asks first during a Listen Together listener session (R38).
+      if let playerLoaderService = AppServices.shared.coreServices?.playerLoaderService {
+        Task { @MainActor in await playerLoaderService.playLoadedBook() }
+      } else {
+        playerManager.play()
+      }
       return
     }
 

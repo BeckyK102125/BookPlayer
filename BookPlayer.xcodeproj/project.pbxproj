@@ -680,6 +680,7 @@
 		8322A3C6479B099448C63C47 /* IntegrationLibraryViewModelProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E070421575334E1CD85C049 /* IntegrationLibraryViewModelProtocol.swift */; };
 		843575DDF1CEEBC9A2EF015C /* IntegrationConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 587EDC7DEA9D2985635F1161 /* IntegrationConnectionStore.swift */; };
 		84544DF4BCA7595981C2F554 /* ListenTogetherPlaybackTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBDF4E23AD17EC33CA5917E0 /* ListenTogetherPlaybackTarget.swift */; };
+		87A24E72A051ABE36243474C /* ListenTogetherOwnPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00D74752827A36453D67F129 /* ListenTogetherOwnPlaybackTests.swift */; };
 		8A0883CB5B4914B2DCB70A5E /* AudiobookShelfOIDCFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC10E1E47E1F6982D8F6A552 /* AudiobookShelfOIDCFlowTests.swift */; };
 		8A2A22392CEFEB8E00E73A2D /* AdaptiveVGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A2A22382CEFEB8800E73A2D /* AdaptiveVGrid.swift */; };
 		8A495CC62CC85D27001B4244 /* JellyfinAPI in Frameworks */ = {isa = PBXBuildFile; productRef = 8A495CC52CC85D27001B4244 /* JellyfinAPI */; };
@@ -1116,6 +1117,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		00D74752827A36453D67F129 /* ListenTogetherOwnPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherOwnPlaybackTests.swift; path = ListenTogetherOwnPlaybackTests.swift; sourceTree = "<group>"; };
 		013647A398A96741C5760C86 /* ListenTogetherTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherTransport.swift; path = ListenTogetherTransport.swift; sourceTree = "<group>"; };
 		055E458481EFE4ED15B689F6 /* ListenTogetherPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherPresentation.swift; path = ListenTogetherPresentation.swift; sourceTree = "<group>"; };
 		056B7A76F1A44CEC30562382 /* IntegrationQuickConnectViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationQuickConnectViews.swift; sourceTree = "<group>"; };
@@ -4004,6 +4006,7 @@
 				1FE34E079C6876D76B36207D /* ListenTogetherFirstShareNoteTests.swift */,
 				0AF8478D8CF5C6D6C0B4EA68 /* ListenTogetherRowTests.swift */,
 				087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */,
+				00D74752827A36453D67F129 /* ListenTogetherOwnPlaybackTests.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -5302,6 +5305,7 @@
 				FAEC45A393A6C74D90A42A1E /* ListenTogetherFirstShareNoteTests.swift in Sources */,
 				E25B40E7827FFB7EC41EF252 /* ListenTogetherRowTests.swift in Sources */,
 				A1AE458AACC76CD32490D4A0 /* ListenTogetherSharingSheetTests.swift in Sources */,
+				87A24E72A051ABE36243474C /* ListenTogetherOwnPlaybackTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

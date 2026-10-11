@@ -12,16 +12,26 @@ extension SharePlaySessionService {
     await beginSharing(with: transport, item: item, shareID: UUID())
   }
 
-  /// Sends the manifest, then exports and uploads every piece starting where the sharer is listening.
-  /// Returns when every piece is uploaded or the session has ended.
+  /// Sets up the session and then sends the manifest, exports and uploads every piece starting where
+  /// the sharer is listening. Returns when every piece is uploaded or the session has ended.
   func beginSharing(with transport: ListenTogetherTransport, item: PlayableItem, shareID: UUID) async {
-    guard !isInSession else { return }
+    guard startSharingSession(with: transport, item: item, shareID: shareID) else { return }
+    await uploadPieces(of: item, shareID: shareID, over: transport)
+  }
+
+  /// The sharer's session bookkeeping, done synchronously in the same main-actor turn as the join
+  /// (A-I2): role, transport, event loop, playback target, coordinator and local events. Returns false
+  /// (and changes nothing) if a session is already running; the caller then leaves `transport`.
+  @discardableResult
+  func startSharingSession(with transport: ListenTogetherTransport, item: PlayableItem, shareID: UUID) -> Bool {
+    guard !isInSession else { return false }
     role = .sharer
     self.shareID = shareID
     self.transport = transport
     participantCount = 1
     hasParticipantBaseline = false
     startEventLoop(on: transport)
+    startOutbox(on: transport)
 
     let target = SharerPlaybackTarget(playerManager: playerManager)
     sharerTarget = target
@@ -29,7 +39,13 @@ extension SharePlaySessionService {
     self.bridge = bridge
     if let activeSession { bridge.coordinate(with: activeSession) }
     observeLocalEvents(of: target)
+    return true
+  }
 
+  /// Sends the manifest, then exports and uploads the pieces. Stops as soon as the session ends or the
+  /// task is cancelled (`tearDown` cancels `sharingTask`).
+  func uploadPieces(of item: PlayableItem, shareID: UUID, over transport: ListenTogetherTransport) async {
+    guard self.transport === transport else { return }
     let splitter = BookSplitter()
     let files: [SourceFile]
     let folder: URL
@@ -59,7 +75,7 @@ extension SharePlaySessionService {
     await send(.manifest(manifest), on: transport)
 
     for piece in plan.uploadOrder(startingAt: item.currentTime) {
-      guard self.transport === transport else { return }
+      guard self.transport === transport, !Task.isCancelled else { return }
       guard let attachmentID = await exportAndUpload(piece, from: files, to: folder, on: transport) else {
         guard self.transport === transport else { return }
         await failSharing(on: transport)
@@ -77,7 +93,7 @@ extension SharePlaySessionService {
     _ piece: PlannedPiece, from files: [SourceFile], to folder: URL, on transport: ListenTogetherTransport
   ) async -> UUID? {
     for attempt in 1...3 {
-      guard self.transport === transport else { return nil }
+      guard self.transport === transport, !Task.isCancelled else { return nil }
       do {
         let exported = try await BookSplitter().export(piece, from: files, to: folder)
         guard self.transport === transport else { return nil }
@@ -98,9 +114,17 @@ extension SharePlaySessionService {
 
   // MARK: Listener
 
-  /// Test seam (also used by `joinInvitation()`): listens to the share `shareID` over `transport`.
+  /// Test seam: listens to the share `shareID` over `transport`.
   func beginListening(with transport: ListenTogetherTransport, shareID: UUID) async {
-    guard !isInSession else { return }
+    startListening(with: transport, shareID: shareID)
+  }
+
+  /// Listens to the share `shareID` over `transport`. Synchronous, so `joinInvitation()` sets it up in
+  /// the same main-actor turn as the join (A-I2). Returns false (and changes nothing) if a session is
+  /// already running; the caller then leaves `transport`.
+  @discardableResult
+  func startListening(with transport: ListenTogetherTransport, shareID: UUID) -> Bool {
+    guard !isInSession else { return false }
     role = .listener
     self.shareID = shareID
     self.transport = transport
@@ -109,6 +133,8 @@ extension SharePlaySessionService {
     announcer.resetDownloadProgress()
     setState(.listening(participants: participantCount, downloaded: 0))
     startEventLoop(on: transport)
+    startOutbox(on: transport)
+    return true
   }
 
   private func receivedManifest(_ manifest: SharedBookManifest) {
@@ -118,6 +144,10 @@ extension SharePlaySessionService {
     let player = ListenerPlayer(manifest: manifest)
     let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: manifest.shareID, role: .listener)
     player.onNeedsPiece = { [weak self] _ in self?.listenerNeedsPiece() }
+    // Play or pause while the group waits for this device's piece: nothing is sent; say why.
+    player.onToggleWhileWaiting = { [weak self] in
+      self?.announcer.announce("listen_together_waiting_download".localized)
+    }
     self.bridge = bridge
     setListener(player)
     if let activeSession { bridge.coordinate(with: activeSession) }
@@ -261,14 +291,28 @@ extension SharePlaySessionService {
     return rate
   }
 
-  /// The local user's own actions become messages, so the others hear an announcement.
+  /// The local user's own actions become messages, so the others hear an announcement. They go
+  /// through the outbox, so they arrive in the order they happened.
   private func observeLocalEvents(of target: ListenTogetherPlaybackTarget) {
     target.localEvents
       .sink { [weak self] event in
-        guard let self, let transport = self.transport, let action = self.remoteAction(for: event) else { return }
-        Task { await self.send(.action(action), on: transport) }
+        guard let self, let action = self.remoteAction(for: event) else { return }
+        self.outbox?.yield(.action(action))
       }
       .store(in: &localEventsBag)
+  }
+
+  /// One stream and one consumer per session (M3): each message is sent after the previous one.
+  /// Finished and cancelled by `tearDown`.
+  private func startOutbox(on transport: ListenTogetherTransport) {
+    let (stream, continuation) = AsyncStream.makeStream(of: ListenTogetherMessage.self)
+    outbox = continuation
+    outboxTask = Task { [weak self] in
+      for await message in stream {
+        guard let self, self.transport === transport else { return }
+        await self.send(message, on: transport)
+      }
+    }
   }
 
   private func remoteAction(for event: LocalPlaybackEvent) -> RemoteAction? {

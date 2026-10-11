@@ -511,3 +511,91 @@ Parent f2ad757b. From the code review (I1, I2) and change-b-a11y-review.md (I-1.
   written together). The first run crashed in the test scheduler (unowned capture of a scheduler nobody
   retained); I fixed the test helper. Focused: "Executed 17 tests, with 0 failures", ** TEST SUCCEEDED **.
   Full: "Executed 733 tests, with 0 failures", ** TEST SUCCEEDED ** (716 + 17). No new warnings.
+
+## 2026-10-10 - develop - merge shareplay-listen-together and push (backfilled by fix wave 2)
+- With Becky's approval, develop was fast-forwarded to e634f5c7 (shareplay-listen-together: guide and
+  addendum 1 design). Merged-result tests: 669 tests, 0 failures, ** TEST SUCCEEDED **. Pushed develop and
+  shareplay-listen-together to origin (BeckyK102125/BookPlayer). Source: progress.md ledger.
+
+## 2026-10-10 - listen-together-lock-screen - device signing and install (backfilled by fix wave 2)
+- Becky chose team Techopolis (M9SNPTXA44) and bundle ID app.techopolis.BookPlayer-together, set only in
+  the gitignored BuildConfiguration/Debug.xcconfig, with BookPlayer-NoCarPlay entitlements (the CarPlay
+  entitlement needs Apple approval). BookPlayer backend, account and sync do not work under this ID.
+- The lowercase bundle ID (app.techopolis.bookplayer-together) clashed with the existing App ID (IDs are
+  case-insensitive), so the local setting uses the existing casing. The App ID and the app group
+  group.app.techopolis.BookPlayer-together.files already existed.
+- Becky approved the install (automatic signing registers App IDs, app group, iCloud container). Built
+  Debug from listen-together-lock-screen @ 54399521 and installed on her iPhone 15 Pro
+  (00008130-001C08390232001C). Log: /private/tmp/bp-tools/device-build.log, ** BUILD SUCCEEDED **.
+- Side effect: Xcode wrote team, bundle ID and automatic signing into project.pbxproj and reordered
+  Info.plist. Both reverted with git checkout, never committed. Future device builds pass signing
+  overrides on the command line and revert any churn before committing.
+
+## 2026-10-10 - listen-together-lock-screen - R35/R36 approved; develop fast-forward and push (backfilled)
+- Becky approved the escape change (R35, supersedes R25: escape on the listener screen goes back to the
+  library while the session continues; End only through the End button) and the Listen Together row
+  above the tab bar (R36: listener hides the own mini player; sharer gets the row above it).
+- After the escape/row change and its fix round (54399521..63e9578b, re-review approved), develop was
+  fast-forwarded to 63e9578b and develop + listen-together-lock-screen were pushed to origin. Branch
+  listen-together-messages was started from 63e9578b for Change B. listen-together-messages is not pushed.
+
+## 2026-10-10 - listen-together-messages - fix wave 2 (whole-branch review + concurrency audit)
+Parent cd821236. Inputs: whole-branch review 609ce7e8..cd821236 (I1-I5 + minors, ruling R38),
+concurrency-audit.md (A-I1, A-I2, M1-M9, 2 strict diagnostics), Change B re-review minors.
+- W-I1 / R38: PlayerLoaderService gets `playbackStartGate` (main app sets it in bindListenTogether) and
+  `mayStartPlayback()`, `playPauseLoadedBook()`, `playLoadedBook()`. loadPlayer(autoplay: true) asks
+  before loading and returns false (discardable) when declined; ItemListView, SearchView and
+  MainCoordinator.loadPlayer then don't open the player. Same-book paths gated too: widget
+  BookPlaybackToggleIntent, ActionParserService toggle/play deep links, AppServices.playLastBook.
+  Decision: ListenTogetherOwnPlayback.decision(isListenerSession:canAsk:) -> play / ask / refuse;
+  canAsk = app active and a presenter exists. Ask = UIAlertController "Leave Listen Together to play this
+  book?" with Leave (destructive; ends the listener session via end(), then plays) and Cancel (cancel
+  style, so escape = Cancel); taken down without an answer = Cancel. Refuse (locked, background, Siri,
+  CarPlay with phone locked): nothing plays, logged. Not gated (they call PlayerManager directly and are
+  hidden or closed during a listener session): player screen Play, mini player, ButtonFree, video,
+  LibraryRootView cold-launch restore. PlayerManager untouched.
+- W-I2: the 120 s sheet watchdog asks the presenter `isSharingSheetPresented` and reschedules itself
+  while the sheet is up (pure `sheetWatchdogAction`); MainCoordinator tracks the sheet weakly.
+- W-I3: MainView's Magic Tap (.nothing) and the getting-book screen's Magic Tap post "Not available yet"
+  (ListenTogetherPresentation.announceNotAvailableYet, immediate post like AppDelegate's).
+- W-I5: invitation shown through a retry chain (generation-checked): presentInvitation now reports a
+  refused present (presentingViewController nil after present). Retry every 0.5 s up to 20 attempts,
+  then decline (pure MainCoordinator.invitationPresentationStep). The R29 re-present path uses it too.
+- Minors: ListenerPlayer toggle while held for a piece during a playing wait (play, playing seek or next
+  piece missing) sends nothing and calls onToggleWhileWaiting -> "Waiting for the book to download"; a
+  paused seek into a missing piece followed by Play still sends play (R14). "Listen Together started"
+  announced for every sheet share's session (startedAnnouncement; FaceTime shares stay silent), once.
+  Replaced late share -> cancelledShareIDs. "didn't start" not announced while an invitation shows.
+  Sharing-sheet watch: controller held weakly, result task checks cancellation, foreground observer calls
+  a MainActor method (fixes the 2 strict diagnostics at MainCoordinator+ListenTogether.swift:198).
+  AppDelegate remote commands and Magic Tap call ListenTogetherRemoteCommands.route / isRoutingNow
+  (nonisolated; on main -> assumeIsolated, else main.sync). Listen-only wording unified on "downloaded
+  for this session only and deleted when it ends" (invitation, End hint, first-share message, guide).
+  New strings (Base + 25 lproj, English): listen_together_leave_to_play_title/_message, _leave_button.
+- Audit: A-I1 SharerPlaybackTarget's isPlaying/speed sinks use receive(on: DispatchQueue.main) +
+  assumeIsolated (seam deliversOnMainQueue: false for the synchronous fake-publisher tests). A-I2
+  startListening / startSharingSession are synchronous and run in the same turn as session.join() in
+  joinInvitation / received; a refused setup leaves the transport; uploadPieces is the only async part,
+  stored as sharingTask (M1) and cancelled in tearDown, with cancellation checks in the loops. M2 sharer
+  end message limited to 2 s (withTimeLimit, continuation-based so a stalled send can't hold it). M3 one
+  outbox stream + consumer per session. M4 SharerPlaybackTarget.stop() from tearDown. M9 coordinator
+  delegate commands hop via DispatchQueue.main.async (FIFO) instead of separate Tasks.
+  Not done: M5 (ListenerPlayer deinit; stop() already covers it), M7 (moving setActive(false) off main
+  could deactivate after R38 Leave started the own book), M8 (transport deinit backstop; A-I2 removes
+  the leak path).
+- Guide: R38 section replaces "pause it from the lock screen" and "lock screen switches to your own
+  book"; invitation retry note; toggle-while-waiting; "Listen Together started" step; limitation line.
+- Tests: new ListenTogetherOwnPlaybackTests (13); SharePlaySessionServiceTests +7; SharingSheetTests +5;
+  SharerPlaybackTargetTests +2; ListenerPlayerTests +2; RemoteCommandsTests: testPlayAndToggleReportAPlay
+  now expects nothing sent on the second press (held for the piece) and a new testToggleReportsAPlay.
+  No separate RED run was captured (code and tests written together). Results: see the next entry
+  lines and fix-wave-2-report.md.
+- Results: SharePlay classes 191 tests, 0 failures; full suite "Executed 763 tests, with 0 failures",
+  ** TEST SUCCEEDED ** (733 + 30). TSan (17 SharePlay classes, -enableThreadSanitizer YES): 191/0, 0
+  ThreadSanitizer warnings. First TSan run aborted inside CoreMedia figTimelineCoordinator_endSuspensionOnQueue
+  (CFRelease trap) in the new toggle-while-waiting service test, the first test that begins and ends a stall
+  suspension on a real session-less AVDelegatingPlaybackCoordinator. A throwaway test (deleted) reproduced it
+  under TSan only; 12/12 passed without TSan. Pre-existing product path (End while a listener waits); the
+  test now clears onNeedsPiece. Device check added. Strict concurrency (complete, local build in default
+  DerivedData, not committed): the 2 audit diagnostics are gone; 2 new ones from this wave's main-hop helpers
+  fixed with @Sendable; 0 left in SharePlay files.

@@ -24,24 +24,29 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
   var isPlaying: Bool { playerManager.isPlaying }
   var rate: Float { playerManager.currentSpeed }
 
+  /// `deliversOnMainQueue`: PlayerManager's playing publisher is fed from AVPlayer KVO, which is not
+  /// promised to arrive on main (A-I1), so its values hop to the main queue (FIFO, so their order is
+  /// kept) before this MainActor object touches them. Tests whose fake publishers already run on main
+  /// may pass false to get the values synchronously.
   init(
     playerManager: PlayerManagerProtocol,
     seekCheckInterval: TimeInterval = 0.5,
-    now: @escaping () -> Date = Date.init
+    now: @escaping () -> Date = Date.init,
+    deliversOnMainQueue: Bool = true
   ) {
     self.playerManager = playerManager
     self.now = now
 
-    playerManager.isPlayingPublisher()
-      .removeDuplicates()
-      .dropFirst()
-      .sink { [weak self] playing in self?.handleIsPlaying(playing) }
+    Self.onMain(playerManager.isPlayingPublisher().removeDuplicates().dropFirst(), hop: deliversOnMainQueue)
+      .sink { [weak self] playing in
+        MainActor.assumeIsolated { self?.handleIsPlaying(playing) }
+      }
       .store(in: &disposeBag)
 
-    playerManager.currentSpeedPublisher()
-      .removeDuplicates()
-      .dropFirst()
-      .sink { [weak self] speed in self?.handleSpeed(speed) }
+    Self.onMain(playerManager.currentSpeedPublisher().removeDuplicates().dropFirst(), hop: deliversOnMainQueue)
+      .sink { [weak self] speed in
+        MainActor.assumeIsolated { self?.handleSpeed(speed) }
+      }
       .store(in: &disposeBag)
 
     seekTimer = Timer.scheduledTimer(withTimeInterval: seekCheckInterval, repeats: true) { [weak self] _ in
@@ -60,6 +65,20 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget {
         }
       }
       .store(in: &disposeBag)
+  }
+
+  /// Values from `publisher`, delivered on the main queue when `hop` is true.
+  private static func onMain<P: Publisher>(_ publisher: P, hop: Bool) -> AnyPublisher<P.Output, Never>
+  where P.Failure == Never {
+    hop ? publisher.receive(on: DispatchQueue.main).eraseToAnyPublisher() : publisher.eraseToAnyPublisher()
+  }
+
+  /// Stops the seek timer and every subscription. Called by the session's teardown, so nothing fires
+  /// after the session even if something still holds this target (M4). The deinit stays as a backstop.
+  func stop() {
+    seekTimer?.invalidate()
+    seekTimer = nil
+    disposeBag.removeAll()
   }
 
   deinit { seekTimer?.invalidate() }

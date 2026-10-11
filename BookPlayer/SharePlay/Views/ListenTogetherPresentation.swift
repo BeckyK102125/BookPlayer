@@ -94,6 +94,18 @@ struct ListenTogetherPresentation: ViewModifier {
     return .libraryPlayer
   }
 
+  /// What Magic Tap says when it reaches nothing (joined, book not here yet): "Not available yet", the
+  /// same as the lock-screen path in AppDelegate. nil when it acted (W-I3).
+  static func magicTapAnnouncement(for target: MagicTapTarget) -> String? {
+    target == .nothing ? "listen_together_not_available_now".localized : nil
+  }
+
+  /// Says "Not available yet" (spoken at once: it answers the user's own gesture).
+  static func announceNotAvailableYet() {
+    guard let text = magicTapAnnouncement(for: .nothing) else { return }
+    UIAccessibility.post(notification: .announcement, argument: text)
+  }
+
   private var isListening: Bool {
     if case .listening = service.state { return true }
     return service.listener != nil
@@ -219,8 +231,8 @@ struct ListenerGettingBookView: View {
     // Escape closes the screen only (R35): never ends, pauses or starts anything. Ending is only
     // through the labelled End button. A full-screen cover doesn't close on escape by itself.
     .accessibilityAction(.escape) { onClose() }
-    // Nothing to play yet; stops Magic Tap reaching the library player in MainView.
-    .accessibilityAction(.magicTap) {}
+    // Nothing to play yet: say so, and don't let Magic Tap reach the library player in MainView.
+    .accessibilityAction(.magicTap) { ListenTogetherPresentation.announceNotAvailableYet() }
     .task {
       // Wait for the cover to finish presenting; an earlier request is often lost.
       try? await Task.sleep(for: .milliseconds(600))

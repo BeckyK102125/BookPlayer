@@ -10,6 +10,11 @@ import UIKit
 extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
   func bindListenTogether() {
     sharePlayService.sharingSheetPresenter = self
+    // R38: starting the user's own book during a listener session asks first (one gate for the
+    // library, search, CarPlay, Siri and widget paths that go through PlayerLoaderService).
+    playerLoaderService.playbackStartGate = { [weak self] in
+      await self?.confirmOwnPlayback() ?? true
+    }
     listenTogetherSubscription = sharePlayService.$state
       .receive(on: DispatchQueue.main)
       .sink { [weak self] state in
@@ -18,9 +23,9 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
   }
 
   private func listenTogetherStateChanged(_ state: ListenTogetherState) {
-    if case .invitation(let title, let author) = state {
+    if case .invitation = state {
       guard invitationController == nil else { return }
-      presentInvitation(title: title, author: author)
+      startInvitationPresentation()
     } else if let controller = invitationController {
       // Declined, joined or the share went away.
       invitationController = nil
@@ -43,19 +48,69 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
     DispatchQueue.main.async { [weak self] in
       guard let self,
         Self.shouldRepresentInvitation(answered: answered, state: self.sharePlayService.state),
-        self.invitationController == nil,
-        case .invitation(let title, let author) = self.sharePlayService.state
+        self.invitationController == nil
       else { return }
-      // Nowhere to show it: decline rather than leave the service waiting forever.
-      if !self.presentInvitation(title: title, author: author) {
-        self.sharePlayService.declineInvitation()
+      self.startInvitationPresentation()
+    }
+  }
+
+  // MARK: Showing the invitation, with retries (W-I5)
+
+  enum InvitationPresentationStep: Equatable {
+    /// On screen.
+    case shown
+    /// Not shown (no window yet on a cold launch from Messages, or UIKit refused mid-transition): try
+    /// again shortly.
+    case retry
+    /// Still not shown after every attempt: decline, so the service is not left waiting forever.
+    case giveUp
+    /// The invitation was answered or went away meanwhile.
+    case notNeeded
+  }
+
+  nonisolated static let invitationRetryDelay: TimeInterval = 0.5
+  /// 20 attempts, half a second apart: about 10 seconds for the window to appear.
+  nonisolated static let invitationMaxAttempts = 20
+
+  /// What to do after attempt number `attempt` (1-based). Test seam.
+  nonisolated static func invitationPresentationStep(
+    presented: Bool, attempt: Int, state: ListenTogetherState
+  ) -> InvitationPresentationStep {
+    if presented { return .shown }
+    guard case .invitation = state else { return .notNeeded }
+    return attempt < invitationMaxAttempts ? .retry : .giveUp
+  }
+
+  /// Starts a new chain of attempts; an older chain still waiting stops.
+  private func startInvitationPresentation() {
+    invitationPresentationGeneration += 1
+    attemptInvitationPresentation(generation: invitationPresentationGeneration, attempt: 1)
+  }
+
+  private func attemptInvitationPresentation(generation: Int, attempt: Int) {
+    guard generation == invitationPresentationGeneration, invitationController == nil else { return }
+    var presented = false
+    if case .invitation(let title, let author) = sharePlayService.state {
+      presented = presentInvitation(title: title, author: author)
+    }
+    switch Self.invitationPresentationStep(presented: presented, attempt: attempt, state: sharePlayService.state) {
+    case .shown, .notNeeded:
+      return
+    case .retry:
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.invitationRetryDelay) { [weak self] in
+        MainActor.assumeIsolated {
+          self?.attemptInvitationPresentation(generation: generation, attempt: attempt + 1)
+        }
       }
+    case .giveUp:
+      SharePlaySessionService.logger.error("Listen Together: could not show the invitation; declining it")
+      sharePlayService.declineInvitation()
     }
   }
 
   /// The topmost screen that is not on its way out: the invitation and the sharing sheet are shown
   /// from it, so an open sheet (Settings, an item's details, the player…) can't hide or drop them.
-  private func topmostPresenter() -> UIViewController? {
+  func topmostPresenter() -> UIViewController? {
     guard var top = mainController, top.viewIfLoaded?.window != nil else { return nil }
     while let presented = top.presentedViewController, !presented.isBeingDismissed {
       top = presented
@@ -87,6 +142,11 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
     host.presentationController?.delegate = self
     invitationController = host
     top.present(host, animated: true)
+    // UIKit refuses a presentation while another is in progress: then nothing is on screen.
+    guard host.presentingViewController != nil else {
+      invitationController = nil
+      return false
+    }
     return true
   }
 
@@ -122,6 +182,11 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
 extension MainCoordinator: ListenTogetherSharingSheetPresenting {
   var canPresentSharingSheet: Bool { mainController?.viewIfLoaded?.window != nil }
 
+  var isSharingSheetPresented: Bool {
+    guard let controller = sharingSheetController else { return false }
+    return controller.presentingViewController != nil && !controller.isBeingDismissed
+  }
+
   /// Apple's `GroupActivitySharingController`, shown when there is no FaceTime call. It is presented
   /// silently (it announces itself); the service announces what happens after it closes.
   func presentSharingSheet(for activity: ListenTogetherActivity) async -> ListenTogetherSharingSheetOutcome {
@@ -141,12 +206,107 @@ extension MainCoordinator: ListenTogetherSharingSheetPresenting {
     // UIKit refused the presentation (something else is being presented): use the fallback alert.
     // VERIFY on device that a refused presentation leaves `presentingViewController` nil.
     guard controller.presentingViewController != nil else { return .unavailable }
+    sharingSheetController = controller
     let outcome = await ListenTogetherSharingSheetWatch.outcome(of: controller)
+    if sharingSheetController === controller { sharingSheetController = nil }
     // The sheet normally closes itself; make sure it is gone before anything is announced.
     if controller.presentingViewController != nil, !controller.isBeingDismissed {
       controller.dismiss(animated: true)
     }
     return outcome
+  }
+}
+
+// MARK: Own book during a listener session (R38)
+
+/// Starting the user's own book while listening to someone else's asks first, so two books never
+/// play at once and the lock screen never switches books under the user.
+enum ListenTogetherOwnPlayback {
+  enum Decision: Equatable {
+    /// Not listening to anyone: play.
+    case play
+    /// Listening, and the question can be asked on screen.
+    case ask
+    /// Listening, but nothing can be shown (app in the background, locked phone, CarPlay with the
+    /// phone locked, Siri): nothing plays; the listener session goes on.
+    case refuse
+  }
+
+  enum Answer: Equatable {
+    case leave
+    case cancel
+  }
+
+  static func decision(isListenerSession: Bool, canAsk: Bool) -> Decision {
+    guard isListenerSession else { return .play }
+    return canAsk ? .ask : .refuse
+  }
+
+  /// After the question: Leave ends the listener session (if it is still on) and plays; Cancel (and
+  /// escape, which is Cancel) leaves everything as it is.
+  static func outcome(of answer: Answer, isListenerSession: Bool) -> (endsSession: Bool, plays: Bool) {
+    switch answer {
+    case .leave: return (isListenerSession, true)
+    case .cancel: return (false, false)
+    }
+  }
+}
+
+/// The Leave / Cancel question. Taken down without an answer (a screen beneath it closed) counts as
+/// Cancel, so the caller never waits forever.
+final class ListenTogetherLeaveAlertController: UIAlertController {
+  var onDisappear: (() -> Void)?
+
+  override func viewDidDisappear(_ animated: Bool) {
+    super.viewDidDisappear(animated)
+    if presentingViewController == nil || isBeingDismissed { onDisappear?() }
+  }
+}
+
+extension MainCoordinator {
+  /// The PlayerLoaderService gate: true when the user's own book may start now.
+  func confirmOwnPlayback() async -> Bool {
+    let canAsk = UIApplication.shared.applicationState == .active && topmostPresenter() != nil
+    switch ListenTogetherOwnPlayback.decision(
+      isListenerSession: sharePlayService.isListenerSession, canAsk: canAsk)
+    {
+    case .play:
+      return true
+    case .refuse:
+      SharePlaySessionService.logger.info("Listen Together: own book not started during a listener session")
+      return false
+    case .ask:
+      let answer = await askToLeaveListenTogether()
+      let outcome = ListenTogetherOwnPlayback.outcome(
+        of: answer, isListenerSession: sharePlayService.isListenerSession)
+      if outcome.endsSession { sharePlayService.end() }
+      return outcome.plays
+    }
+  }
+
+  private func askToLeaveListenTogether() async -> ListenTogetherOwnPlayback.Answer {
+    guard let top = topmostPresenter() else { return .cancel }
+    return await withCheckedContinuation { continuation in
+      var resume: ((ListenTogetherOwnPlayback.Answer) -> Void)?
+      resume = { answer in
+        resume = nil
+        continuation.resume(returning: answer)
+      }
+      let alert = ListenTogetherLeaveAlertController(
+        title: "listen_together_leave_to_play_title".localized,
+        message: "listen_together_leave_to_play_message".localized,
+        preferredStyle: .alert)
+      alert.addAction(UIAlertAction(title: "listen_together_leave_button".localized, style: .destructive) { _ in
+        resume?(.leave)
+      })
+      // The cancel style is what VoiceOver's escape (two-finger scrub) triggers.
+      alert.addAction(UIAlertAction(title: "cancel_button".localized, style: .cancel) { _ in
+        resume?(.cancel)
+      })
+      alert.onDisappear = { resume?(.cancel) }
+      top.present(alert, animated: true)
+      if alert.presentingViewController == nil { resume?(.cancel) }
+    }
   }
 }
 
@@ -158,6 +318,8 @@ final class ListenTogetherSharingSheetWatch {
   private var continuation: CheckedContinuation<ListenTogetherSharingSheetOutcome, Never>?
   private var foregroundObserver: NSObjectProtocol?
   private var tasks: [Task<Void, Never>] = []
+  /// Held weakly: once the sheet is gone nothing here keeps it alive (M6).
+  private weak var controller: GroupActivitySharingController?
 
   private init() {}
 
@@ -176,8 +338,13 @@ final class ListenTogetherSharingSheetWatch {
     continuation: CheckedContinuation<ListenTogetherSharingSheetOutcome, Never>
   ) {
     self.continuation = continuation
-    tasks.append(Task { [weak self] in
+    self.controller = controller
+    // Weak until it starts. While `result` is pending its getter holds the controller; `finish`
+    // cancels this task, so an abandoned sheet's wait ends as soon as `result` honours cancellation.
+    tasks.append(Task { [weak self, weak controller] in
+      guard let controller else { return }
       let result = await controller.result
+      guard !Task.isCancelled else { return }
       self?.finish(result == .success ? .sent : .cancelled)
     })
     tasks.append(Task { [weak self, weak controller] in
@@ -192,15 +359,18 @@ final class ListenTogetherSharingSheetWatch {
     })
     foregroundObserver = NotificationCenter.default.addObserver(
       forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
-    ) { [weak self, weak controller] _ in
-      MainActor.assumeIsolated {
-        // Give UIKit a moment to restore the screen, then check once.
-        self?.tasks.append(Task { [weak self, weak controller] in
-          try? await Task.sleep(for: .seconds(1))
-          if Self.isGone(controller) { self?.finish(.abandoned) }
-        })
-      }
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.scheduleForegroundCheck() }
     }
+  }
+
+  /// Back in the foreground: give UIKit a moment to restore the screen, then check once.
+  private func scheduleForegroundCheck() {
+    tasks.append(Task { [weak self] in
+      try? await Task.sleep(for: .seconds(1))
+      guard let self else { return }
+      if Self.isGone(self.controller) { self.finish(.abandoned) }
+    })
   }
 
   private static func isGone(_ controller: UIViewController?) -> Bool {

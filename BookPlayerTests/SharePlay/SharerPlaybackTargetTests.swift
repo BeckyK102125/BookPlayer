@@ -33,7 +33,8 @@ final class SharerPlaybackTargetTests: XCTestCase {
 
   private func makeTarget() -> SharerPlaybackTarget {
     let target = SharerPlaybackTarget(
-      playerManager: mock, seekCheckInterval: 1000, now: { [unowned self] in self.clock }) // timer effectively off
+      playerManager: mock, seekCheckInterval: 1000, now: { [unowned self] in self.clock },
+      deliversOnMainQueue: false) // timer effectively off; fake publishers already run on main
     self.target = target // keep alive through assertions: subscriptions die with it
     target.localEvents.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
     return target
@@ -165,5 +166,47 @@ final class SharerPlaybackTargetTests: XCTestCase {
     let target = makeTarget()
     target.applyRate(1)
     XCTAssertEqual(mock.setSpeedCallsCount, 0)
+  }
+
+  // MARK: Fix wave 2
+
+  /// Lets everything already queued on the main queue run (FIFO), with no clock involved.
+  private func drainMainQueue() async {
+    await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  }
+
+  /// A-I1: PlayerManager's playing value can come from AVPlayer KVO on another thread. The real target
+  /// hops to the main queue before touching its state, and echo suppression still works across the hop.
+  func testPublisherValuesFromAnotherThreadAreHandledOnMainAndEchoesStaySuppressed() async {
+    let target = SharerPlaybackTarget(
+      playerManager: mock, seekCheckInterval: 1000, now: { [unowned self] in self.clock })
+    self.target = target
+    target.localEvents.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
+
+    DispatchQueue.global().sync { self.playing.send(true) }
+    XCTAssertTrue(events.isEmpty, "not handled on the background thread")
+    await drainMainQueue()
+    XCTAssertEqual(events, [.played(at: 100, rate: 1)])
+
+    // Our own pause, echoed back from another thread, is still recognised as our echo.
+    mock.underlyingIsPlaying = true
+    target.applyPause(at: 100)
+    DispatchQueue.global().sync { self.playing.send(false) }
+    await drainMainQueue()
+    XCTAssertEqual(events, [.played(at: 100, rate: 1)])
+
+    // A speed change from another thread arrives too.
+    DispatchQueue.global().sync { self.speed.send(1.5) }
+    await drainMainQueue()
+    XCTAssertEqual(events, [.played(at: 100, rate: 1), .rateChanged(1.5)])
+  }
+
+  /// M4: after `stop()` (the session's teardown) nothing is reported, even if the target is still held.
+  func testStopEndsEveryReport() {
+    let target = makeTarget()
+    target.stop()
+    playing.send(true)
+    speed.send(2)
+    XCTAssertTrue(events.isEmpty)
   }
 }

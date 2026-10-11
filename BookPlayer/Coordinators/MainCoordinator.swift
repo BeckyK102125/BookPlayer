@@ -35,6 +35,10 @@ class MainCoordinator: NSObject {
   /// The Listen Together invitation, presented from the topmost screen (MainCoordinator+ListenTogether).
   weak var invitationController: UIViewController?
   var listenTogetherSubscription: AnyCancellable?
+  /// Each new attempt to show the invitation bumps this, so an older retry chain stops (W-I5).
+  var invitationPresentationGeneration = 0
+  /// Apple's sharing sheet while it is up, so the service's watchdog can tell it is still open (W-I2).
+  weak var sharingSheetController: UIViewController?
 
   var playerState: PlayerState { AppServices.shared.playerState }
 
@@ -184,11 +188,12 @@ class MainCoordinator: NSObject {
     Task { @MainActor in
       let alertPresenter: AlertPresenter = self
       do {
-        try await AppServices.shared.coreServices?.playerLoaderService.loadPlayer(
+        let loaded = try await AppServices.shared.coreServices?.playerLoaderService.loadPlayer(
           relativePath,
           autoplay: autoplay
         )
-        if showPlayer {
+        // False: the user chose to stay in Listen Together (R38); don't open the player.
+        if showPlayer, loaded != false {
           self.showPlayer()
         }
       } catch BPPlayerError.fileMissing {

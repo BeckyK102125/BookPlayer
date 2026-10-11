@@ -145,7 +145,12 @@ final class AppServices: BPLogger {
       return
     }
 
-    playerManager.play()
+    // Starting the book asks first during a Listen Together listener session (R38).
+    guard let playerLoaderService = coreServices?.playerLoaderService else {
+      playerManager.play()
+      return
+    }
+    Task { await playerLoaderService.playLoadedBook() }
   }
 
   func showPlayer() {

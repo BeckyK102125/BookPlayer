@@ -14,6 +14,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   let manifest: SharedBookManifest
   /// Asks the service to wait for a piece. Called at most once per missing piece per wait.
   var onNeedsPiece: ((Int) -> Void)?
+  /// Play or pause was pressed while the group waits for this device's piece. Nothing is sent to the
+  /// others (a pause there would stop everyone for no reason); the service says what is happening.
+  var onToggleWhileWaiting: (() -> Void)?
 
   private let player = AVPlayer()
   private nonisolated(unsafe) var timeObserver: Any?
@@ -24,6 +27,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   }
   /// True while playback is held for a piece that has not arrived. The lock screen shows paused then.
   @Published private(set) var isWaitingForPiece = false
+  /// True when the current wait began while the group was playing (a play, a playing seek or the next
+  /// piece missing), false when it began while paused.
+  private var isHeldWhilePlaying = false
   private var sessionConfigured = false
   /// True from issuing a seek until its completion handler runs; periodic ticks in between are stale.
   private var isSeeking = false
@@ -103,6 +109,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     guard load(at: bookTime) else {
       player.pause()
       isPlaying = false
+      isHeldWhilePlaying = true
       return
     }
     activateSessionIfNeeded()
@@ -113,6 +120,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func applyPause(at bookTime: TimeInterval) {
     player.pause()
     isPlaying = false
+    isHeldWhilePlaying = false
     // A pause never suspends the group, so a missing piece is not requested here.
     load(at: bookTime, requestIfMissing: false)
   }
@@ -122,6 +130,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     guard load(at: bookTime) else {
       player.pause()
       isPlaying = false
+      isHeldWhilePlaying = wasPlaying
       return
     }
     if wasPlaying { player.playImmediately(atRate: rate) }
@@ -141,6 +150,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   // or play reported after that would only ever move this device.
 
   func userTogglePlay() {
+    // The group is playing but held for our piece: toggling would only send everyone a second play
+    // (or, to the user's ear, a pause that stops the group for no reason). Do nothing; say we wait.
+    // A paused seek into a missing piece is different: Play there still starts the group (R14).
+    if isWaitingForPiece, isHeldWhilePlaying {
+      onToggleWhileWaiting?()
+      return
+    }
     if isPlaying {
       // Use the real position, not the last 0.5 s tick, and don't re-seek.
       let position = currentPosition
@@ -254,9 +270,11 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       return
     }
     // A missing next piece pauses us locally; the service decides what to tell the others.
-    if load(next, offset: 0, bookTime: next.bookStart, requestIfMissing: true), isPlaying {
-      player.playImmediately(atRate: rate)
+    let wasPlaying = isPlaying
+    if load(next, offset: 0, bookTime: next.bookStart, requestIfMissing: true) {
+      if isPlaying { player.playImmediately(atRate: rate) }
     } else {
+      isHeldWhilePlaying = wasPlaying
       isPlaying = false
     }
   }

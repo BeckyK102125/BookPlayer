@@ -175,6 +175,12 @@ private final class DelegatingCoordinatorControl: ListenTogetherCoordinatorContr
 }
 
 extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlDelegate {
+  /// Runs `work` on the main actor, in the order the commands were issued (M9): the main queue is FIFO,
+  /// while separate `Task { @MainActor in }` hops have no ordering guarantee between them.
+  nonisolated private static func onMainInOrder(_ work: @escaping @MainActor @Sendable () -> Void) {
+    DispatchQueue.main.async { MainActor.assumeIsolated { work() } }
+  }
+
   nonisolated func playbackCoordinator(
     _ coordinator: AVDelegatingPlaybackCoordinator,
     didIssue playCommand: AVDelegatingPlaybackCoordinatorPlayCommand,
@@ -184,7 +190,7 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     let time: TimeInterval? = cmTime.isNumeric ? cmTime.seconds : nil
     let rate = playCommand.rate
     let matches = playCommand.expectedCurrentItemIdentifier == itemIdentifier
-    Task { @MainActor in
+    Self.onMainInOrder {
       if matches, let time { self.handlePlay(itemTime: time, rate: rate) }
       completionHandler()
     }
@@ -197,7 +203,7 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
   ) {
     let matches = pauseCommand.expectedCurrentItemIdentifier == itemIdentifier
     let shouldBuffer = pauseCommand.shouldBufferInAnticipationOfPlayback
-    Task { @MainActor in
+    Self.onMainInOrder {
       if matches {
         // The pause command carries no time; hold at the target's own position.
         self.handlePause(itemTime: self.target?.bookTime ?? 0, shouldBuffer: shouldBuffer)
@@ -215,7 +221,7 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     let time: TimeInterval? = cmTime.isNumeric ? cmTime.seconds : nil
     let shouldBuffer = seekCommand.shouldBufferInAnticipationOfPlayback
     let matches = seekCommand.expectedCurrentItemIdentifier == itemIdentifier
-    Task { @MainActor in
+    Self.onMainInOrder {
       if matches, let time { self.handleSeek(itemTime: time, shouldBuffer: shouldBuffer) }
       completionHandler()
     }
@@ -227,7 +233,7 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
     completionHandler: @escaping @Sendable () -> Void
   ) {
     let matches = bufferingCommand.expectedCurrentItemIdentifier == itemIdentifier
-    Task { @MainActor in
+    Self.onMainInOrder {
       if matches, !self.handleBuffering() { self.waitForPiece() }
       completionHandler()
     }

@@ -174,4 +174,43 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertTrue(events.isEmpty)
     player.stop()
   }
+
+  /// Minor (fix wave 2): the group is playing but held for this device's piece. Play/pause then sends
+  /// nothing to the others (no pause to the group) and asks the service to say we are waiting.
+  func testToggleWhileHeldForAPieceSendsNothing() {
+    let player = ListenerPlayer(manifest: manifest())
+    var events: [LocalPlaybackEvent] = []
+    var waitingToggles = 0
+    player.onToggleWhileWaiting = { waitingToggles += 1 }
+    player.localEvents.sink { events.append($0) }.store(in: &bag)
+
+    player.applyPlay(at: 0, rate: 1)          // the group plays; piece 0 is missing
+    XCTAssertTrue(player.isWaitingForPiece)
+
+    player.userTogglePlay()
+    player.userTogglePlay()
+
+    XCTAssertTrue(events.isEmpty, "nothing is sent to the group")
+    XCTAssertEqual(waitingToggles, 2)
+    XCTAssertFalse(player.isPlaying)
+    player.stop()
+  }
+
+  /// R14 still holds after a paused seek into a missing piece: Play starts the group (held for us).
+  func testPlayAfterAPausedSeekIntoAMissingPieceIsStillSent() {
+    let player = ListenerPlayer(manifest: manifest())
+    var events: [LocalPlaybackEvent] = []
+    var waitingToggles = 0
+    player.onToggleWhileWaiting = { waitingToggles += 1 }
+    player.localEvents.sink { events.append($0) }.store(in: &bag)
+
+    player.applySeek(to: 2)                   // paused; piece 0 is missing
+    XCTAssertTrue(player.isWaitingForPiece)
+    player.userTogglePlay()
+
+    XCTAssertEqual(events, [.played(at: 2, rate: 1)])
+    XCTAssertEqual(waitingToggles, 0)
+    player.stop()
+  }
 }
+

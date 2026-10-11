@@ -157,7 +157,9 @@ struct MainView: View {
         state: sharePlayService.state, hasListener: sharePlayService.listener != nil)
       {
       case .listener: sharePlayService.listener?.userTogglePlay()
-      case .nothing: break  // joined, book not here yet: the library book must stay paused
+      case .nothing:
+        // Joined, book not here yet: the library book must stay paused; say why nothing happened.
+        ListenTogetherPresentation.announceNotAvailableYet()
       case .libraryPlayer: playerManager.playPause()
       }
     }

@@ -28,6 +28,9 @@ enum ListenTogetherSharingSheetOutcome: Equatable {
 protocol ListenTogetherSharingSheetPresenting: AnyObject {
   /// False when there is nowhere to present the sheet (no window yet).
   var canPresentSharingSheet: Bool { get }
+  /// True while the sheet is on screen. The service's watchdog never releases (or announces over) an
+  /// open sheet.
+  var isSharingSheetPresented: Bool { get }
   /// Presents the sheet silently and returns once it has finished.
   func presentSharingSheet(for activity: ListenTogetherActivity) async -> ListenTogetherSharingSheetOutcome
 }

@@ -39,9 +39,8 @@ struct BookPlaybackToggleIntent: AudioPlaybackIntent {
     #endif
 
     if playerLoaderService.playerManager.currentItem?.relativePath == relativePath {
-      await MainActor.run {
-        playerLoaderService.playerManager.playPause()
-      }
+      // Starting the book asks first during a Listen Together listener session (main app only).
+      await playerLoaderService.playPauseLoadedBook()
     } else {
       #if MAIN_APP
       try await AppServices.shared.loadAndKeepAlive(

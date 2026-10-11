@@ -140,9 +140,18 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
     startListening(at: 40)
     XCTAssertEqual(router.handle(.play), .success)
     XCTAssertEqual(events, [.played(at: 40, rate: 1)])
+    // The piece is missing, so the group is now held for it: another press sends nothing to the group
+    // (fix wave 2: no second play, never a pause); the service says "waiting" instead.
     events = []
     XCTAssertEqual(router.handle(.togglePlayPause), .success)
-    XCTAssertEqual(events.count, 1)
+    XCTAssertEqual(router.handle(.play), .success)
+    XCTAssertEqual(events, [])
+  }
+
+  func testToggleReportsAPlay() {
+    startListening(at: 40)
+    XCTAssertEqual(router.handle(.togglePlayPause), .success)
+    XCTAssertEqual(events, [.played(at: 40, rate: 1)])
   }
 
   func testPauseWhilePausedDoesNothing() {

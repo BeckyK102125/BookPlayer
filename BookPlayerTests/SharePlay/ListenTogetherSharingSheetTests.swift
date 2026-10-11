@@ -337,12 +337,91 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertEqual(posted, [didntStartText])
     XCTAssertTrue(isShare(service.action(forIncoming: shareID), late: true), "a late session still starts")
   }
+
+  // MARK: Fix wave 2
+
+  private let startedText = "listen_together_started_late_announcement".localized
+
+  /// W-I2: the watchdog never releases (or speaks over) a sheet that is still on screen. It checks again
+  /// later and releases once the sheet has gone.
+  func testWatchdogWaitsWhileTheSheetIsStillOpen() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    presenter.holdsResult = true
+    presenter.isSharingSheetPresented = true
+    let scheduler = ManualScheduler()
+    let service = makeService(presenter: presenter, scheduler: scheduler)
+    let task = Task { await service.startSharing(self.makeItem()) }
+    while presenter.presented.isEmpty { await Task.yield() }
+
+    scheduler.advance(to: .seconds(121))
+    XCTAssertTrue(service.isPreparing, "the sheet is still open: nothing released")
+    scheduler.advance(to: .seconds(239))
+    XCTAssertTrue(service.isPreparing)
+    XCTAssertEqual(posted, [], "nothing is said over the open sheet")
+
+    presenter.isSharingSheetPresented = false
+    scheduler.advance(to: .seconds(241))
+    XCTAssertFalse(service.isPreparing, "released at the next check once the sheet is gone")
+    scheduler.advance(by: .milliseconds(700))
+    XCTAssertEqual(posted, [didntStartText])
+
+    presenter.release(.cancelled)
+    await task.value
+  }
+
+  func testSheetWatchdogAction() {
+    typealias S = SharePlaySessionService
+    XCTAssertEqual(S.sheetWatchdogAction(isSheetStillPresented: true), .checkAgainLater)
+    XCTAssertEqual(S.sheetWatchdogAction(isSheetStillPresented: false), .release)
+  }
+
+  /// Minor: our own session after the sharing sheet is announced as started (once); a FaceTime share
+  /// (no sheet) is not; a late one is.
+  func testStartedIsAnnouncedOnceForSheetShares() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    let service = makeService(presenter: presenter, scheduler: ManualScheduler())
+    let shareID = try await startSentShare(service, presenter)
+    XCTAssertEqual(service.startedAnnouncement(forShare: shareID, late: false), startedText)
+    XCTAssertEqual(service.startedAnnouncement(forShare: shareID, late: true), startedText)
+    XCTAssertNil(service.startedAnnouncement(forShare: UUID(), late: false), "FaceTime share: no sheet")
+  }
+
+  /// Minor: when a newer late share replaces an older one, the older one is cancelled, so its session
+  /// can't come back as a self-invitation.
+  func testReplacedLateShareIsCancelled() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    let scheduler = ManualScheduler()
+    let service = makeService(presenter: presenter, scheduler: scheduler)
+    let first = try await startSentShare(service, presenter)
+    scheduler.advance(to: .seconds(21))          // first released (late share)
+    let second = try await startSentShare(service, presenter)
+    scheduler.advance(to: .seconds(42))          // second released, replaces the first
+
+    XCTAssertTrue(isLeave(service.action(forIncoming: first)), "the replaced share is left")
+    XCTAssertTrue(isShare(service.action(forIncoming: second), late: true))
+  }
+
+  /// Change B minor: "didn't start" is not spoken over an invitation that is showing.
+  func testDidntStartIsNotSpokenWhileAnInvitationShows() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    let scheduler = ManualScheduler()
+    let service = makeService(presenter: presenter, scheduler: scheduler)
+    _ = try await startSentShare(service, presenter)
+    scheduler.advance(to: .seconds(20))          // released; the announcement waits 0.7 s
+    service.showInvitation(title: "Moby Dick", author: "Herman Melville")
+    posted = []
+
+    scheduler.advance(to: .seconds(21))
+
+    XCTAssertFalse(posted.contains(didntStartText))
+  }
 }
 
 @MainActor
 final class FakeSharingSheetPresenter: ListenTogetherSharingSheetPresenting {
   var outcome: ListenTogetherSharingSheetOutcome
   var canPresentSharingSheet = true
+  var isSharingSheetPresented = false
   /// When true, the sheet does not report back until `release(_:)`.
   var holdsResult = false
   var presented: [ListenTogetherActivity] = []
