@@ -39,12 +39,16 @@ enum ListenTogetherStatus {
     return visibleText(for: state)
   }
 
-  /// The End button's hint; nil when there is nothing to end.
-  static func endHint(for state: ListenTogetherState) -> String? {
+  /// The End button's hint; nil when there is nothing to end. A listener playing their own copy hears
+  /// that it is kept (nothing was downloaded, so nothing is deleted).
+  static func endHint(for state: ListenTogetherState, usesOwnCopy: Bool = false) -> String? {
     switch state {
     case .preparing: return "listen_together_end_hint_preparing".localized
     case .sharing: return "listen_together_end_hint_sharer".localized
-    case .listening: return "listen_together_end_hint_listener".localized
+    case .listening:
+      return usesOwnCopy
+        ? "listen_together_end_hint_listener_own_copy".localized
+        : "listen_together_end_hint_listener".localized
     case .idle, .needsFaceTime, .invitation, .ended: return nil
     }
   }

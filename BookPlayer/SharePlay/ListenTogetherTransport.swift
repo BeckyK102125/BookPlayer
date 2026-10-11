@@ -6,7 +6,11 @@ import UniformTypeIdentifiers
 
 enum TransportEvent: Equatable {
   case message(ListenTogetherMessage)
-  case participantsChanged(count: Int)
+  /// The roster. `ids` identifies each participant (empty when unknown, as in older tests): with ids,
+  /// people who join and decline (owners-only, no copy) are never counted or announced.
+  case participantsChanged(count: Int, ids: Set<UUID> = [])
+  /// A participant sent `.declinedNoCopy`: they couldn't join an owners-only share.
+  case participantDeclined(id: UUID?)
   case attachmentReceived(id: UUID, url: URL)
   case invalidated
 }
@@ -19,6 +23,12 @@ protocol ListenTogetherTransport: AnyObject {
   /// Uploads a file as a journal attachment and returns the attachment id.
   func upload(fileAt url: URL) async throws -> UUID
   func leave()
+  /// A listener playing their own copy never downloads: pieces in the journal are not loaded.
+  func stopReceivingPieces()
+}
+
+extension ListenTogetherTransport {
+  func stopReceivingPieces() {}
 }
 
 /// A received or sent audio piece. File-backed so a 90 MB piece never sits in memory.
@@ -52,6 +62,8 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
   private var seenAttachments = Set<UUID>()
   /// The sharer never downloads: set before its first upload, so its own attachments are not loaded back.
   private var isUploader = false
+  /// A listener with their own copy never downloads either (addendum 2).
+  private var receivesPieces = true
   let events: AsyncStream<TransportEvent>
   private let continuation: AsyncStream<TransportEvent>.Continuation
 
@@ -65,14 +77,19 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     self.continuation = continuation
 
     tasks.append(Task { [messenger, continuation] in
-      for await (message, _) in messenger.messages(of: ListenTogetherMessage.self) {
-        continuation.yield(.message(message))
+      for await (message, context) in messenger.messages(of: ListenTogetherMessage.self) {
+        if case .declinedNoCopy = message {
+          continuation.yield(.participantDeclined(id: context.source.id))
+        } else {
+          continuation.yield(.message(message))
+        }
       }
     })
     tasks.append(Task { [weak self] in
       guard let publisher = self?.session.$activeParticipants.values else { return }
       for await participants in publisher {
-        self?.continuation.yield(.participantsChanged(count: participants.count))
+        self?.continuation.yield(
+          .participantsChanged(count: participants.count, ids: Set(participants.map(\.id))))
       }
     })
     tasks.append(Task { [weak self] in
@@ -104,6 +121,10 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     return attachment.id
   }
 
+  func stopReceivingPieces() {
+    receivesPieces = false
+  }
+
   func leave() {
     tasks.forEach { $0.cancel() }
     tasks = []
@@ -112,7 +133,7 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
   }
 
   private func receive(_ attachments: [GroupSessionJournal.Attachment]) async {
-    guard !isUploader else { return }
+    guard !isUploader, receivesPieces else { return }
     for attachment in attachments where !seenAttachments.contains(attachment.id) {
       seenAttachments.insert(attachment.id)
       var loaded: URL?
@@ -129,6 +150,34 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
         seenAttachments.remove(attachment.id)
         Self.logger.error("Listen Together: could not load a piece: \(error.localizedDescription)")
       }
+    }
+  }
+}
+
+/// Owners-only share and no copy (addendum 2): the listener joins just long enough to tell the
+/// others "declined, no copy", then leaves. Messages can only be sent from a joined session. Never
+/// waits more than `limit`; the session is left whatever happens.
+@MainActor
+enum ListenTogetherDecline {
+  static let limit: Duration = .seconds(3)
+
+  static func sendAndLeave(_ session: GroupSession<ListenTogetherActivity>) {
+    let messenger = GroupSessionMessenger(session: session, deliveryMode: .reliable)
+    session.join()
+    Task { @MainActor in
+      await SharePlaySessionService.withTimeLimit(limit) {
+        for await state in session.$state.values {
+          if case .joined = state { break }
+          if case .invalidated = state { return }
+        }
+        do {
+          try await messenger.send(ListenTogetherMessage.declinedNoCopy)
+        } catch {
+          SharePlaySessionService.logger.error(
+            "Listen Together: could not send the decline: \(error.localizedDescription)")
+        }
+      }
+      session.leave()
     }
   }
 }

@@ -58,7 +58,7 @@ struct ListenTogetherBanner: View {
       guard isGone else { return }
       removed(.banner, hadFocus: hadFocusJustNow(nil))
     }
-    .onChange(of: ListenTogetherStatus.endHint(for: service.state) == nil) { _, endIsGone in
+    .onChange(of: ListenTogetherStatus.endHint(for: service.state, usesOwnCopy: service.isUsingOwnCopy) == nil) { _, endIsGone in
       guard endIsGone else { return }
       // The session ended some other way while the confirmation was up: nothing left to confirm.
       isConfirmingEnd = false
@@ -76,7 +76,7 @@ struct ListenTogetherBanner: View {
       }
       Button("cancel_button".localized, role: .cancel) {}
     } message: {
-      if let hint = ListenTogetherStatus.endHint(for: service.state) {
+      if let hint = ListenTogetherStatus.endHint(for: service.state, usesOwnCopy: service.isUsingOwnCopy) {
         Text(hint)
       }
     }
@@ -84,7 +84,7 @@ struct ListenTogetherBanner: View {
 
   private func content(visible: String) -> some View {
     let state = service.state
-    let endHint = ListenTogetherStatus.endHint(for: state)
+    let endHint = ListenTogetherStatus.endHint(for: state, usesOwnCopy: service.isUsingOwnCopy)
     let layout = dynamicTypeSize.isAccessibilitySize
       ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
       : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
@@ -257,7 +257,8 @@ struct ListenTogetherFirstShareNoteAlert: ViewModifier {
         .keyboardShortcut(.defaultAction)
         Button("cancel_button".localized, role: .cancel) { service.cancelFirstShareNote() }
       } message: {
-        Text("listen_together_first_share_message".localized)
+        // Depends on the sharer's setting: "Send it for this session" or owners only.
+        Text(ListenTogetherSharingMode.current(in: service.defaults).firstShareMessage)
       }
   }
 }

@@ -51,3 +51,43 @@ final class ListenTogetherOwnBookFeedback {
     try? await center.add(request)
   }
 }
+
+/// "You need your own copy" when the alert can't be shown (locked phone, app in the background): a
+/// queued announcement, plus a local notification only when notification permission was already
+/// granted (never asked), at most one per 30 seconds.
+@MainActor
+final class ListenTogetherNeedsCopyFeedback {
+  static let shared = ListenTogetherNeedsCopyFeedback()
+
+  var now: () -> Date = Date.init
+  /// Test seam: posts the notification (when permission allows).
+  var postNotification: @MainActor (ListenTogetherNeedsCopyNotice) -> Void = { notice in
+    Task { await ListenTogetherNeedsCopyFeedback.postNotificationIfAllowed(notice) }
+  }
+  private var notificationLimiter = ListenTogetherRepeatLimiter(
+    interval: ListenTogetherOwnBookFeedback.notificationInterval)
+
+  /// The spoken form: title, then message.
+  static func spokenText(for notice: ListenTogetherNeedsCopyNotice) -> String {
+    notice.title + ". " + notice.message
+  }
+
+  func speak(_ notice: ListenTogetherNeedsCopyNotice, announcer: ListenTogetherAnnouncer) {
+    announcer.announce(Self.spokenText(for: notice))
+    if notificationLimiter.allows(at: now()) { postNotification(notice) }
+  }
+
+  static func postNotificationIfAllowed(_ notice: ListenTogetherNeedsCopyNotice) async {
+    let center = UNUserNotificationCenter.current()
+    let settings = await center.notificationSettings()
+    switch settings.authorizationStatus {
+    case .authorized, .provisional, .ephemeral: break
+    default: return
+    }
+    let content = UNMutableNotificationContent()
+    content.title = notice.title
+    content.body = notice.message
+    let request = UNNotificationRequest(identifier: "listenTogether.needsCopy", content: content, trigger: nil)
+    try? await center.add(request)
+  }
+}

@@ -8,6 +8,9 @@ import SwiftUI
 struct ListenTogetherInvitationView: View {
   let title: String
   let author: String
+  /// The listener has the book (addendum 2, case A): the message and Join hint say BookPlayer plays
+  /// their copy. Heading, button labels, order and focus are the same in every case.
+  var usesOwnCopy = false
   let onJoin: () -> Void
   let onDecline: () -> Void
 
@@ -19,8 +22,14 @@ struct ListenTogetherInvitationView: View {
     case heading
   }
 
-  /// One paragraph: who is sharing what, then that joining gives no copy of the book.
+  /// One paragraph: who is sharing what, then what Join does with the book: plays your copy (case A),
+  /// or saves a copy for this session only (case B).
   private var message: String {
+    if usesOwnCopy {
+      return author.isEmpty
+        ? String.localizedStringWithFormat("listen_together_invitation_own_copy_no_author".localized, title)
+        : String.localizedStringWithFormat("listen_together_invitation_own_copy".localized, title, author)
+    }
     let invitation = author.isEmpty
       ? String.localizedStringWithFormat("listen_together_invitation_message_no_author".localized, title)
       : String.localizedStringWithFormat("listen_together_invitation_message".localized, title, author)
@@ -54,7 +63,8 @@ struct ListenTogetherInvitationView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityHint("listen_together_join_hint".localized)
+        .accessibilityHint(
+          (usesOwnCopy ? "listen_together_join_hint_own_copy" : "listen_together_join_hint").localized)
         .accessibilityIdentifier("listenTogether.join")
 
         Button(action: onDecline) {

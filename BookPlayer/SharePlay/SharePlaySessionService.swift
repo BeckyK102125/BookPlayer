@@ -39,6 +39,17 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   @Published private(set) var showsFirstShareNote = false
   /// The book to share once the first-share note has been read.
   private var firstShareNoteItem: PlayableItem?
+  /// The listener's own copy of the book in the invitation on screen (addendum 2), or nil when the
+  /// book would be sent. Set before the invitation state, so the sheet is built with the right words.
+  @Published private(set) var invitationOwnCopy: ListenTogetherOwnCopy?
+  /// "You need your own copy" (owners-only share, no copy): shown as a single-button alert by
+  /// MainCoordinator. The invitation has already been declined when this is set.
+  @Published private(set) var needsCopyNotice: ListenTogetherNeedsCopyNotice?
+  /// True while this device listens with its own copy: nothing is downloaded and the End hint says
+  /// the copy is kept.
+  @Published private(set) var isUsingOwnCopy = false
+
+  var invitationUsesOwnCopy: Bool { invitationOwnCopy != nil }
 
   // Collaborators. Internal (not private) so SharePlaySessionService+Session.swift can use them.
   let playerManager: PlayerManagerProtocol
@@ -74,6 +85,20 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   static let sheetWatchdog: Duration = .seconds(120)
   /// The sharer's end message gets this long before the session is left anyway.
   static let endMessageTimeout: Duration = .seconds(2)
+  /// Someone new in the roster is counted and announced only after this long, and only if they are
+  /// still there and did not decline (owners-only, no copy): so a decliner is never heard as
+  /// "Someone joined" and "Someone left".
+  static let joinConfirmationDelay: Duration = .seconds(2)
+  /// The sharer hears "Someone couldn't join" at most once per this many seconds.
+  static let declineAnnouncementInterval: TimeInterval = 10
+
+  /// Finds the listener's own copy of a shared book. Nil: never matches (tests, previews).
+  let ownCopyFinder: ListenTogetherOwnCopyFinding?
+  /// How long the invitation waits for the own-copy check. Past it, the invitation is shown as if
+  /// there were no copy (the wording never changes once the sheet is up).
+  var ownCopyCheckLimit: Duration = .seconds(3)
+  /// Test seam: the clock for the decline announcement's limit.
+  var now: () -> Date = Date.init
 
   // Active session. Reset by `tearDown(reason:)`.
   var role: Role?
@@ -96,6 +121,16 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var announcedWaiting = false
   /// Play/pause pressed again and again while held for a piece: "waiting" at most once per 3 s.
   var waitingToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
+  /// Roster by participant id (when the transport reports ids): everyone present, everyone counted
+  /// (present for `joinConfirmationDelay` and not declined), and everyone who declined.
+  var rosterIDs = Set<UUID>()
+  var confirmedParticipantIDs = Set<UUID>()
+  var declinedParticipantIDs = Set<UUID>()
+  var declineAnnouncementLimiter = ListenTogetherRepeatLimiter(interval: declineAnnouncementInterval)
+  /// Sharer: "Only people who have the book can join" for the running share: nothing is uploaded.
+  var sharingOwnersOnly = false
+  /// Sharer: the running share's fingerprint, sent in the manifest.
+  var sharingFingerprint: BookFingerprint?
   var localEventsBag = Set<AnyCancellable>()
   var eventLoop: Task<Void, Never>?
   /// Sharer: the export and upload pipeline. Cancelled by `tearDown`, so no export keeps running after End.
@@ -111,6 +146,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private var pendingShareID: UUID?
   private var pendingItem: PlayableItem?
   private var pendingInvitation: GroupSession<ListenTogetherActivity>?
+  /// What the waiting invitation offers; set while its own-copy check runs.
+  private var pendingInvitationDetails: ListenTogetherInvitationDetails?
+  private var invitationCheckTask: Task<Void, Never>?
   /// Shares cancelled while preparing (End, or Cancel in the sharing sheet). If `activate()` was already
   /// in flight, their session can still arrive; it is left, never offered as an invitation. Each id is
   /// removed once seen. A cancelled share whose session never arrives stays here until relaunch; that
@@ -130,6 +168,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     storage: ShareStorage = ShareStorage(),
     announcer: ListenTogetherAnnouncer? = nil,
     defaults: UserDefaults = .standard,
+    ownCopyFinder: ListenTogetherOwnCopyFinding? = nil,
     transportFactory: @escaping @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
       = { GroupSessionTransport(session: $0, downloadFolder: $1) }
   ) {
@@ -139,6 +178,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.announcer = announcer ?? ListenTogetherAnnouncer()
     self.transportFactory = transportFactory
     self.defaults = defaults
+    self.ownCopyFinder = ownCopyFinder
     let groupStateObserver = GroupStateObserver()
     self.isEligibleForGroupSession = { groupStateObserver.isEligibleForGroupSession }
   }
@@ -150,6 +190,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Setters for SharePlaySessionService+Session.swift; the published properties stay read-only elsewhere.
   func setState(_ newState: ListenTogetherState) { state = newState }
   func setListener(_ player: ListenerPlayer?) { listener = player }
+  func setOwnCopy(_ value: Bool) { isUsingOwnCopy = value }
 
   // MARK: Starting and joining
 
@@ -224,7 +265,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// On a FaceTime call: the system confirms, then the session arrives through `sessions()`.
   private func activateOnCall(_ item: PlayableItem) async {
     guard let shareID = beginPreparing(item) else { return }
-    let activity = ListenTogetherActivity(shareID: shareID, title: item.title, author: item.author)
+    let activity = await makeActivity(shareID: shareID, item: item)
+    guard pendingShareID == shareID else { return }
 
     let result = await activity.prepareForActivation()
     // `end()` while the system sheet was up cancels the share.
@@ -252,6 +294,23 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     }
   }
 
+  /// The share's activity: the book, its fingerprint (so listeners can find their own copy before the
+  /// invitation is shown) and the sharer's setting at this moment (a later change applies to the next
+  /// share). The 64 KB sample hash is read off the main actor.
+  func makeActivity(shareID: UUID, item: PlayableItem) async -> ListenTogetherActivity {
+    let ownersOnly = ListenTogetherSharingMode.current(in: defaults) == .ownersOnly
+    return ListenTogetherActivity(
+      shareID: shareID, title: item.title, author: item.author,
+      fingerprint: await Self.fingerprint(for: item), ownersOnly: ownersOnly)
+  }
+
+  static func fingerprint(for item: PlayableItem) async -> BookFingerprint? {
+    guard let files = try? BookSplitter().sourceFiles(for: item), let first = files.first else { return nil }
+    let hash = await BookFingerprint.sampleHashOffMain(of: first.url)
+    return BookFingerprint(
+      title: item.title, author: item.author, duration: item.duration, sourceFiles: files, sampleHash: hash)
+  }
+
   // MARK: Sharing sheet (no FaceTime call)
 
   /// Records the share as pending without showing `.preparing`: the sheet has the screen, and a
@@ -263,7 +322,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if state == .needsFaceTime { state = .idle }
     // If the sheet never reports back, don't leave Listen Together hidden (and invitations ignored).
     scheduleSheetWatchdog(shareID)
-    let activity = ListenTogetherActivity(shareID: shareID, title: item.title, author: item.author)
+    let activity = await makeActivity(shareID: shareID, item: item)
+    guard pendingShareID == shareID else { return }
     let outcome = await presenter.presentSharingSheet(for: activity)
     sharingSheetFinished(outcome, shareID: shareID)
   }
@@ -416,10 +476,35 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     return item
   }
 
+  /// What Join does with the invitation's own-copy match (addendum 2).
+  enum JoinPlan: Equatable {
+    /// Play the listener's own copy: nothing is downloaded.
+    case ownCopy
+    /// Get the book from the sharer (today's path).
+    case download
+    /// Owners-only, and the copy found for the invitation can no longer be used: decline.
+    case declineCopyUnusable
+  }
+
+  /// The match is re-checked at Join: a copy moved or deleted since the invitation is never started.
+  nonisolated static func joinPlan(hadOwnCopy: Bool, isStillAvailable: Bool, ownersOnly: Bool) -> JoinPlan {
+    if hadOwnCopy, isStillAvailable { return .ownCopy }
+    if hadOwnCopy, ownersOnly { return .declineCopyUnusable }
+    return .download
+  }
+
   func joinInvitation() {
     guard let session = pendingInvitation, !isInSession else { return }
-    pendingInvitation = nil
-    invitationBag.removeAll()
+    let candidate = invitationOwnCopy
+    let plan = Self.joinPlan(
+      hadOwnCopy: candidate != nil, isStillAvailable: candidate?.isStillAvailable() ?? false,
+      ownersOnly: session.activity.isOwnersOnly)
+    if plan == .declineCopyUnusable {
+      declineWithoutCopy(bookTitle: session.activity.title, cause: .copyUnusable)
+      return
+    }
+    let ownCopy = plan == .ownCopy ? candidate : nil
+    clearInvitation()
     let shareID = session.activity.shareID
     let folder: URL
     do {
@@ -433,11 +518,16 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     playerManager.pause()
     joinedTitle = session.activity.title
     let transport = transportFactory(session, folder)
+    // Before the join: a listener with their own copy never loads a piece from the journal.
+    if ownCopy != nil { transport.stopReceivingPieces() }
     activeSession = session
     session.join()
     // A-I2: set up in the same main-actor turn as the join, so End (or a second invitation) can never
     // fall into a gap where the session is joined but this device is not yet listening.
-    if !startListening(with: transport, shareID: shareID) {
+    if !startListening(
+      with: transport, shareID: shareID, ownCopy: ownCopy, title: session.activity.title,
+      author: session.activity.author, shared: session.activity.fingerprint)
+    {
       activeSession = nil
       joinedTitle = nil
       transport.leave()
@@ -448,9 +538,34 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func declineInvitation() {
     guard pendingInvitation != nil else { return }
     pendingInvitation?.leave()
-    pendingInvitation = nil
-    invitationBag.removeAll()
+    clearInvitation()
     state = .idle
+  }
+
+  /// Forgets the waiting invitation (answered, declined or gone).
+  private func clearInvitation() {
+    pendingInvitation = nil
+    pendingInvitationDetails = nil
+    invitationOwnCopy = nil
+    invitationCheckTask?.cancel()
+    invitationCheckTask = nil
+    invitationBag.removeAll()
+  }
+
+  /// Owners-only share and this device can't use a copy: the invitation is declined with a small
+  /// "declined, no copy" message (so the sharer can hear that someone couldn't join), and the
+  /// single-button "You need your own copy" alert explains it. No second action is needed: the
+  /// decline is already done when the alert appears, and OK or escape only closes it.
+  func declineWithoutCopy(bookTitle: String, cause: ListenTogetherNeedsCopyNotice.Cause) {
+    if let session = pendingInvitation { ListenTogetherDecline.sendAndLeave(session) }
+    clearInvitation()
+    if isShowingInvitation { state = .idle }
+    needsCopyNotice = ListenTogetherNeedsCopyNotice(bookTitle: bookTitle, cause: cause)
+  }
+
+  /// The "You need your own copy" alert was closed (OK or escape), or could not be shown.
+  func acknowledgeNeedsCopyNotice() {
+    needsCopyNotice = nil
   }
 
   /// Leave was chosen on "Leave Listen Together to play this book?": the listener session ends with
@@ -553,6 +668,12 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     heldAttachments = [:]
     placedPieces = []
     announcedWaiting = false
+    isUsingOwnCopy = false
+    rosterIDs = []
+    confirmedParticipantIDs = []
+    declinedParticipantIDs = []
+    sharingOwnersOnly = false
+    sharingFingerprint = nil
     self.shareID = nil
     if leaveTransport { transport?.leave() }
     if let shareID { storage.remove(shareID: shareID) }
@@ -651,7 +772,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     activeSession = session
     session.join()
     // A-I2: the session's bookkeeping happens in this turn; only the export and upload are async.
-    guard startSharingSession(with: transport, item: item, shareID: shareID) else {
+    guard startSharingSession(
+      with: transport, item: item, shareID: shareID, ownersOnly: session.activity.isOwnersOnly,
+      fingerprint: session.activity.fingerprint)
+    else {
       activeSession = nil
       transport.leave()
       return
@@ -668,9 +792,17 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     return "listen_together_started_late_announcement".localized
   }
 
+  /// Someone else's share arrived. Their copy check runs first (at most `ownCopyCheckLimit`), so the
+  /// invitation is shown once, with the right words, or not at all (owners-only and no copy).
   private func offerInvitation(_ session: GroupSession<ListenTogetherActivity>) {
     pendingInvitation = session
-    showInvitation(title: session.activity.title, author: session.activity.author)
+    let details = ListenTogetherInvitationDetails(activity: session.activity)
+    invitationCheckTask = Task { [weak self, weak session] in
+      await self?.prepareInvitation(details) { [weak self, weak session] in
+        guard let self, let session else { return false }
+        return self.pendingInvitation === session
+      }
+    }
     // If the session goes away before the user answers, drop the invitation.
     session.$state
       .receive(on: DispatchQueue.main)
@@ -679,12 +811,38 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
           guard let self, let session, self.pendingInvitation === session,
             case .invalidated = newState
           else { return }
-          self.pendingInvitation = nil
-          self.invitationBag.removeAll()
+          self.clearInvitation()
           self.state = .idle
         }
       }
       .store(in: &invitationBag)
+  }
+
+  /// Looks for the listener's own copy, then shows the invitation (cases A and B) or declines it with
+  /// the "You need your own copy" alert (case C). `isCurrent` is false once the invitation was
+  /// answered or went away during the check. Test seam (no GroupSession needed).
+  func prepareInvitation(
+    _ details: ListenTogetherInvitationDetails, isCurrent: @MainActor () -> Bool = { true }
+  ) async {
+    pendingInvitationDetails = details
+    let ownCopy = await findOwnCopy(for: details.fingerprint)
+    guard isCurrent(), pendingInvitationDetails?.shareID == details.shareID, !isInSession else { return }
+    switch ListenTogetherInvitationKind.decide(hasOwnCopy: ownCopy != nil, ownersOnly: details.ownersOnly) {
+    case .ownCopy, .sendCopy:
+      invitationOwnCopy = ownCopy
+      showInvitation(title: details.title, author: details.author)
+    case .needsOwnCopy:
+      // No invitation sheet and no invitation announcement: the alert is the only speech.
+      declineWithoutCopy(bookTitle: details.title, cause: .notFound)
+    }
+  }
+
+  /// The own-copy check, limited to `ownCopyCheckLimit` (then: no copy).
+  private func findOwnCopy(for fingerprint: BookFingerprint?) async -> ListenTogetherOwnCopy? {
+    guard let fingerprint, let finder = ownCopyFinder else { return nil }
+    return await ListenTogetherFirstResult.value(within: ownCopyCheckLimit) {
+      await finder.findOwnCopy(matching: fingerprint)
+    }
   }
 
   /// Shows the invitation and announces it (queued), so a VoiceOver user hears it whatever is on
@@ -716,5 +874,58 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       guard let self, self.endedGeneration == generation, case .ended = self.state else { return }
       self.state = .idle
     }
+  }
+}
+
+/// What a listener knows about an incoming share before joining: everything comes from the activity.
+struct ListenTogetherInvitationDetails: Equatable {
+  let shareID: UUID
+  let title: String
+  let author: String
+  let fingerprint: BookFingerprint?
+  let ownersOnly: Bool
+
+  init(shareID: UUID, title: String, author: String, fingerprint: BookFingerprint?, ownersOnly: Bool) {
+    self.shareID = shareID
+    self.title = title
+    self.author = author
+    self.fingerprint = fingerprint
+    self.ownersOnly = ownersOnly
+  }
+
+  init(activity: ListenTogetherActivity) {
+    self.init(
+      shareID: activity.shareID, title: activity.title, author: activity.author,
+      fingerprint: activity.fingerprint, ownersOnly: activity.isOwnersOnly)
+  }
+}
+
+/// Runs `work` and returns its result, or nil once `limit` has passed (the work is then cancelled).
+@MainActor
+final class ListenTogetherFirstResult<Value> {
+  private var continuation: CheckedContinuation<Value?, Never>?
+  private var tasks: [Task<Void, Never>] = []
+
+  static func value(within limit: Duration, _ work: @escaping @MainActor () async -> Value?) async -> Value? {
+    let race = ListenTogetherFirstResult<Value>()
+    return await withCheckedContinuation { continuation in
+      race.continuation = continuation
+      race.tasks.append(Task { @MainActor in
+        let value = await work()
+        race.finish(value)
+      })
+      race.tasks.append(Task { @MainActor in
+        try? await Task.sleep(for: limit)
+        race.finish(nil)
+      })
+    }
+  }
+
+  private func finish(_ value: Value?) {
+    guard let continuation else { return }
+    self.continuation = nil
+    tasks.forEach { $0.cancel() }
+    tasks = []
+    continuation.resume(returning: value)
   }
 }

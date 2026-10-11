@@ -20,6 +20,11 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
       .sink { [weak self] state in
         MainActor.assumeIsolated { self?.listenTogetherStateChanged(state) }
       }
+    needsCopySubscription = sharePlayService.$needsCopyNotice
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] notice in
+        MainActor.assumeIsolated { self?.needsCopyNoticeChanged(notice) }
+      }
   }
 
   private func listenTogetherStateChanged(_ state: ListenTogetherState) {
@@ -124,6 +129,7 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
     let view = ListenTogetherInvitationView(
       title: title,
       author: author,
+      usesOwnCopy: sharePlayService.invitationUsesOwnCopy,
       onJoin: { [weak self] in self?.joinListenTogether() },
       onDecline: { [weak self] in self?.sharePlayService.declineInvitation() }
     )
@@ -174,6 +180,108 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
     else { return }
     invitationController = nil
     if sharePlayService.hasPendingInvitation { sharePlayService.declineInvitation() }
+  }
+}
+
+// MARK: "You need your own copy" (addendum 2, owners-only share and no copy)
+
+extension MainCoordinator {
+  enum NeedsCopyPresentationStep: Equatable {
+    case shown
+    case retry
+    /// Not shown after every attempt (locked, in the background): say it instead (announcement, and a
+    /// notification only with permission the user already gave).
+    case speakInstead
+    case notNeeded
+  }
+
+  /// What to do after attempt number `attempt` (1-based). Same 10 second window as the invitation, and
+  /// shown only while the app is active. Test seam.
+  nonisolated static func needsCopyPresentationStep(
+    presented: Bool, attempt: Int, hasNotice: Bool
+  ) -> NeedsCopyPresentationStep {
+    if presented { return .shown }
+    guard hasNotice else { return .notNeeded }
+    return attempt < invitationMaxAttempts ? .retry : .speakInstead
+  }
+
+  fileprivate func needsCopyNoticeChanged(_ notice: ListenTogetherNeedsCopyNotice?) {
+    guard notice != nil else { return }
+    if let controller = needsCopyAlertController {
+      // A newer notice replaces one still on screen (rare: two owners-only shares in a row).
+      needsCopyAlertController = nil
+      controller.presentingViewController?.dismiss(animated: false)
+    }
+    needsCopyPresentationGeneration += 1
+    attemptNeedsCopyPresentation(generation: needsCopyPresentationGeneration, attempt: 1)
+  }
+
+  private func attemptNeedsCopyPresentation(generation: Int, attempt: Int) {
+    guard generation == needsCopyPresentationGeneration, needsCopyAlertController == nil else { return }
+    let notice = sharePlayService.needsCopyNotice
+    var presented = false
+    if let notice, UIApplication.shared.applicationState == .active {
+      presented = presentNeedsCopyAlert(notice)
+    }
+    switch Self.needsCopyPresentationStep(presented: presented, attempt: attempt, hasNotice: notice != nil) {
+    case .shown, .notNeeded:
+      return
+    case .retry:
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.invitationRetryDelay) { [weak self] in
+        MainActor.assumeIsolated {
+          self?.attemptNeedsCopyPresentation(generation: generation, attempt: attempt + 1)
+        }
+      }
+    case .speakInstead:
+      if let notice { ListenTogetherNeedsCopyFeedback.shared.speak(notice, announcer: sharePlayService.announcer) }
+      sharePlayService.acknowledgeNeedsCopyNotice()
+    }
+  }
+
+  private func presentNeedsCopyAlert(_ notice: ListenTogetherNeedsCopyNotice) -> Bool {
+    guard let top = topmostPresenter() else { return false }
+    let alert = ListenTogetherNeedsCopyAlert.make(notice) { [weak self] in
+      guard let self else { return }
+      self.needsCopyAlertController = nil
+      if self.sharePlayService.needsCopyNotice?.id == notice.id { self.sharePlayService.acknowledgeNeedsCopyNotice() }
+    }
+    needsCopyAlertController = alert
+    top.present(alert, animated: true)
+    guard alert.presentingViewController != nil else {
+      needsCopyAlertController = nil
+      return false
+    }
+    return true
+  }
+}
+
+/// The single-button "You need your own copy" alert. OK is the cancel-style action, so VoiceOver's
+/// escape (two-finger scrub) closes it the same way; there is no choice to make. The invitation was
+/// already declined, so closing it (any way, including being taken down) only clears the notice.
+enum ListenTogetherNeedsCopyAlert {
+  @MainActor
+  static func make(
+    _ notice: ListenTogetherNeedsCopyNotice, onClose: @escaping @MainActor () -> Void
+  ) -> ListenTogetherLeaveAlertController {
+    let once = ListenTogetherOnce(onClose)
+    let alert = ListenTogetherLeaveAlertController(title: notice.title, message: notice.message, preferredStyle: .alert)
+    alert.addAction(UIAlertAction(title: "ok_button".localized, style: .cancel) { _ in
+      MainActor.assumeIsolated { once.run() }
+    })
+    alert.onDisappear = { MainActor.assumeIsolated { once.run() } }
+    return alert
+  }
+}
+
+/// Runs an action once.
+@MainActor
+final class ListenTogetherOnce {
+  private var action: (@MainActor () -> Void)?
+  init(_ action: @escaping @MainActor () -> Void) { self.action = action }
+  func run() {
+    guard let action else { return }
+    self.action = nil
+    action()
   }
 }
 

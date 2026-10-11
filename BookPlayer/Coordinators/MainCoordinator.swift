@@ -41,6 +41,10 @@ class MainCoordinator: NSObject {
   weak var sharingSheetController: UIViewController?
   /// True while "Leave Listen Together to play this book?" is on screen (one alert at a time).
   var isAskingToLeaveListenTogether = false
+  /// "You need your own copy" while it is on screen, and its retry chain (addendum 2).
+  weak var needsCopyAlertController: UIViewController?
+  var needsCopyPresentationGeneration = 0
+  var needsCopySubscription: AnyCancellable?
 
   var playerState: PlayerState { AppServices.shared.playerState }
 
@@ -80,7 +84,11 @@ class MainCoordinator: NSObject {
 
     self.hardcoverService = coreServices.hardcoverService
     self.preferencesService = coreServices.preferencesService
-    self.sharePlayService = SharePlaySessionService(playerManager: coreServices.playerManager)
+    // The own-copy finder only reads the library (addendum 2: "Both have the book").
+    self.sharePlayService = SharePlaySessionService(
+      playerManager: coreServices.playerManager,
+      ownCopyFinder: LibraryOwnCopyFinder(
+        libraryService: coreServices.libraryService, playbackService: coreServices.playbackService))
 
     ThemeManager.shared.libraryService = libraryService
 

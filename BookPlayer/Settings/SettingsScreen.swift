@@ -10,7 +10,7 @@ import Foundation
 
 enum SettingsScreen: String, Hashable {
   case themes, icons
-  case controls, autoplay, autolock
+  case controls, autoplay, autolock, listenTogether
   case storage, syncbackup
   case shortcuts
   case mediaServers, hardcover

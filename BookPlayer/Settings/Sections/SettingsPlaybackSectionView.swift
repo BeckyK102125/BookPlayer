@@ -11,6 +11,8 @@ import SwiftUI
 
 struct SettingsPlaybackSectionView: View {
   @EnvironmentObject var theme: ThemeViewModel
+  @AppStorage(ListenTogetherSharingMode.defaultsKey) private var listenTogetherMode: ListenTogetherSharingMode =
+    ListenTogetherSharingMode.defaultMode
 
   var body: some View {
     ThemedSection {
@@ -26,6 +28,12 @@ struct SettingsPlaybackSectionView: View {
         Text("settings_autlock_section_title")
           .bpFont(.body)
       }
+      NavigationLink(value: SettingsScreen.listenTogether) {
+        Text("settings_listen_together_title".localized)
+          .bpFont(.body)
+      }
+      // The current choice in short form, so it is heard without opening the screen.
+      .accessibilityValue(listenTogetherMode.shortValue)
     } header: {
       Text("settings_playback_title")
         .bpFont(.subheadline)

@@ -645,3 +645,73 @@ Parent ab5df6f7. Inputs: wave-2 code review (C1 + minors), fix-wave-2-a11y-revie
   no-answer alert test (fixed 0.6 s wait too short under full-suite load): waits are now bounded polls.
 - TSan (18 SharePlay classes, -enableThreadSanitizer YES): "Executed 202 tests, with 0 failures",
   ** TEST SUCCEEDED **, 0 ThreadSanitizer warnings, no restarts. Strict concurrency not re-run this round.
+
+## 2026-10-11 - listen-together-own-copy - addendum 2 "Both have the book"
+Parent 9c70dd06 (develop). Inputs: docs/superpowers/specs/2026-10-10-shareplay-listen-together-addendum-2.md
+(committed here), own-copy-a11y-guidance.md, controller-notes.md. Report: own-copy-report.md.
+- Fingerprint: new BookPlayer/SharePlay/BookFingerprint.swift. Normalised title/author (case and diacritic
+  folded, whitespace/punctuation trimmed, inner whitespace collapsed), total duration, per file book start
+  + duration + byte size, SHA-256 hex of the first 64 KB of the first file (FileHandle read, no decoding,
+  Task.detached so it never runs on the main actor). BookFingerprintMatcher: layout (±2 s total and per
+  file, same count) AND (hash equal OR title AND author AND every size within ±1 %); bestMatch picks the
+  most recent lastPlayDate (nil last). Carried in ListenTogetherActivity (new optional `fingerprint`,
+  `ownersOnly`) because the manifest only reaches a listener after joining and the guidance needs the
+  match before the invitation is shown; also in SharedBookManifest (optional `fingerprint`). Optional
+  fields: older JSON still decodes (tested).
+- Library lookup: new ListenTogetherOwnCopy.swift. LibraryOwnCopyFinder(libraryService:, playbackService:)
+  built by MainCoordinator from CoreServices and injected into SharePlaySessionService (init param, nil
+  in tests). Reads only: searchAllBooks(query: nil) (books + bound folders, main context, SimpleLibraryItem),
+  filtered by duration, skips remoteURL items, PlaybackService.getPlayableItem -> BookSplitter.sourceFiles
+  for the layout; only layout matches are hashed. No Shared/ change (no new LibraryService method).
+- Invitation: offerInvitation stores the session, runs prepareInvitation (test seam) with a 3 s limit
+  (ListenTogetherFirstResult, cancels the slow check), then: own copy -> invitationOwnCopy + .invitation
+  (sheet message "You have this book, so BookPlayer plays your copy...", Join hint "Pauses your current book
+  and plays your copy together."); no copy + send -> today's invitation; no copy + owners-only ->
+  declineWithoutCopy: ListenTogetherDecline.sendAndLeave (join, wait for .joined, send .declinedNoCopy,
+  leave; 3 s limit), needsCopyNotice set, no sheet, no invitation announcement. MainCoordinator presents a
+  single-button alert (OK = cancel style, so escape closes it) with the invitation's 0.5 s x 20 retry,
+  only while the app is active; otherwise ListenTogetherNeedsCopyFeedback (queued announcement, notification
+  only with existing permission, max one per 30 s). Deviation, deliberate: the decline is sent when the
+  decision is made, not when OK is pressed, so the sharer hears it promptly and nothing stays pending if
+  the alert can't be shown; OK/escape only closes the alert (no second action either way).
+- Join: joinPlan re-checks the copy (files exist with the matched sizes). Usable -> own copy; unusable ->
+  download in send mode, "Your copy can't be used" + decline in owners-only. Own copy:
+  transport.stopReceivingPieces() before join (GroupSessionTransport skips journal loads), ListenerPlayer
+  built at once from ListenTogetherOwnCopy.manifest (own files as pieces placed at the sharer's file book
+  starts/durations, all marked arrived), so no getting-book screen; state .listening(_, 1) from the start
+  (no transient fraction); "Joined. Playing your copy." once after sheetAnnouncementDelay; later pieces,
+  attachments and the sharer's manifest are ignored. End hint "Leaves Listen Together. Your own copy is
+  kept." (ListenTogetherStatus.endHint usesOwnCopy).
+- Safety: nothing new deletes files. Tests: own library file (Documents/Processed) survives end(), the
+  sharer's .sessionEnding, .invalidated, leaveForOwnBook, ShareStorage.remove/cleanAll (custom and default
+  root). Mutation check: a temporary tearDown change that deleted every played file made the 4 teardown
+  tests fail (8 assertion failures); reverted (diffed against a backup).
+- Sharer: Settings -> Playback -> Listen Together (SettingsScreen.listenTogether, new
+  Settings/ListenTogether/SettingsListenTogetherView.swift): inline Picker "When someone doesn't have the
+  book" with "Send it for this session" (default) / "Only people who have the book can join", footer per
+  guidance, row accessibilityValue "Sends the book"/"Owners only". UserDefaults.standard key
+  listenTogetherWhenNoCopy (ListenTogetherSharingMode), read in makeActivity, so a change applies to the
+  next share. Owners-only: manifest without pieces, nothing exported or uploaded. Send mode: always uploads
+  (late joiners without a copy; owners never load pieces). First-share note message depends on the mode
+  (send-mode text changed to "If they don't have the book, it is saved...").
+- Roster: TransportEvent.participantsChanged gains ids (default []), new .participantDeclined(id:) (the
+  transport maps the .declinedNoCopy message with its sender). With ids: baseline, then new ids are counted
+  and announced "Someone joined" only after joinConfirmationDelay (2 s, via the schedule seam) if still
+  present and not declined; counted ids that leave -> "Someone left"; decliners never counted/announced.
+  Sharer hears "Someone couldn't join because they don't have the book." at most once per 10 s
+  (ListenTogetherRepeatLimiter, `now` seam); listeners hear nothing. Count-only events keep the old path.
+- Strings (Base + 25 lproj, English): listen_together_invitation_own_copy(_no_author), _join_hint_own_copy,
+  _joined_own_copy, _end_hint_listener_own_copy, _need_copy_title/_message, _copy_unusable_title/_message,
+  _declined_no_copy, _first_share_message_owners_only, settings_listen_together_title/_header/_send/
+  _owners_only/_value_send/_value_owners_only/_footer; changed listen_together_first_share_message.
+- Guide: intro, "Using your own copy", "When someone doesn't have the book", first-share note, decline line,
+  join steps, Leave keeps own place, temporary copy vs own copy, known limitations.
+- Tests: BookFingerprintTests (22) and ListenTogetherOwnCopyTests (23), written after the code in this
+  round (no separate RED run except the mutation check above). Focused 20 SharePlay classes: "Executed 247
+  tests, with 0 failures". Full suite run 1: InsertBooksTests.testInsertOneBookIntoPlaylist crashed (known
+  pre-existing CoreData flake), 818 others passed, xcodebuild then hung without a final marker (killed);
+  rerun "Executed 819 tests, with 0 failures", ** TEST SUCCEEDED **. TSan (20 SharePlay classes,
+  -enableThreadSanitizer YES): "Executed 247 tests, with 0 failures", ** TEST SUCCEEDED **, 0
+  ThreadSanitizer warnings. No new compiler warnings in changed files.
+- Contrast: the Settings screen's header and footer use the theme's primary colour (lowest 6.4:1 over the
+  11 themes, light and dark); the secondary colour measured 2.46-4.91:1 (fails 4.5:1 in most themes).

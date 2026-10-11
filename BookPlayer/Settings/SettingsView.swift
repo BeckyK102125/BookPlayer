@@ -94,6 +94,8 @@ struct SettingsView: View {
           view = AnyView(SettingsAutoplayView())
         case .autolock:
           view = AnyView(SettingsAutolockView())
+        case .listenTogether:
+          view = AnyView(SettingsListenTogetherView())
         case .storage:
           view = AnyView(
             StorageView(

@@ -28,6 +28,8 @@ struct SharedBookManifest: Codable, Equatable {
   let duration: TimeInterval
   let chapters: [SharedChapter]
   var pieces: [SharedPiece]
+  /// Lets listeners recognise their own copy (addendum 2). Optional, so an older manifest still decodes.
+  var fingerprint: BookFingerprint? = nil
 
   func chapter(at bookTime: TimeInterval) -> SharedChapter? {
     chapters.first { bookTime >= $0.start && bookTime < $0.end }
@@ -47,4 +49,8 @@ enum ListenTogetherMessage: Codable, Equatable {
   case pieceUploaded(index: Int, attachmentID: UUID)
   case action(RemoteAction)
   case sessionEnding
+  /// Sent by a listener who can't join an owners-only share (no copy of the book), just before it
+  /// leaves. The transport turns it into `TransportEvent.participantDeclined`. Carries nothing about
+  /// what that person owns.
+  case declinedNoCopy
 }
