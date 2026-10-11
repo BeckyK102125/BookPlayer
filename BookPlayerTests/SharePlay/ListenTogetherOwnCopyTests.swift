@@ -25,11 +25,20 @@ final class FakeOwnCopyFinder: ListenTogetherOwnCopyFinding {
   var result: ListenTogetherOwnCopy?
   /// Simulates a slow library; the check's time limit cancels it.
   var delay: Duration?
+  /// Holds the check until `release()` (no clock).
+  var holdUntilReleased = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
   private(set) var calls = 0
   func findOwnCopy(matching fingerprint: BookFingerprint) async -> ListenTogetherOwnCopy? {
     calls += 1
     if let delay { try? await Task.sleep(for: delay) }
+    if holdUntilReleased { await withCheckedContinuation { waiters.append($0) } }
     return result
+  }
+  func release() {
+    holdUntilReleased = false
+    waiters.forEach { $0.resume() }
+    waiters = []
   }
 }
 
@@ -222,7 +231,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     // Exactly one announcement, after the screen change.
     XCTAssertEqual(posted, [])
     XCTAssertEqual(scheduled.count, 1)
-    XCTAssertEqual(scheduled.first?.delay, SharePlaySessionService.sheetAnnouncementDelay)
+    XCTAssertEqual(scheduled.first?.delay, SharePlaySessionService.ownCopyJoinedFallbackDelay)
     runScheduled()
     XCTAssertEqual(posted, ["listen_together_joined_own_copy".localized])
     posted = []
@@ -423,7 +432,8 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
 
   func testListenersDoNotHearTheDeclineLine() async throws {
     let service = makeService(), transport = OwnCopyTransport()
-    service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+    service.startListening(
+      with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()), ownersOnly: true)
     runScheduled()
     posted = []
     let me = UUID(), sharer = UUID(), decliner = UUID()
@@ -435,6 +445,136 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     runScheduled()
     XCTAssertEqual(posted, [])
     XCTAssertEqual(service.state, .listening(participants: 2, downloaded: 1))
+  }
+
+  // MARK: Fix round 1
+
+  /// a11y I2: the line comes ~300 ms after the player's title has VoiceOver focus, once.
+  func testJoinedLineFollowsTheTitleFocusOnce() async throws {
+    let service = makeService(), transport = OwnCopyTransport()
+    service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+    XCTAssertEqual(scheduled.map(\.delay), [SharePlaySessionService.ownCopyJoinedFallbackDelay])
+    let fallback = scheduled.removeFirst()
+    service.listenerTitleFocused()
+    XCTAssertEqual(scheduled.map(\.delay), [SharePlaySessionService.ownCopyJoinedAfterFocusDelay])
+    runScheduled()
+    XCTAssertEqual(posted, ["listen_together_joined_own_copy".localized])
+    fallback.action()
+    service.listenerTitleFocused()
+    runScheduled()
+    XCTAssertEqual(posted, ["listen_together_joined_own_copy".localized], "said once")
+  }
+
+  func testJoinedLineFallsBackWhenThePlayerIsNotShown() async throws {
+    let service = makeService(), transport = OwnCopyTransport()
+    service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+    runScheduled()
+    XCTAssertEqual(posted, ["listen_together_joined_own_copy".localized])
+  }
+
+  /// a11y I3 / code M5: the decline is sent only once the alert is on screen.
+  func testOwnersOnlyDeclineIsSentWhenTheAlertIsShown() async {
+    let service = makeService()
+    var sent = 0, abandoned = 0
+    await service.prepareInvitation(
+      details(ownersOnly: true),
+      decline: ListenTogetherPendingDecline(send: { sent += 1 }, abandon: { abandoned += 1 }))
+    XCTAssertNotNil(service.needsCopyNotice)
+    XCTAssertEqual(sent, 0, "nothing is sent before the user is told")
+    service.needsCopyNoticePresented()
+    XCTAssertEqual(sent, 1)
+    service.needsCopyNoticePresented()
+    service.acknowledgeNeedsCopyNotice()
+    XCTAssertEqual(sent, 1)
+    XCTAssertEqual(abandoned, 0)
+    XCTAssertNil(service.needsCopyNotice)
+  }
+
+  func testANewerNoticeAbandonsTheOlderPendingDecline() async {
+    let service = makeService()
+    var log: [String] = []
+    await service.prepareInvitation(
+      details(ownersOnly: true),
+      decline: ListenTogetherPendingDecline(send: { log.append("send 1") }, abandon: { log.append("abandon 1") }))
+    await service.prepareInvitation(
+      details(ownersOnly: true),
+      decline: ListenTogetherPendingDecline(send: { log.append("send 2") }, abandon: { log.append("abandon 2") }))
+    service.needsCopyNoticePresented()
+    XCTAssertEqual(log, ["abandon 1", "send 2"])
+  }
+
+  /// code M2: a check that ran out of time doesn't claim the book is missing.
+  func testOwnersOnlyTimeoutSaysTheLibraryCouldNotBeChecked() async throws {
+    let service = makeService()
+    service.ownCopyCheckLimit = .milliseconds(20)
+    finder.result = try ownCopy(of: makeLibraryFile())
+    finder.delay = .seconds(30)
+    await service.prepareInvitation(details(ownersOnly: true))
+    XCTAssertEqual(service.state, .idle)
+    XCTAssertEqual(service.needsCopyNotice?.cause, .checkTimedOut)
+    XCTAssertEqual(posted, [])
+  }
+
+  func testOwnersOnlyWithNoMatchStillSaysNotFound() async {
+    let service = makeService()
+    await service.prepareInvitation(details(ownersOnly: true))
+    XCTAssertEqual(service.needsCopyNotice?.cause, .notFound)
+  }
+
+  /// code M3: starting an own share during the check drops the invitation instead of overwriting
+  /// "Preparing" with it (and blocking later invitations).
+  func testOwnShareDuringTheCheckDropsTheInvitation() async throws {
+    let service = makeService()
+    finder.holdUntilReleased = true
+    var abandoned = 0
+    let check = Task {
+      await service.prepareInvitation(
+        self.details(ownersOnly: false),
+        decline: ListenTogetherPendingDecline(send: {}, abandon: { abandoned += 1 }))
+    }
+    await waitUntil { self.finder.calls == 1 }
+    let item = PlayableItem.stub(currentTime: 0, duration: 10, fileURL: try makeLibraryFile())
+    XCTAssertNotNil(service.beginPreparing(item))
+    finder.release()
+    await check.value
+    XCTAssertEqual(service.state, .preparing(title: item.title))
+    XCTAssertFalse(service.invitationUsesOwnCopy)
+    XCTAssertEqual(posted, [])
+    XCTAssertEqual(abandoned, 1, "the invitation is left, not kept pending")
+  }
+
+  /// code M6 / a11y M1: send mode can't have decliners, so joins are announced and counted at once.
+  func testSendModeAnnouncesJoinsAtOnce() async throws {
+    let service = makeService(), transport = OwnCopyTransport()
+    let item = PlayableItem.stub(currentTime: 0, duration: 10, fileURL: try makeLibraryFile())
+    XCTAssertTrue(service.startSharingSession(with: transport, item: item, shareID: UUID(), ownersOnly: false))
+    let me = UUID(), friend = UUID()
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    transport.emit(.participantsChanged(count: 2, ids: [me, friend]))
+    await flush(transport)
+    XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined()])
+    XCTAssertEqual(service.state, .sharing(participants: 2))
+    XCTAssertTrue(scheduled.isEmpty)
+  }
+
+  /// code M1 / a11y M2: a decline that arrives after "Someone joined": only the decline line, the
+  /// count goes back, no "left".
+  func testALateDeclineFixesTheCountWithoutJoinedOrLeft() async throws {
+    let service = makeService(), transport = OwnCopyTransport()
+    try startSharing(service, transport)
+    let me = UUID(), late = UUID()
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    transport.emit(.participantsChanged(count: 2, ids: [me, late]))
+    await flush(transport)
+    runScheduled()
+    XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined()])
+    XCTAssertEqual(service.state, .sharing(participants: 2))
+    posted = []
+    transport.emit(.participantDeclined(id: late))
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await flush(transport)
+    XCTAssertEqual(posted, ["listen_together_declined_no_copy".localized])
+    XCTAssertEqual(service.state, .sharing(participants: 1))
   }
 
   // MARK: The library lookup

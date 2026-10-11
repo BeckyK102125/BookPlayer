@@ -34,7 +34,7 @@ extension SharePlaySessionService {
     role = .sharer
     self.shareID = shareID
     self.transport = transport
-    sharingOwnersOnly = ownersOnly
+    isOwnersOnlySession = ownersOnly
     sharingFingerprint = fingerprint
     resetRoster()
     startEventLoop(on: transport)
@@ -69,7 +69,7 @@ extension SharePlaySessionService {
       await failSharing(on: transport)
       return
     }
-    let plan = sharingOwnersOnly ? [] : PiecePlanner.plan(files: files, chapterStarts: item.chapters.map(\.start))
+    let plan = isOwnersOnlySession ? [] : PiecePlanner.plan(files: files, chapterStarts: item.chapters.map(\.start))
     let manifest = SharedBookManifest(
       shareID: shareID,
       title: item.title,
@@ -144,12 +144,13 @@ extension SharePlaySessionService {
   @discardableResult
   func startListening(
     with transport: ListenTogetherTransport, shareID: UUID, ownCopy: ListenTogetherOwnCopy? = nil,
-    title: String = "", author: String = "", shared: BookFingerprint? = nil
+    title: String = "", author: String = "", shared: BookFingerprint? = nil, ownersOnly: Bool = false
   ) -> Bool {
     guard !isInSession else { return false }
     role = .listener
     self.shareID = shareID
     self.transport = transport
+    isOwnersOnlySession = ownersOnly
     resetRoster()
     announcer.resetDownloadProgress()
     guard let ownCopy else {
@@ -167,10 +168,9 @@ extension SharePlaySessionService {
     var urls: [Int: URL] = [:]
     for (index, file) in ownCopy.files.enumerated() { urls[index] = file.url }
     installListener(manifest: manifest, arrivedFiles: urls)
-    schedule(Self.sheetAnnouncementDelay) { [weak self] in
-      guard let self, self.transport === transport, self.isUsingOwnCopy else { return }
-      self.announcer.announce("listen_together_joined_own_copy".localized)
-    }
+    // Said after the player's title has focus (`listenerTitleFocused`), or after a fallback delay.
+    pendingOwnCopyJoinedLine = true
+    schedule(Self.ownCopyJoinedFallbackDelay) { [weak self] in self?.announceOwnCopyJoined(on: transport) }
     return true
   }
 
@@ -346,7 +346,11 @@ extension SharePlaySessionService {
     applyParticipantCount(confirmedParticipantIDs.count)
     if countedLeft { announcer.announce(ListenTogetherAnnouncements.left()) }
     guard !arrived.isEmpty else { return }
-    schedule(Self.joinConfirmationDelay) { [weak self] in self?.confirmArrivals(arrived, on: transport) }
+    if isOwnersOnlySession {
+      schedule(Self.joinConfirmationDelay) { [weak self] in self?.confirmArrivals(arrived, on: transport) }
+    } else {
+      confirmArrivals(arrived, on: transport)
+    }
     if role == .sharer { await resendForLateJoiners(on: transport) }
   }
 

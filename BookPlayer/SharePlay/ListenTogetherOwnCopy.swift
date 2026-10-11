@@ -174,6 +174,9 @@ struct ListenTogetherNeedsCopyNotice: Equatable, Identifiable {
     case notFound
     /// The match found for the invitation could not be used at Join (moved or deleted meanwhile).
     case copyUnusable
+    /// The library check didn't finish in time: nothing is known about the copy, so nothing claims
+    /// the book is missing.
+    case checkTimedOut
   }
 
   let id = UUID()
@@ -184,6 +187,7 @@ struct ListenTogetherNeedsCopyNotice: Equatable, Identifiable {
     switch cause {
     case .notFound: return "listen_together_need_copy_title".localized
     case .copyUnusable: return "listen_together_copy_unusable_title".localized
+    case .checkTimedOut: return "listen_together_check_failed_title".localized
     }
   }
 
@@ -193,10 +197,19 @@ struct ListenTogetherNeedsCopyNotice: Equatable, Identifiable {
       return String.localizedStringWithFormat("listen_together_need_copy_message".localized, bookTitle)
     case .copyUnusable:
       return String.localizedStringWithFormat("listen_together_copy_unusable_message".localized, bookTitle)
+    case .checkTimedOut:
+      return String.localizedStringWithFormat("listen_together_check_failed_message".localized, bookTitle)
     }
   }
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.id == rhs.id && lhs.bookTitle == rhs.bookTitle && lhs.cause == rhs.cause
   }
+}
+
+/// How a waiting invitation is declined: `send` joins briefly to tell the others "declined, no copy"
+/// (owners-only, sent once the alert is on screen); `abandon` just leaves without a message.
+struct ListenTogetherPendingDecline {
+  let send: @MainActor () -> Void
+  let abandon: @MainActor () -> Void
 }

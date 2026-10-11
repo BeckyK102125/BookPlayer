@@ -32,8 +32,9 @@ struct SettingsListenTogetherView: View {
           Text("settings_listen_together_header".localized)
         }
         .pickerStyle(.inline)
+        // labelsHidden keeps the label as the picker's name; no extra accessibilityLabel (it could be
+        // applied to every option row of an inline picker and hide the option names).
         .labelsHidden()
-        .accessibilityLabel("settings_listen_together_header".localized)
       } header: {
         // Primary, not secondary: the themes' secondary colour is below 4.5:1 on the background in most
         // themes, and this header and footer are the only explanation of the two options.

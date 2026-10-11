@@ -715,3 +715,38 @@ Parent 9c70dd06 (develop). Inputs: docs/superpowers/specs/2026-10-10-shareplay-l
   ThreadSanitizer warnings. No new compiler warnings in changed files.
 - Contrast: the Settings screen's header and footer use the theme's primary colour (lowest 6.4:1 over the
   11 themes, light and dark); the secondary colour measured 2.46-4.91:1 (fails 4.5:1 in most themes).
+
+## 2026-10-11 - listen-together-own-copy - own copy fix round 1
+Parent de1f5731. Inputs: own-copy-fix-round-1.md (rulings), own-copy-code-review.md, own-copy-a11y-review.md.
+- Code I1: BookFingerprint.sampleHash now hashes the first 64 KB of AUDIO DATA: `audioDataOffset` walks
+  top-level MP4 atoms when `ftyp` is first (32-bit, size==1 64-bit, size==0 to end) to the `mdat`
+  payload; skips an ID3v2 tag (synchsafe size, +10 with the footer flag); anything else or any parse
+  failure (atom past the end, no mdat) falls back to the file start.
+- A11y I1 / M10: removed the extra accessibilityLabel on the inline picker (labelsHidden keeps the name).
+- A11y I2: "Joined. Playing your copy." is scheduled 300 ms after ListenerPlayerView puts focus on the
+  title (`listenerTitleFocused`), with a 1.5 s fallback from Join; said once per session.
+- A11y I3 / code M5 (reverses the earlier deviation): owners-only decline (ListenTogetherPendingDecline
+  send/abandon) is sent only when the "You need your own copy" alert is presented
+  (`needsCopyNoticePresented`). If the app isn't active, the notice waits (no 10 s drop) and is shown on
+  the next didBecomeActive; meanwhile a notification only with existing permission (max one per 30 s).
+  A newer notice abandons an older unsent decline (plain leave).
+- Code M6 / a11y M1: the join-confirmation delay applies only to owners-only sessions (sharer and
+  listener, `isOwnersOnlySession`), raised to 4 s (a11y M2: covers the decliner's 3 s join wait).
+  Send mode announces and counts at once.
+- Code M1 / a11y M2: test for a decline after "Someone joined": only the decline line, count back, no
+  "left" (already behaved so; the test passed in the red run).
+- Code M2: owners-only timeout -> cause .checkTimedOut: "Couldn't check your library" / "BookPlayer
+  couldn't check your library for %@ in time, so you can't join. Ask the person sharing to send it."
+  (new keys, Base + 25 lproj, English).
+- Code M3: if this device is in a session or preparing its own share when the check finishes, the
+  invitation is left (abandon) and cleared instead of overwriting "Preparing".
+- Code M7: not changed. LibraryService.searchAllBooks and PlaybackService.getPlayableItem read the
+  viewContext internally; moving them off main needs a background-context API in Shared/ (out of
+  scope). The per-candidate file stats are cheap; hashing is already off main.
+- Parked: M4 drift, M8 activity size (device checks), M9 first-share note after a mode change.
+- Also: stale escape comment in ListenerPlayerView; guide (decline timing, next-open, timeout wording,
+  owners-only join delay).
+- TDD: red run with API stubs: "Executed 59 tests, with 21 failures" (10 tests: 3 hash, step function,
+  joined line, decline on present, newer notice, timeout cause, own share during check, send-mode join);
+  green "Executed 59 tests, with 0 failures". 20 SharePlay classes: 261/0. Full: "Executed 833 tests,
+  with 0 failures", ** TEST SUCCEEDED ** (first run). TSan 20 classes: 261/0, 0 ThreadSanitizer warnings.

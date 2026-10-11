@@ -45,6 +45,7 @@ class MainCoordinator: NSObject {
   weak var needsCopyAlertController: UIViewController?
   var needsCopyPresentationGeneration = 0
   var needsCopySubscription: AnyCancellable?
+  var needsCopyActiveSubscription: AnyCancellable?
 
   var playerState: PlayerState { AppServices.shared.playerState }
 

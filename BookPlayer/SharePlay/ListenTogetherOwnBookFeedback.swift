@@ -52,9 +52,9 @@ final class ListenTogetherOwnBookFeedback {
   }
 }
 
-/// "You need your own copy" when the alert can't be shown (locked phone, app in the background): a
-/// queued announcement, plus a local notification only when notification permission was already
-/// granted (never asked), at most one per 30 seconds.
+/// "You need your own copy" while BookPlayer is not active: the alert waits for the app to be active
+/// (it is never dropped), and meanwhile a local notification is posted only when notification
+/// permission was already granted (never asked), at most one per 30 seconds.
 @MainActor
 final class ListenTogetherNeedsCopyFeedback {
   static let shared = ListenTogetherNeedsCopyFeedback()
@@ -67,13 +67,7 @@ final class ListenTogetherNeedsCopyFeedback {
   private var notificationLimiter = ListenTogetherRepeatLimiter(
     interval: ListenTogetherOwnBookFeedback.notificationInterval)
 
-  /// The spoken form: title, then message.
-  static func spokenText(for notice: ListenTogetherNeedsCopyNotice) -> String {
-    notice.title + ". " + notice.message
-  }
-
-  func speak(_ notice: ListenTogetherNeedsCopyNotice, announcer: ListenTogetherAnnouncer) {
-    announcer.announce(Self.spokenText(for: notice))
+  func notify(_ notice: ListenTogetherNeedsCopyNotice) {
     if notificationLimiter.allows(at: now()) { postNotification(notice) }
   }
 

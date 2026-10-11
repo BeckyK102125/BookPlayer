@@ -47,13 +47,61 @@ struct BookFingerprint: Codable, Equatable, Sendable {
     return trimmed.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
   }
 
-  /// Reads the first 64 KB of `url` directly (no decoding) and hashes them. Synchronous file I/O:
-  /// call it off the main actor (`sampleHashOffMain`).
+  /// SHA-256 of the first 64 KB of the first file's AUDIO DATA, read directly (no decoding), so tags
+  /// and cover art don't change it. Synchronous file I/O: call it off the main actor
+  /// (`sampleHashOffMain`).
   nonisolated static func sampleHash(of url: URL) -> String? {
     guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
     defer { try? handle.close() }
-    guard let data = try? handle.read(upToCount: sampleLength), !data.isEmpty else { return nil }
+    let offset = audioDataOffset(in: handle) ?? 0
+    guard (try? handle.seek(toOffset: offset)) != nil,
+      let data = try? handle.read(upToCount: sampleLength), !data.isEmpty
+    else { return nil }
     return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// Where the audio data starts:
+  /// - MP4 family (m4a, m4b, mp4; recognised by an `ftyp` atom first): the top-level atoms are walked
+  ///   (32-bit sizes, the 64-bit `size == 1` form, `size == 0` = to the end) to the `mdat` payload.
+  /// - MP3 with an ID3v2 tag ("ID3" first): the 10-byte header plus the synchsafe tag size, plus 10
+  ///   more when the footer flag is set.
+  /// - Anything else, or anything that doesn't parse (an atom running past the end, no `mdat`): nil,
+  ///   and the caller hashes from the start of the file. Both phones do the same, so equal files still
+  ///   match; only the tag-independence is lost for such files.
+  nonisolated static func audioDataOffset(in handle: FileHandle) -> UInt64? {
+    guard let fileSize = try? handle.seekToEnd(), (try? handle.seek(toOffset: 0)) != nil,
+      let head = try? handle.read(upToCount: 10), head.count == 10
+    else { return nil }
+    let bytes = [UInt8](head)
+    if bytes[0] == 0x49, bytes[1] == 0x44, bytes[2] == 0x33 {  // "ID3"
+      guard bytes[6...9].allSatisfy({ $0 < 0x80 }) else { return nil }
+      let size = bytes[6...9].reduce(UInt64(0)) { ($0 << 7) | UInt64($1) }
+      let footer: UInt64 = (bytes[5] & 0x10) != 0 ? 10 : 0
+      let offset = 10 + size + footer
+      return offset < fileSize ? offset : nil
+    }
+    guard String(bytes: bytes[4..<8], encoding: .ascii) == "ftyp" else { return nil }
+    var position: UInt64 = 0
+    while position + 8 <= fileSize {
+      guard (try? handle.seek(toOffset: position)) != nil,
+        let header = try? handle.read(upToCount: 8), header.count == 8
+      else { return nil }
+      let h = [UInt8](header)
+      var size = h[0..<4].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+      let type = String(bytes: h[4..<8], encoding: .ascii)
+      var headerLength: UInt64 = 8
+      if size == 1 {
+        guard let large = try? handle.read(upToCount: 8), large.count == 8 else { return nil }
+        size = [UInt8](large).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        headerLength = 16
+      } else if size == 0 {
+        size = fileSize - position
+      }
+      guard size >= headerLength, position + size <= fileSize else { return nil }
+      if type == "mdat" { return size > headerLength ? position + headerLength : nil }
+      position += size
+    }
+    return nil
   }
 
   /// `sampleHash(of:)` on a background thread, so the main actor never waits on the disk.

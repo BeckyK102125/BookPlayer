@@ -75,7 +75,7 @@ People listening do not need their own copy of the book, unless the person shari
 
 If the sharing screen cannot be opened, BookPlayer says "Couldn't open sharing" and suggests starting a FaceTime call instead.
 
-If you chose "Only people who have the book can join", and someone does not have it, you hear "Someone couldn't join because they don't have the book." (once, even if several people couldn't join within a few seconds). They hear that they need their own copy. You do not see who.
+If you chose "Only people who have the book can join", and someone does not have it, you hear "Someone couldn't join because they don't have the book." (once, even if several people couldn't join within a few seconds). They hear that they need their own copy. You do not see who. In this mode "Someone joined" is said a few seconds after someone joins, so that people who can't join are never announced as joining.
 
 After you send the invitation, BookPlayer waits up to 20 seconds for Listen Together to start. If it has not started by then, VoiceOver says "Listen Together didn't start. Try again." and Listen Together is back in the More menu. If it starts a little later anyway, VoiceOver says "Listen Together started".
 
@@ -86,7 +86,7 @@ After you send the invitation, BookPlayer waits up to 20 seconds for Listen Toge
 3. An invitation appears on top of whatever screen you are on. The book title is the heading.
 4. The invitation says: "You can only listen. The book is saved on your iPhone for this session only and deleted when it ends."
    If you have the book, the message says instead that you have it and BookPlayer plays your copy. Nothing is downloaded, and after Join you go straight to the player and hear "Joined. Playing your copy."
-   If the person sharing only listens with people who have the book and you don't, there is no invitation: you hear "You need your own copy", and the invitation is declined. Choose OK (or use the two-finger scrub).
+   If the person sharing only listens with people who have the book and you don't, there is no invitation: you hear "You need your own copy", and the invitation is declined once that message is on screen. Choose OK (or use the two-finger scrub); either only closes the message. If BookPlayer isn't open at that moment, the message appears the next time you open it (and, only if you have already allowed BookPlayer notifications, a notification says so). If BookPlayer couldn't check your library in time, the message says "Couldn't check your library" instead: ask the person sharing to send the book.
 5. Choose **Join** to listen, or **Not Now** to decline.
 6. If you don't have the book: after you join, you hear "Getting the book" while the first part of the book downloads. This usually takes less than a minute.
 7. Playback starts in sync with everyone else.

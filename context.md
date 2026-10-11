@@ -20,11 +20,10 @@ Current goal: addendum 2, "Both have the book": a listener who owns the book pla
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - Tracked on origin: `develop`, `listen-together-messages` (both 9c70dd06), `listen-together-lock-screen`
   (63e9578b), `shareplay-listen-together` (e634f5c7). Becky and Michael are testing develop on devices.
-- `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 in this commit (parent
-  9c70dd06). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at 9c70dd06)
+- `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731) and its fix
+  round 1 in this commit (parent de1f5731). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at 9c70dd06)
   belongs to another session (TestFlight archive); not touched here.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
-- Fix wave 2 and fix round 2 are in develop (Notes.md has the details).
 - Never committed: BuildConfiguration/Debug.xcconfig (gitignored; holds the signing below).
 - BookPlayer/Player/PlayerManager.swift and Shared/ are untouched.
 
@@ -63,21 +62,22 @@ Current goal: addendum 2, "Both have the book": a listener who owns the book pla
   sharer's book times; the transport stops loading pieces; state is .listening(_, 1) from the start;
   one announcement "Joined. Playing your copy." after 0.7 s; End hint "Leaves Listen Together. Your own
   copy is kept." The library is never written (no progress, bookmarks, last played).
-- Safety: session cleanup only removes ShareStorage folders; tests prove a library file survives End,
-  sharer end, invalidation, Leave-for-own-book and launch cleanup (mutation check: deleting played files in
-  tearDown makes 4 of them fail).
+- Safety: cleanup only removes ShareStorage folders; tests prove library files survive every teardown.
 - Sharer: Settings -> Playback -> Listen Together ("When someone doesn't have the book": Send it for this
   session (default) / Only people who have the book can join), inline picker, footer, row value. Owners-
   only shares upload nothing (manifest without pieces). Send mode always uploads (late joiners without a
   copy; owners never download). First-share note depends on the mode.
-- Roster by participant id: someone new is counted and announced only after 2 s if still there and not
-  declined; decliners are never counted or announced; the sharer hears "Someone couldn't join because
-  they don't have the book." at most once per 10 s; listeners hear nothing.
+- Roster by id: decliners never counted/announced; sharer hears one "Someone couldn't join" per 10 s.
 - Guide updated (guidance section 5). 18 new strings + changed first-share message, in all 26 lproj.
+- Fix round 1 (this commit): hash covers audio data (MP4 `mdat` payload, MP3 after ID3v2; else file
+  start); joined line ~300 ms after the player's title focus (fallback 1.5 s); owners-only decline sent
+  only when the alert is on screen, notice kept until the app is active; 4 s join delay only in
+  owners-only; timeout says "Couldn't check your library"; own share during the check drops the
+  invitation; picker's extra label removed.
 
 ## Test evidence (2026-10-11, addendum 2)
-- New: BookFingerprintTests (22), ListenTogetherOwnCopyTests (23). 20 SharePlay classes: 247/0. Full: 819/0,
-  ** TEST SUCCEEDED ** (run 1 hit the known InsertBooksTests crash). TSan 20 classes: 247/0, 0 warnings.
+- Fix round 1: 20 SharePlay classes 261/0; full 833/0 ** TEST SUCCEEDED **; TSan 20 classes 261/0, 0
+  warnings. (Addendum 2 first pass: 247 SharePlay, 819 full.)
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
 -only-testing:BookPlayerTests test (focused/TSan: `-only-testing:BookPlayerTests/<Class>` for the 20

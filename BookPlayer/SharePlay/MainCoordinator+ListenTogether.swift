@@ -25,6 +25,12 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
       .sink { [weak self] notice in
         MainActor.assumeIsolated { self?.needsCopyNoticeChanged(notice) }
       }
+    needsCopyActiveSubscription = NotificationCenter.default
+      .publisher(for: UIApplication.didBecomeActiveNotification)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated { self?.showWaitingNeedsCopyNotice() }
+      }
   }
 
   private func listenTogetherStateChanged(_ state: ListenTogetherState) {
@@ -191,18 +197,28 @@ extension MainCoordinator {
     case retry
     /// Not shown after every attempt (locked, in the background): say it instead (announcement, and a
     /// notification only with permission the user already gave).
-    case speakInstead
+    /// Not shown now (app not active, or no screen to present from after the retries): the notice is
+    /// kept and shown when the app next becomes active. Never dropped (a11y I3).
+    case waitForActive
     case notNeeded
   }
 
-  /// What to do after attempt number `attempt` (1-based). Same 10 second window as the invitation, and
-  /// shown only while the app is active. Test seam.
+  /// What to do after attempt number `attempt` (1-based). Shown only while the app is active, with the
+  /// invitation's retry window. Test seam.
   nonisolated static func needsCopyPresentationStep(
-    presented: Bool, attempt: Int, hasNotice: Bool
+    presented: Bool, attempt: Int, hasNotice: Bool, isActive: Bool
   ) -> NeedsCopyPresentationStep {
     if presented { return .shown }
     guard hasNotice else { return .notNeeded }
-    return attempt < invitationMaxAttempts ? .retry : .speakInstead
+    guard isActive else { return .waitForActive }
+    return attempt < invitationMaxAttempts ? .retry : .waitForActive
+  }
+
+  /// The app became active: a notice still waiting is shown now.
+  fileprivate func showWaitingNeedsCopyNotice() {
+    guard sharePlayService.needsCopyNotice != nil, needsCopyAlertController == nil else { return }
+    needsCopyPresentationGeneration += 1
+    attemptNeedsCopyPresentation(generation: needsCopyPresentationGeneration, attempt: 1)
   }
 
   fileprivate func needsCopyNoticeChanged(_ notice: ListenTogetherNeedsCopyNotice?) {
@@ -219,22 +235,26 @@ extension MainCoordinator {
   private func attemptNeedsCopyPresentation(generation: Int, attempt: Int) {
     guard generation == needsCopyPresentationGeneration, needsCopyAlertController == nil else { return }
     let notice = sharePlayService.needsCopyNotice
+    let isActive = UIApplication.shared.applicationState == .active
     var presented = false
-    if let notice, UIApplication.shared.applicationState == .active {
+    if let notice, isActive {
       presented = presentNeedsCopyAlert(notice)
     }
-    switch Self.needsCopyPresentationStep(presented: presented, attempt: attempt, hasNotice: notice != nil) {
+    switch Self.needsCopyPresentationStep(
+      presented: presented, attempt: attempt, hasNotice: notice != nil, isActive: isActive)
+    {
     case .shown, .notNeeded:
       return
+    case .waitForActive:
+      // In the background a notification is the only thing that can reach the user, and only with
+      // permission already given. The alert (and the decline) follow when the app is next active.
+      if let notice, !isActive { ListenTogetherNeedsCopyFeedback.shared.notify(notice) }
     case .retry:
       DispatchQueue.main.asyncAfter(deadline: .now() + Self.invitationRetryDelay) { [weak self] in
         MainActor.assumeIsolated {
           self?.attemptNeedsCopyPresentation(generation: generation, attempt: attempt + 1)
         }
       }
-    case .speakInstead:
-      if let notice { ListenTogetherNeedsCopyFeedback.shared.speak(notice, announcer: sharePlayService.announcer) }
-      sharePlayService.acknowledgeNeedsCopyNotice()
     }
   }
 
@@ -251,13 +271,15 @@ extension MainCoordinator {
       needsCopyAlertController = nil
       return false
     }
+    // On screen: only now does the decline go out (a11y I3).
+    sharePlayService.needsCopyNoticePresented()
     return true
   }
 }
 
 /// The single-button "You need your own copy" alert. OK is the cancel-style action, so VoiceOver's
-/// escape (two-finger scrub) closes it the same way; there is no choice to make. The invitation was
-/// already declined, so closing it (any way, including being taken down) only clears the notice.
+/// escape (two-finger scrub) closes it the same way; there is no choice to make. The decline is sent
+/// when the alert is presented, so closing it (any way, including being taken down) only clears it.
 enum ListenTogetherNeedsCopyAlert {
   @MainActor
   static func make(

@@ -43,13 +43,15 @@ struct ListenerPlayerView: View {
     .background(theme.systemBackgroundColor.ignoresSafeArea())
     .environmentObject(theme)
     .accessibilityAction(.magicTap) { listener.userTogglePlay() }
-    // Escape closes the screen only (R35). Ending deletes the listener's copy, so it stays on the
-    // labelled End button and its confirmation; escape never reaches it.
+    // Escape closes the screen only (R35). Ending deletes a downloaded copy (never the listener's own
+    // book), so it stays on the labelled End button and its confirmation; escape never reaches it.
     .accessibilityAction(.escape) { onClose() }
     .task {
       // Wait for the cover to finish presenting; an earlier request is often lost.
       try? await Task.sleep(for: initialFocusDelay)
       focus = .title
+      // Own copy: "Joined. Playing your copy." comes after the title, never over it (a11y I2).
+      service.listenerTitleFocused()
     }
     .sheet(isPresented: $showingChapters, onDismiss: focusChapterAfterJump) {
       ListenerChaptersView(listener: listener, currentIndex: currentChapterIndex)

@@ -590,3 +590,5 @@ We're working hard on providing a seamless experience, if possible, please conta
 "settings_listen_together_value_send" = "Sends the book";
 "settings_listen_together_value_owners_only" = "Owners only";
 "settings_listen_together_footer" = "This applies when you share a book. People who already have the book always play their own copy, and Listen Together does not change their place in it.\n\nSend it for this session: people who don't have the book get a temporary copy. It is deleted when the session ends.\n\nOnly people who have the book can join: nothing is sent. People who don't have the book are told they need their own copy.\n\nA change applies to the next session you share.";
+"listen_together_check_failed_title" = "Couldn't check your library";
+"listen_together_check_failed_message" = "BookPlayer couldn't check your library for %@ in time, so you can't join. Ask the person sharing to send it.";

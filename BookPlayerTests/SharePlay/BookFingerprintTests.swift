@@ -1,5 +1,6 @@
 @testable import BookPlayer
 @testable import BookPlayerKit
+import CryptoKit
 import XCTest
 
 /// Addendum 2 ("Both have the book"): the fingerprint, the matching rules, and the pure decisions
@@ -230,17 +231,103 @@ final class BookFingerprintTests: XCTestCase {
     let unusable = ListenTogetherNeedsCopyNotice(bookTitle: "Dune", cause: .copyUnusable)
     XCTAssertEqual(unusable.title, "listen_together_copy_unusable_title".localized)
     XCTAssertTrue(unusable.message.contains("Dune"))
-    XCTAssertEqual(
-      ListenTogetherNeedsCopyFeedback.spokenText(for: notFound), notFound.title + ". " + notFound.message)
   }
 
-  func testNeedsCopyAlertUsesTheInvitationRetryWindow() {
+  /// Fix round 1 (a11y I3): never dropped after 10 s; while the app isn't active the notice waits for
+  /// the next activation.
+  func testNeedsCopyAlertWaitsForTheAppToBeActive() {
     typealias C = MainCoordinator
-    XCTAssertEqual(C.needsCopyPresentationStep(presented: true, attempt: 1, hasNotice: true), .shown)
-    XCTAssertEqual(C.needsCopyPresentationStep(presented: false, attempt: 1, hasNotice: true), .retry)
+    XCTAssertEqual(C.needsCopyPresentationStep(presented: true, attempt: 1, hasNotice: true, isActive: true), .shown)
+    XCTAssertEqual(C.needsCopyPresentationStep(presented: false, attempt: 1, hasNotice: true, isActive: true), .retry)
     XCTAssertEqual(
-      C.needsCopyPresentationStep(presented: false, attempt: C.invitationMaxAttempts, hasNotice: true), .speakInstead)
-    XCTAssertEqual(C.needsCopyPresentationStep(presented: false, attempt: 3, hasNotice: false), .notNeeded)
+      C.needsCopyPresentationStep(presented: false, attempt: C.invitationMaxAttempts, hasNotice: true, isActive: true),
+      .waitForActive)
+    XCTAssertEqual(
+      C.needsCopyPresentationStep(presented: false, attempt: 1, hasNotice: true, isActive: false), .waitForActive)
+    XCTAssertEqual(
+      C.needsCopyPresentationStep(presented: false, attempt: 3, hasNotice: false, isActive: true), .notNeeded)
+  }
+
+  func testCheckTimedOutNoticeDoesNotClaimTheBookIsMissing() {
+    let notice = ListenTogetherNeedsCopyNotice(bookTitle: "Dune", cause: .checkTimedOut)
+    XCTAssertEqual(notice.title, "listen_together_check_failed_title".localized)
+    XCTAssertEqual(notice.message, String.localizedStringWithFormat(
+      "listen_together_check_failed_message".localized, "Dune"))
+    XCTAssertFalse(notice.message.contains("did not find"))
+  }
+
+  // MARK: Audio sample hash (fix round 1, code I1: the audio data, not the tags)
+
+  private let audio = Data((0..<100_000).map { UInt8(($0 * 7 + $0 / 300) % 256) })
+
+  private func sha(_ data: Data) -> String {
+    SHA256.hash(data: data.prefix(BookFingerprint.sampleLength)).map { String(format: "%02x", $0) }.joined()
+  }
+
+  private func be32(_ value: UInt32) -> Data { withUnsafeBytes(of: value.bigEndian) { Data($0) } }
+  private func be64(_ value: UInt64) -> Data { withUnsafeBytes(of: value.bigEndian) { Data($0) } }
+
+  private func atom(_ type: String, _ payload: Data) -> Data {
+    be32(UInt32(8 + payload.count)) + Data(type.utf8) + payload
+  }
+
+  private func largeAtom(_ type: String, _ payload: Data) -> Data {
+    be32(1) + Data(type.utf8) + be64(UInt64(16 + payload.count)) + payload
+  }
+
+  private func write(_ data: Data, _ name: String) throws -> URL {
+    let url = folder.appendingPathComponent(name)
+    try data.write(to: url)
+    return url
+  }
+
+  private var ftyp: Data { atom("ftyp", Data("M4B \0\0\0\0M4B isom".utf8)) }
+
+  func testMP4HashCoversTheAudioNotTheTags() throws {
+    let a = try write(ftyp + atom("moov", Data(repeating: 1, count: 70_000)) + atom("mdat", audio), "a.m4b")
+    let b = try write(
+      ftyp + atom("moov", Data(repeating: 2, count: 90_000)) + atom("free", Data(count: 100)) + atom("mdat", audio),
+      "b.m4b")
+    var other = audio
+    other[10] ^= 0xFF
+    let c = try write(ftyp + atom("moov", Data(repeating: 1, count: 70_000)) + atom("mdat", other), "c.m4b")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: a), sha(audio))
+    XCTAssertEqual(BookFingerprint.sampleHash(of: a), BookFingerprint.sampleHash(of: b), "different tags, same audio")
+    XCTAssertNotEqual(BookFingerprint.sampleHash(of: a), BookFingerprint.sampleHash(of: c))
+  }
+
+  func testMP4WithLargeSizeOrTrailingMoovStillHashesTheAudio() throws {
+    let large = try write(ftyp + atom("moov", Data(count: 500)) + largeAtom("mdat", audio), "large.m4a")
+    let trailing = try write(ftyp + atom("mdat", audio) + atom("moov", Data(count: 500)), "trailing.m4a")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: large), sha(audio))
+    XCTAssertEqual(BookFingerprint.sampleHash(of: trailing), sha(audio))
+  }
+
+  func testBrokenMP4FallsBackToTheFileStart() throws {
+    // An atom claiming more bytes than the file has: not parsed, the file start is hashed.
+    let bytes = ftyp + be32(9_999_999) + Data("moov".utf8) + Data(repeating: 3, count: 1_000)
+    let url = try write(bytes, "broken.m4a")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: url), sha(bytes))
+  }
+
+  private func id3(bodySize: Int, footer: Bool) -> Data {
+    func synchsafe(_ value: Int) -> Data {
+      Data([UInt8((value >> 21) & 0x7F), UInt8((value >> 14) & 0x7F), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
+    }
+    var tag = Data("ID3".utf8) + Data([4, 0, footer ? 0x10 : 0]) + synchsafe(bodySize)
+    tag += Data(repeating: 0x41, count: bodySize)
+    if footer { tag += Data("3DI".utf8) + Data([4, 0, 0x10]) + synchsafe(bodySize) }
+    return tag
+  }
+
+  func testMP3HashSkipsTheID3Tag() throws {
+    let frames = Data([0xFF, 0xFB, 0x90, 0x64]) + audio
+    let small = try write(id3(bodySize: 5_000, footer: false) + frames, "small.mp3")
+    let big = try write(id3(bodySize: 70_000, footer: true) + frames, "big.mp3")
+    let bare = try write(frames, "bare.mp3")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: small), sha(frames))
+    XCTAssertEqual(BookFingerprint.sampleHash(of: big), sha(frames), "cover art in the tag doesn't change it")
+    XCTAssertEqual(BookFingerprint.sampleHash(of: bare), sha(frames))
   }
 
   // MARK: Wire format

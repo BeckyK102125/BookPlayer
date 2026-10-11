@@ -85,10 +85,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   static let sheetWatchdog: Duration = .seconds(120)
   /// The sharer's end message gets this long before the session is left anyway.
   static let endMessageTimeout: Duration = .seconds(2)
-  /// Someone new in the roster is counted and announced only after this long, and only if they are
-  /// still there and did not decline (owners-only, no copy): so a decliner is never heard as
-  /// "Someone joined" and "Someone left".
-  static let joinConfirmationDelay: Duration = .seconds(2)
+  /// Owners-only shares: someone new in the roster is counted and announced only after this long, and
+  /// only if they are still there and did not decline (no copy), so a decliner is never heard as
+  /// "Someone joined" and "Someone left". Covers the decliner's 3 s wait for the join plus the send.
+  /// Send-mode shares (nobody can decline) announce at once.
+  static let joinConfirmationDelay: Duration = .seconds(4)
   /// The sharer hears "Someone couldn't join" at most once per this many seconds.
   static let declineAnnouncementInterval: TimeInterval = 10
 
@@ -127,8 +128,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var confirmedParticipantIDs = Set<UUID>()
   var declinedParticipantIDs = Set<UUID>()
   var declineAnnouncementLimiter = ListenTogetherRepeatLimiter(interval: declineAnnouncementInterval)
-  /// Sharer: "Only people who have the book can join" for the running share: nothing is uploaded.
-  var sharingOwnersOnly = false
+  /// The running share is "Only people who have the book can join": the sharer uploads nothing, and
+  /// both roles delay join announcements so decliners are never heard.
+  var isOwnersOnlySession = false
+  /// Own copy: "Joined. Playing your copy." is still to be said.
+  var pendingOwnCopyJoinedLine = false
   /// Sharer: the running share's fingerprint, sent in the manifest.
   var sharingFingerprint: BookFingerprint?
   var localEventsBag = Set<AnyCancellable>()
@@ -148,6 +152,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private var pendingInvitation: GroupSession<ListenTogetherActivity>?
   /// What the waiting invitation offers; set while its own-copy check runs.
   private var pendingInvitationDetails: ListenTogetherInvitationDetails?
+  /// How the waiting invitation is declined (from its session; test seam).
+  private var pendingInvitationDecline: ListenTogetherPendingDecline?
+  /// The decline that waits for the "You need your own copy" alert to be on screen.
+  private var noticeDecline: ListenTogetherPendingDecline?
   private var invitationCheckTask: Task<Void, Never>?
   /// Shares cancelled while preparing (End, or Cancel in the sharing sheet). If `activate()` was already
   /// in flight, their session can still arrive; it is left, never offered as an invitation. Each id is
@@ -526,7 +534,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     // fall into a gap where the session is joined but this device is not yet listening.
     if !startListening(
       with: transport, shareID: shareID, ownCopy: ownCopy, title: session.activity.title,
-      author: session.activity.author, shared: session.activity.fingerprint)
+      author: session.activity.author, shared: session.activity.fingerprint,
+      ownersOnly: session.activity.isOwnersOnly)
     {
       activeSession = nil
       joinedTitle = nil
@@ -546,6 +555,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private func clearInvitation() {
     pendingInvitation = nil
     pendingInvitationDetails = nil
+    pendingInvitationDecline = nil
     invitationOwnCopy = nil
     invitationCheckTask?.cancel()
     invitationCheckTask = nil
@@ -557,15 +567,55 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// single-button "You need your own copy" alert explains it. No second action is needed: the
   /// decline is already done when the alert appears, and OK or escape only closes it.
   func declineWithoutCopy(bookTitle: String, cause: ListenTogetherNeedsCopyNotice.Cause) {
-    if let session = pendingInvitation { ListenTogetherDecline.sendAndLeave(session) }
+    let decline = pendingInvitationDecline ?? pendingInvitation.map(Self.decline(for:))
     clearInvitation()
     if isShowingInvitation { state = .idle }
+    // A newer notice replaces an older one that was never shown: that one is left without a message.
+    noticeDecline?.abandon()
+    noticeDecline = decline
     needsCopyNotice = ListenTogetherNeedsCopyNotice(bookTitle: bookTitle, cause: cause)
   }
 
-  /// The "You need your own copy" alert was closed (OK or escape), or could not be shown.
+  static func decline(for session: GroupSession<ListenTogetherActivity>) -> ListenTogetherPendingDecline {
+    ListenTogetherPendingDecline(
+      send: { ListenTogetherDecline.sendAndLeave(session) },
+      abandon: { session.leave() })
+  }
+
+  /// "Joined. Playing your copy." is said this long after the player's title has VoiceOver focus, so
+  /// the focus change can't cut it off (a11y I2)...
+  static let ownCopyJoinedAfterFocusDelay: Duration = .milliseconds(300)
+  /// ...or after this long from Join if the player is not shown (the user closed it, or it was slow).
+  static let ownCopyJoinedFallbackDelay: Duration = .milliseconds(1500)
+
+  /// The listener player put VoiceOver focus on the title. Called by ListenerPlayerView every time it
+  /// appears; only the first call of an own-copy session schedules the line.
+  func listenerTitleFocused() {
+    guard pendingOwnCopyJoinedLine, let transport else { return }
+    schedule(Self.ownCopyJoinedAfterFocusDelay) { [weak self] in self?.announceOwnCopyJoined(on: transport) }
+  }
+
+  /// Says "Joined. Playing your copy." once per session, whichever of the two moments comes first.
+  func announceOwnCopyJoined(on transport: ListenTogetherTransport) {
+    guard self.transport === transport, isUsingOwnCopy, pendingOwnCopyJoinedLine else { return }
+    pendingOwnCopyJoinedLine = false
+    announcer.announce("listen_together_joined_own_copy".localized)
+  }
+
+  /// The "You need your own copy" alert is on screen: only now is the decline sent (a11y I3), so the
+  /// user hears the alert before anything happens in SharePlay. OK and escape only close the alert.
+  func needsCopyNoticePresented() {
+    let decline = noticeDecline
+    noticeDecline = nil
+    decline?.send()
+  }
+
+  /// The "You need your own copy" alert was closed (OK or escape).
   func acknowledgeNeedsCopyNotice() {
     needsCopyNotice = nil
+    // Never shown (should not happen: only the alert acknowledges): leave without a message.
+    noticeDecline?.abandon()
+    noticeDecline = nil
   }
 
   /// Leave was chosen on "Leave Listen Together to play this book?": the listener session ends with
@@ -672,7 +722,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     rosterIDs = []
     confirmedParticipantIDs = []
     declinedParticipantIDs = []
-    sharingOwnersOnly = false
+    isOwnersOnlySession = false
+    pendingOwnCopyJoinedLine = false
     sharingFingerprint = nil
     self.shareID = nil
     if leaveTransport { transport?.leave() }
@@ -797,11 +848,15 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   private func offerInvitation(_ session: GroupSession<ListenTogetherActivity>) {
     pendingInvitation = session
     let details = ListenTogetherInvitationDetails(activity: session.activity)
+    let decline = Self.decline(for: session)
     invitationCheckTask = Task { [weak self, weak session] in
-      await self?.prepareInvitation(details) { [weak self, weak session] in
-        guard let self, let session else { return false }
-        return self.pendingInvitation === session
-      }
+      await self?.prepareInvitation(
+        details,
+        isCurrent: { [weak self, weak session] in
+          guard let self, let session else { return false }
+          return self.pendingInvitation === session
+        },
+        decline: decline)
     }
     // If the session goes away before the user answers, drop the invitation.
     session.$state
@@ -822,27 +877,51 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// the "You need your own copy" alert (case C). `isCurrent` is false once the invitation was
   /// answered or went away during the check. Test seam (no GroupSession needed).
   func prepareInvitation(
-    _ details: ListenTogetherInvitationDetails, isCurrent: @MainActor () -> Bool = { true }
+    _ details: ListenTogetherInvitationDetails, isCurrent: @MainActor () -> Bool = { true },
+    decline: ListenTogetherPendingDecline? = nil
   ) async {
     pendingInvitationDetails = details
-    let ownCopy = await findOwnCopy(for: details.fingerprint)
-    guard isCurrent(), pendingInvitationDetails?.shareID == details.shareID, !isInSession else { return }
+    pendingInvitationDecline = decline
+    let check = await checkOwnCopy(for: details.fingerprint)
+    guard isCurrent(), pendingInvitationDetails?.shareID == details.shareID else { return }
+    // Code M3: this device started its own share (or joined one) during the check. The invitation is
+    // left, so it neither covers "Preparing" nor blocks every later invitation.
+    guard !isInSession, !isPreparing else {
+      pendingInvitationDecline?.abandon()
+      clearInvitation()
+      return
+    }
+    let ownCopy = check.copy
     switch ListenTogetherInvitationKind.decide(hasOwnCopy: ownCopy != nil, ownersOnly: details.ownersOnly) {
     case .ownCopy, .sendCopy:
       invitationOwnCopy = ownCopy
       showInvitation(title: details.title, author: details.author)
     case .needsOwnCopy:
-      // No invitation sheet and no invitation announcement: the alert is the only speech.
-      declineWithoutCopy(bookTitle: details.title, cause: .notFound)
+      // No invitation sheet and no invitation announcement: the alert is the only speech. A check that
+      // ran out of time doesn't claim the book is missing (code M2).
+      declineWithoutCopy(bookTitle: details.title, cause: check == .timedOut ? .checkTimedOut : .notFound)
     }
   }
 
-  /// The own-copy check, limited to `ownCopyCheckLimit` (then: no copy).
-  private func findOwnCopy(for fingerprint: BookFingerprint?) async -> ListenTogetherOwnCopy? {
-    guard let fingerprint, let finder = ownCopyFinder else { return nil }
-    return await ListenTogetherFirstResult.value(within: ownCopyCheckLimit) {
-      await finder.findOwnCopy(matching: fingerprint)
+  enum OwnCopyCheck: Equatable {
+    case found(ListenTogetherOwnCopy)
+    case notFound
+    case timedOut
+
+    var copy: ListenTogetherOwnCopy? {
+      if case .found(let copy) = self { return copy }
+      return nil
     }
+  }
+
+  /// The own-copy check, limited to `ownCopyCheckLimit`.
+  private func checkOwnCopy(for fingerprint: BookFingerprint?) async -> OwnCopyCheck {
+    guard let fingerprint, let finder = ownCopyFinder else { return .notFound }
+    let result = await ListenTogetherFirstResult.value(within: ownCopyCheckLimit) { () -> OwnCopyCheck in
+      guard let copy = await finder.findOwnCopy(matching: fingerprint) else { return .notFound }
+      return .found(copy)
+    }
+    return result ?? .timedOut
   }
 
   /// Shows the invitation and announces it (queued), so a VoiceOver user hears it whatever is on
@@ -906,7 +985,7 @@ final class ListenTogetherFirstResult<Value> {
   private var continuation: CheckedContinuation<Value?, Never>?
   private var tasks: [Task<Void, Never>] = []
 
-  static func value(within limit: Duration, _ work: @escaping @MainActor () async -> Value?) async -> Value? {
+  static func value(within limit: Duration, _ work: @escaping @MainActor () async -> Value) async -> Value? {
     let race = ListenTogetherFirstResult<Value>()
     return await withCheckedContinuation { continuation in
       race.continuation = continuation
