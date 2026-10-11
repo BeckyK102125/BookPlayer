@@ -38,6 +38,11 @@ Field test on TestFlight 5.22.2 (1), 2026-10-11, started from Messages, Michael 
    ducks for the sentence and does not pause.
 9. **The sharer leaving.**
    - The sharer's End ends for everyone: "The person sharing ended Listen Together."
+   - Becky's ruling (2026-10-11): on every listener, that message is shown once (centred alert with OK, spoken once by
+     VoiceOver). After it, ALL Listen Together UI for that book is gone: the player closes, the Listen Together row is
+     removed, the temporary copy is deleted, nothing for that book stays in the library, and there is no way back into that
+     session. Only a new invitation from the sharer starts listening together again. The same applies after "The person
+     sharing left. Listen Together ended."
    - The sharer missing from the session (no longer an active participant, or no messages): listeners pause together and show
      and say "Waiting for the person sharing". If the sharer is back within 60 seconds, playback continues.
    - Not back after 60 s: the session ends for everyone with "The person sharing left. Listen Together ended." The temporary
