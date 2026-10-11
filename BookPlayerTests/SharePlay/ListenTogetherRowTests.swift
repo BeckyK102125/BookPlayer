@@ -129,7 +129,7 @@ final class ListenTogetherRowTests: XCTestCase {
 
   func testEndedReturnsTheOwnMiniPlayer() {
     XCTAssertEqual(bar(ended), R.BottomBar(showsRow: false, showsMiniPlayer: true))
-    XCTAssertEqual(bar(.ended(reason: .sendFailed)), R.BottomBar(showsRow: false, showsMiniPlayer: true))
+    XCTAssertEqual(bar(.ended(reason: .prepareFailed)), R.BottomBar(showsRow: false, showsMiniPlayer: true))
   }
 
   func testRowStaysInSearchAndEditModeButNotOverTheKeyboard() {

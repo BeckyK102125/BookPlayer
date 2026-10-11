@@ -17,6 +17,8 @@ struct MiniPlayerAccessoryView: View {
   var listenTogetherValue: String?
 
   @State private var isPlaying: Bool = false
+  /// Listen Together: VoiceOver lands here after leaving or after the sharer ended it.
+  @AccessibilityFocusState private var isInfoFocused: Bool
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @EnvironmentObject private var theme: ThemeViewModel
   @EnvironmentObject private var playerManager: PlayerManager
@@ -66,6 +68,7 @@ struct MiniPlayerAccessoryView: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel(voiceOverLabel)
         .accessibilityValue(listenTogetherValue ?? "")
+        .accessibilityFocused($isInfoFocused)
         Button {
           UIImpactFeedbackGenerator(style: .medium).impactOccurred()
           playerManager.rewind()
@@ -110,6 +113,7 @@ struct MiniPlayerAccessoryView: View {
     ) { isPlaying in
       self.isPlaying = isPlaying
     }
+    .onReceive(ListenTogetherFocusRequests.shared.miniPlayer) { isInfoFocused = true }
   }
 }
 

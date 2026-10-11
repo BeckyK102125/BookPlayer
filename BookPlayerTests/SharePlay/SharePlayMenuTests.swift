@@ -117,11 +117,13 @@ final class SharePlayMenuTests: XCTestCase {
     XCTAssertEqual(service.state, .sharing(participants: 2))
   }
 
-  func testUnavailableEndIsAnnounced() {
+  func testUnavailableEndIsAnAlert() {
     let service = makeService()
     service.endUnavailable()
     XCTAssertEqual(service.state, .ended(reason: .unavailable))
-    XCTAssertEqual(posted, ["listen_together_unavailable".localized])
+    // E12: a centred alert (R41), not an announcement and not a timed banner.
+    XCTAssertEqual(posted, [])
+    XCTAssertEqual(service.messages.alerts.next?.message, .unavailable)
     XCTAssertNotEqual("listen_together_unavailable".localized, "listen_together_unavailable")
   }
 

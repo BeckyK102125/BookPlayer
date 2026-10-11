@@ -19,6 +19,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// Play or pause was pressed while the group waits for this device's piece. Nothing is sent to the
   /// others (a pause there would stop everyone for no reason); the service says what is happening.
   var onToggleWhileWaiting: (() -> Void)?
+  /// True while the group waits for the person sharing to come back (set by the service).
+  var isHeldForSharer = false
+  /// Play or pause pressed while `isHeldForSharer`: nothing happens; the service says why.
+  var onToggleWhileHeldForSharer: (() -> Void)?
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
   /// is no longer needed can end (path 3).
   var onPositionReady: (() -> Void)?
@@ -188,6 +192,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   // or play reported after that would only ever move this device.
 
   func userTogglePlay() {
+    // The person sharing is missing (decision 9, C.2): the group is paused for them. Play would only
+    // play here; do nothing and say why.
+    if isHeldForSharer {
+      onToggleWhileHeldForSharer?()
+      return
+    }
     // The group is playing but held for our piece: toggling would only send everyone a second play
     // (or, to the user's ear, a pause that stops the group for no reason). Do nothing; say we wait.
     // A paused seek into a missing piece is different: Play there still starts the group (R14).

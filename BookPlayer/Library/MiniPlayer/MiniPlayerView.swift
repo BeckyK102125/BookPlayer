@@ -14,6 +14,9 @@ struct MiniPlayerView: View {
   let showPlayer: () -> Void
 
   @State private var isPlaying: Bool = false
+  /// Listen Together: after leaving, or after "The person sharing ended Listen Together.", VoiceOver
+  /// lands here (the person's own book).
+  @AccessibilityFocusState private var isInfoFocused: Bool
 
   @EnvironmentObject private var theme: ThemeViewModel
   @EnvironmentObject private var playerManager: PlayerManager
@@ -51,6 +54,7 @@ struct MiniPlayerView: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel(voiceOverLabel)
         .accessibilityIdentifier("miniPlayer.info")
+        .accessibilityFocused($isInfoFocused)
         Spacer()
         Button {
           UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -103,6 +107,7 @@ struct MiniPlayerView: View {
     ) { isPlaying in
       self.isPlaying = isPlaying
     }
+    .onReceive(ListenTogetherFocusRequests.shared.miniPlayer) { isInfoFocused = true }
   }
 }
 

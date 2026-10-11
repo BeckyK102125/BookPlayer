@@ -635,7 +635,8 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     XCTAssertFalse(service.isUsingOwnCopy)
     XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
     XCTAssertTrue(transport.left)
-    XCTAssertEqual(posted.last, ListenTogetherAnnouncements.ended(), "generic text until Task B")
+    XCTAssertFalse(posted.contains(ListenTogetherAnnouncements.ended()), "the alert is the one message (Task B)")
+    XCTAssertEqual(service.messages.alerts.next?.message, .sharerEnded)
     service.acknowledgeEndNotice()
     XCTAssertNil(service.endNotice)
   }
@@ -814,7 +815,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     await service.beginSharing(with: transport, item: missing)
     XCTAssertTrue(transport.sent.contains(.sharerCouldNotPrepare))
     XCTAssertFalse(transport.sent.contains(.sessionEnding))
-    XCTAssertEqual(service.state, .ended(reason: .sendFailed))
+    XCTAssertEqual(service.state, .ended(reason: .prepareFailed))
 
     let (listenerService, listenerTransport, _) = try await startListeningWithManifest()
     listenerTransport.emit(.message(.sharerCouldNotPrepare))

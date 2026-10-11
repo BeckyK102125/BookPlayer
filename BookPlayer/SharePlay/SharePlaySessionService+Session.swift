@@ -309,7 +309,8 @@ extension SharePlaySessionService {
   private func failSharing(on transport: ListenTogetherTransport) async {
     // Its own message, so listeners can say why it ended (minor 9).
     await send(.sharerCouldNotPrepare, on: transport)
-    tearDown(reason: .sendFailed, announcement: "listen_together_send_failed".localized)
+    // E14: "Couldn't prepare the book for sharing. Listen Together ended." as a centred alert.
+    tearDown(reason: .prepareFailed)
   }
 
   // MARK: Listener
@@ -394,6 +395,18 @@ extension SharePlaySessionService {
       guard let self, self.waitingToggleLimiter.allows(at: Date()) else { return }
       self.announcer.announce("listen_together_waiting_download".localized)
     }
+    // Play or pause while the person sharing is missing (C.2): nothing happens; say why, at most every
+    // 2 s (VoiceOver only).
+    player.isHeldForSharer = isSharerGraceRunning
+    player.onToggleWhileHeldForSharer = { [weak self] in
+      guard let self, self.sharerWaitToggleLimiter.allows(at: Date()) else { return }
+      self.announcer.announce("listen_together_waiting_for_sharer".localized)
+    }
+    // The status line and the Zoom caption follow the player's wait for a piece.
+    player.$isWaitingForPiece
+      .removeDuplicates()
+      .sink { [weak self] waiting in self?.setListenerWaitingForPiece(waiting) }
+      .store(in: &localEventsBag)
     self.bridge = bridge
     setListener(player)
     if let activeSession { bridge.coordinate(with: activeSession) }
@@ -411,7 +424,8 @@ extension SharePlaySessionService {
     if !isUsingOwnCopy { outbox?.yield(.needPiece(index: index)) }
     guard !announcedWaiting else { return }
     announcedWaiting = true
-    announcer.announce("listen_together_waiting_download".localized)
+    // Status + one announcement per wait; never spoken by the setting (normal buffering).
+    messages.deliver(.waitingForBook)
   }
 
   /// Minor 4: a received piece couldn't be played. It may be placed again, and its attachment is
@@ -537,6 +551,9 @@ extension SharePlaySessionService {
       attachmentReceived(id: id, url: url)
     case .message(.action(let action)):
       announcer.announce(ListenTogetherAnnouncements.text(for: action))
+      // E9: why the audio stopped, visible until the next play.
+      if action == .paused { setPausedByOther(true) }
+      if action == .resumed { setPausedByOther(false) }
       if let target = playbackTarget, let rate = Self.silentRate(for: action, target: target) {
         target.applyRate(rate)
       }
@@ -582,7 +599,10 @@ extension SharePlaySessionService {
       declinedParticipantIDs.insert(id)
       if confirmedParticipantIDs.remove(id) != nil { applyParticipantCount(confirmedParticipantIDs.count) }
     }
-    guard role == .sharer, declineAnnouncementLimiter.allows(at: now()) else { return }
+    guard role == .sharer else { return }
+    // E11: also a second status line, so a sharer without VoiceOver learns why no one joined.
+    setSomeoneDeclined(true)
+    guard declineAnnouncementLimiter.allows(at: now()) else { return }
     announcer.announce("listen_together_declined_no_copy".localized)
   }
 
@@ -625,7 +645,10 @@ extension SharePlaySessionService {
   }
 
   private func applyParticipantCount(_ count: Int) {
+    let previous = participantCount
     participantCount = max(count, 1)
+    // The "couldn't join" line stays until the visible count changes.
+    if participantCount != previous { setSomeoneDeclined(false) }
     switch role {
     case .sharer: setState(.sharing(participants: participantCount))
     case .listener: updateListeningState()
@@ -650,6 +673,7 @@ extension SharePlaySessionService {
     guard count > 0, role != nil else { return }
     let previous = participantCount
     participantCount = count
+    if count != previous { setSomeoneDeclined(false) }
     switch role {
     case .sharer: setState(.sharing(participants: count))
     default: updateListeningState()
@@ -687,7 +711,11 @@ extension SharePlaySessionService {
   private func observeLocalEvents(of target: ListenTogetherPlaybackTarget) {
     target.localEvents
       .sink { [weak self] event in
-        guard let self, let action = self.remoteAction(for: event) else { return }
+        guard let self else { return }
+        // The person's own play or pause: "Paused by another listener" no longer applies.
+        if case .played = event { self.setPausedByOther(false) }
+        if case .paused = event { self.setPausedByOther(false) }
+        guard let action = self.remoteAction(for: event) else { return }
         self.outbox?.yield(.action(action))
       }
       .store(in: &localEventsBag)
@@ -835,6 +863,8 @@ extension SharePlaySessionService {
     guard role == .listener, sharerMissingSince == nil else { return }
     sharerMissingSince = now()
     Self.logger.info("Listen Together: the sharer left the roster; waiting up to 60 s")
+    setSharerGraceRunning(true)
+    listener?.isHeldForSharer = true
     updateSharerNotice()
     // Everyone pauses together: this device stops, and its stall suspension makes the group wait.
     listener?.holdForSharer()
@@ -845,6 +875,8 @@ extension SharePlaySessionService {
     guard sharerMissingSince != nil else { return }
     sharerMissingSince = nil
     Self.logger.info("Listen Together: the sharer is back")
+    setSharerGraceRunning(false)
+    listener?.isHeldForSharer = false
     bridge?.releaseSharerHold()
     updateSharerNotice()
   }

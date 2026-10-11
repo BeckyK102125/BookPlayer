@@ -46,6 +46,10 @@ class MainCoordinator: NSObject {
   var needsCopyPresentationGeneration = 0
   var needsCopySubscription: AnyCancellable?
   var needsCopyActiveSubscription: AnyCancellable?
+  /// Listen Together alerts from the message delivery (addendum 3): the one on screen and its retry chain.
+  weak var listenTogetherAlertController: UIViewController?
+  var listenTogetherAlertGeneration = 0
+  var listenTogetherAlertSubscriptions = Set<AnyCancellable>()
 
   var playerState: PlayerState { AppServices.shared.playerState }
 

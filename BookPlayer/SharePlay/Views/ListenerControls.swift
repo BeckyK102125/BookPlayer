@@ -41,7 +41,7 @@ struct ListenerPositionView: View {
 
     VStack(alignment: .leading, spacing: 6) {
       ProgressView(value: duration > 0 ? elapsed / duration : 0)
-        .tint(theme.linkColor)
+        .tint(theme.primaryColor)
         .animation(nil, value: elapsed)
       layout {
         Text(TimeParser.formatTime(elapsed))
@@ -50,7 +50,8 @@ struct ListenerPositionView: View {
       }
       .bpFont(.footnote)
       .monospacedDigit()
-      .foregroundStyle(theme.secondaryColor)
+      // Primary (A9): secondary is below 4.5:1 in most light themes.
+      .foregroundStyle(theme.primaryColor)
     }
     .frame(minHeight: 44)
     .contentShape(Rectangle())
@@ -75,6 +76,8 @@ struct ListenerPositionView: View {
 /// Skip back 30, play/pause, skip forward 30. Media controls never mirror for right-to-left languages.
 struct ListenerTransportRow: View {
   @ObservedObject var listener: ListenerPlayer
+  /// For the play button's value while playback is held (C.1, C.2).
+  @ObservedObject var service: SharePlaySessionService
   @EnvironmentObject private var theme: ThemeViewModel
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @ScaledMetric(relativeTo: .title) private var iconSize: CGFloat = 44
@@ -91,6 +94,8 @@ struct ListenerTransportRow: View {
       ) {
         listener.userTogglePlay()
       }
+      // "Waiting for the book" / "Waiting for the person sharing": why Play does nothing.
+      .accessibilityValue(ListenTogetherStatus.waitingCaption(service.statusConditions) ?? "")
       .accessibilityAddTraits(.startsMediaSession)
       .animation(reduceMotion ? nil : .default, value: listener.isPlaying)
       button(systemName: "goforward.30", label: ListenerSkip.forwardLabel, identifier: "listenTogether.skipForward") {
@@ -112,7 +117,8 @@ struct ListenerTransportRow: View {
         .resizable()
         .scaledToFit()
         .frame(width: min(iconSize, 88), height: min(iconSize, 88))
-        .foregroundStyle(theme.linkColor)
+        // Primary (A5): link is below 3:1 in four theme variants.
+        .foregroundStyle(theme.primaryColor)
         .frame(maxWidth: .infinity, minHeight: 56)
         .contentShape(Rectangle())
     }
@@ -169,6 +175,8 @@ struct ListenerExtrasRow: View {
         .pickerStyle(.inline)
       } label: {
         pill {
+          // A7: a symbol with the text (decorative; the label and value are already right).
+          Image(systemName: "gauge.with.dots.needle.67percent").accessibilityHidden(true)
           Text("listen_together_speed_title".localized)
           Text(Self.number(listener.rate) + "×")
         }
@@ -182,13 +190,14 @@ struct ListenerExtrasRow: View {
   private func pill<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
     HStack(spacing: 6) { content() }
       .bpFont(.body)
-      .foregroundStyle(theme.linkColor)
+      // Primary (A6, A7): link is below 4.5:1 in ten theme variants.
+      .foregroundStyle(theme.primaryColor)
       .multilineTextAlignment(.center)
       .fixedSize(horizontal: false, vertical: true)
       .padding(.horizontal, 16)
       .padding(.vertical, 8)
       .frame(maxWidth: .infinity, minHeight: 44)
-      .overlay(Capsule().stroke(theme.linkColor, lineWidth: 1.5))
+      .overlay(Capsule().stroke(theme.primaryColor, lineWidth: 1.5))
       .contentShape(Capsule())
   }
 }

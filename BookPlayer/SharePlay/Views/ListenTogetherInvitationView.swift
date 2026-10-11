@@ -15,7 +15,6 @@ struct ListenTogetherInvitationView: View {
   let onDecline: () -> Void
 
   @EnvironmentObject private var theme: ThemeViewModel
-  @Environment(\.colorScheme) private var colorScheme
   @AccessibilityFocusState private var focus: Field?
 
   private enum Field {
@@ -52,32 +51,44 @@ struct ListenTogetherInvitationView: View {
           .foregroundStyle(theme.primaryColor)
           .fixedSize(horizontal: false, vertical: true)
 
+        // R40 (A3): symbol and text, prominent in the theme's primary colour with the background colour
+        // as the label (at least 6.40:1 in every theme variant, and the fill at least 3:1).
         Button(action: onJoin) {
-          Text("listen_together_join_button".localized)
-            .bpFont(.body)
-            .foregroundStyle(theme.labelColorOnLink(for: colorScheme))
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(theme.linkColor))
-            .contentShape(Capsule())
+          Label {
+            Text("listen_together_join_button".localized)
+              .fixedSize(horizontal: false, vertical: true)
+          } icon: {
+            Image(systemName: "shareplay").accessibilityHidden(true)
+          }
+          .bpFont(.body)
+          .foregroundStyle(theme.systemBackgroundColor)
+          .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderedProminent)
+        .tint(theme.primaryColor)
+        .controlSize(.large)
+        .accessibilityLabel("listen_together_join_button".localized)
         .accessibilityHint(
           (usesOwnCopy ? "listen_together_join_hint_own_copy" : "listen_together_join_hint").localized)
         .accessibilityIdentifier("listenTogether.join")
 
+        // R40 (A4): symbol and text, outline capsule in the theme's primary colour.
         Button(action: onDecline) {
-          Text("listen_together_decline_button".localized)
-            .bpFont(.body)
-            .foregroundStyle(theme.linkColor)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .padding(.vertical, 6)
-            .overlay(Capsule().stroke(theme.linkColor, lineWidth: 1.5))
-            .contentShape(Capsule())
+          Label {
+            Text("listen_together_decline_button".localized)
+              .fixedSize(horizontal: false, vertical: true)
+          } icon: {
+            Image(systemName: "xmark").accessibilityHidden(true)
+          }
+          .bpFont(.body)
+          .foregroundStyle(theme.primaryColor)
+          .frame(maxWidth: .infinity, minHeight: 44)
+          .padding(.vertical, 6)
+          .overlay(Capsule().stroke(theme.primaryColor, lineWidth: 1.5))
+          .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("listen_together_decline_button".localized)
         .accessibilityIdentifier("listenTogether.decline")
       }
       .padding(24)

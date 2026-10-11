@@ -135,6 +135,8 @@ struct ListenTogetherPresentation: ViewModifier {
         ),
         onDismiss: {
           listState.coversOnScreen.remove(.listenTogether)
+          // A listener's ending alert waits for this (guidance A.0).
+          ListenTogetherCoverTracker.shared.coverDismissed()
           guard Self.focusesRowAfterListenerScreenCloses(
             state: service.state, hasListener: service.listener != nil,
             isRequested: listState.isListenerScreenRequested)
@@ -147,7 +149,10 @@ struct ListenTogetherPresentation: ViewModifier {
         }
       ) { _ in
         ListenTogetherListenerScreen(service: service, onClose: { Self.closeListenerScreen(listState: listState) })
-          .onAppear { listState.coversOnScreen.insert(.listenTogether) }
+          .onAppear {
+            listState.coversOnScreen.insert(.listenTogether)
+            ListenTogetherCoverTracker.shared.coverAppeared()
+          }
       }
       .onChange(of: isListening, initial: true) { wasListening, isListening in
         guard isListening else { return }
@@ -167,6 +172,10 @@ struct ListenTogetherPresentation: ViewModifier {
 }
 
 /// The listener cover's content: "getting the book" until the book details arrive, then the player.
+///
+/// "Leave Listen Together?" lives here (leave guidance, trap 1): this view stays the same when the book
+/// details arrive and "getting the book" is replaced by the player, so the question is not dropped from
+/// under the user, and the player doesn't move focus to the title while it is up.
 struct ListenTogetherListenerScreen: View {
   @ObservedObject var service: SharePlaySessionService
   /// Escape: closes the screen only; the session keeps going (R35).
@@ -174,25 +183,34 @@ struct ListenTogetherListenerScreen: View {
   /// Set once the getting-book view has appeared, so the player that replaces it moves focus sooner
   /// (the cover has been up for a while; the long wait is only for a fresh presentation).
   @State private var cameFromGettingBook = false
+  @State private var isConfirmingLeave = false
 
   var body: some View {
-    if let listener = service.listener {
-      ListenerPlayerView(
-        service: service, listener: listener,
-        initialFocusDelay: cameFromGettingBook ? .milliseconds(150) : .milliseconds(600),
-        onClose: onClose)
-    } else {
-      ListenerGettingBookView(service: service, onClose: onClose)
-        .onAppear { cameFromGettingBook = true }
+    Group {
+      if let listener = service.listener {
+        ListenerPlayerView(
+          service: service, listener: listener,
+          initialFocusDelay: cameFromGettingBook ? .milliseconds(150) : .milliseconds(600),
+          isConfirmingLeave: isConfirmingLeave,
+          onRequestLeave: { isConfirmingLeave = true },
+          onClose: onClose)
+      } else {
+        ListenerGettingBookView(service: service, onRequestLeave: { isConfirmingLeave = true }, onClose: onClose)
+          .onAppear { cameFromGettingBook = true }
+      }
     }
+    .listenTogetherLeaveConfirmation(isPresented: $isConfirmingLeave, service: service)
   }
 }
 
 /// Shown between Join and the arrival of the book details. VoiceOver order: title (heading, first
-/// focus), status, End, then what happens next. Two-finger Z closes the screen only, as on the player
-/// screen: the session and the download keep going and the Listen Together row brings it back.
+/// focus), what happens next, status, then Leave Listen Together (full width under the status card, the
+/// screen's action). Two-finger Z closes the screen only, as on the player screen: the session and the
+/// download keep going and the Listen Together row brings it back.
 struct ListenerGettingBookView: View {
   @ObservedObject var service: SharePlaySessionService
+  /// Leave Listen Together: asks through the listener screen.
+  let onRequestLeave: () -> Void
   /// Escape: closes the screen only (R35).
   let onClose: () -> Void
   @StateObject private var theme = ThemeViewModel()
@@ -216,15 +234,21 @@ struct ListenerGettingBookView: View {
           ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
           : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))) {
           ProgressView()
-            .tint(theme.linkColor)
+            .tint(theme.primaryColor)
             .accessibilityHidden(true)
+          // Primary, not secondary: secondary is below 4.5:1 in most light themes (A9).
           Text("listen_together_getting_book_message".localized)
             .bpFont(.body)
-            .foregroundStyle(theme.secondaryColor)
+            .foregroundStyle(theme.primaryColor)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
         }
-        ListenTogetherBanner(service: service, onRemovedWhileFocused: { isTitleFocused = true })
+        ListenTogetherBanner(
+          service: service, onRemovedWhileFocused: { isTitleFocused = true }, showsActionButton: false)
+        // The screen's action: one control, full width, outside the status card.
+        if let action = ListenTogetherSessionAction.action(for: service.state, usesOwnCopy: service.isUsingOwnCopy) {
+          ListenTogetherSessionButton(action: action, isFullWidth: true) { onRequestLeave() }
+        }
       }
       .padding(16)
       .frame(maxWidth: 600, alignment: .leading)

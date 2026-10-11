@@ -50,7 +50,8 @@ enum ListenTogetherRow {
   /// The row's value: the state word and the book title. The label is always "Listen Together", so
   /// a change is read as a new value while the row is focused, and Voice Control matches the label.
   static func value(
-    state: ListenTogetherState, joinedTitle: String?, listener: ListenerSnapshot?, sharerTitle: String?
+    state: ListenTogetherState, joinedTitle: String?, listener: ListenerSnapshot?, sharerTitle: String?,
+    waitingForSharer: Bool = false
   ) -> String? {
     switch role(state: state, hasListener: listener != nil) {
     case .listener:
@@ -65,7 +66,10 @@ enum ListenTogetherRow {
       }
       let title = listener.title.isEmpty ? "voiceover_no_title".localized : listener.title
       let key: String
-      if listener.isWaiting {
+      if waitingForSharer {
+        // C.2: the bigger problem wins.
+        key = "listen_together_row_value_waiting_sharer"
+      } else if listener.isWaiting {
         key = "listen_together_row_value_waiting"
       } else if listener.isPlaying {
         key = "listen_together_row_value_playing"
@@ -130,7 +134,7 @@ struct ListenTogetherStatusRow: View {
     let role = ListenTogetherRow.role(state: service.state, hasListener: service.listener != nil)
     let value = ListenTogetherRow.value(
       state: service.state, joinedTitle: service.joinedTitle, listener: snapshot,
-      sharerTitle: playerManager.currentItem?.title)
+      sharerTitle: playerManager.currentItem?.title, waitingForSharer: service.notice == .waitingForSharer)
     Group {
       if let role, let value {
         Button { activate(role) } label: { content(value: value) }

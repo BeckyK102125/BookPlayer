@@ -259,7 +259,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
     XCTAssertEqual(
       ListenTogetherStatus.endHint(for: service.state, usesOwnCopy: service.isUsingOwnCopy),
-      "listen_together_end_hint_listener_own_copy".localized)
+      "listen_together_leave_session_hint_own_copy".localized)
     service.end()
     XCTAssertFalse(service.isUsingOwnCopy)
   }

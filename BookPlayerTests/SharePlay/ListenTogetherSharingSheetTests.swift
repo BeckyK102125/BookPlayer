@@ -212,7 +212,9 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertTrue(service.canOfferSharing(makeItem()))
     XCTAssertEqual(posted, [preparingText], "the announcement waits for the banner change to settle")
     scheduler.advance(to: .seconds(21))
-    XCTAssertEqual(posted, [preparingText, didntStartText])
+    // E13: a centred alert, not an announcement.
+    XCTAssertEqual(posted, [preparingText])
+    XCTAssertEqual(service.messages.alerts.next?.message, .didntStart)
 
     scheduler.advance(to: .seconds(25))
     XCTAssertTrue(isShare(service.action(forIncoming: shareID), late: true))
@@ -316,7 +318,8 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertEqual(service.state, .idle)
     XCTAssertTrue(service.canOfferSharing(makeItem()), "Listen Together is offered again")
     XCTAssertEqual(service.decision(forIncoming: UUID()), .invitation, "invitations are offered again")
-    XCTAssertEqual(posted, [didntStartText])
+    XCTAssertEqual(posted, [])
+    XCTAssertEqual(service.messages.alerts.next?.message, .didntStart)
 
     // The sheet finally reports Cancel: its session must not start later.
     presenter.release(.cancelled)
@@ -334,7 +337,8 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertFalse(service.isPreparing)
     XCTAssertEqual(service.state, .idle)
     scheduler.advance(by: .milliseconds(700))
-    XCTAssertEqual(posted, [didntStartText])
+    XCTAssertEqual(posted, [])
+    XCTAssertEqual(service.messages.alerts.next?.message, .didntStart)
     XCTAssertTrue(isShare(service.action(forIncoming: shareID), late: true), "a late session still starts")
   }
 
@@ -358,12 +362,14 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     scheduler.advance(to: .seconds(239))
     XCTAssertTrue(service.isPreparing)
     XCTAssertEqual(posted, [], "nothing is said over the open sheet")
+    XCTAssertNil(service.messages.alerts.next)
 
     presenter.isSharingSheetPresented = false
     scheduler.advance(to: .seconds(241))
     XCTAssertFalse(service.isPreparing, "released at the next check once the sheet is gone")
     scheduler.advance(by: .milliseconds(700))
-    XCTAssertEqual(posted, [didntStartText])
+    XCTAssertEqual(posted, [])
+    XCTAssertEqual(service.messages.alerts.next?.message, .didntStart)
 
     presenter.release(.cancelled)
     await task.value
@@ -414,6 +420,7 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     scheduler.advance(to: .seconds(21))
 
     XCTAssertFalse(posted.contains(didntStartText))
+    XCTAssertNil(service.messages.alerts.next, "nothing shown over the invitation")
   }
 }
 

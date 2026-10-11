@@ -2,18 +2,26 @@ import BookPlayerKit
 import SwiftUI
 
 /// Shown at the top of the player and on the listener screen while Listen Together is preparing,
-/// running or has just ended. VoiceOver reads the status as one element and End as a second one.
-/// The service makes every announcement; this view never posts one.
+/// running or has just ended. VoiceOver reads the status as one element and the session button
+/// (Cancel Sharing, End Listen Together or Leave Listen Together) as a second one. The status is
+/// persistent text that stays until it changes (R41); changing it posts nothing by itself. The service
+/// makes every announcement; this view never posts one.
 struct ListenTogetherBanner: View {
   @ObservedObject var service: SharePlaySessionService
   /// Called when the banner goes away while VoiceOver is on it, so the host can move focus somewhere
   /// sensible instead of letting it drop.
   var onRemovedWhileFocused: (() -> Void)?
+  /// False on "Getting the book", which draws the session button itself, full width under the card.
+  var showsActionButton = true
+  /// Listener: Leave asks through the listener screen's confirmation (kept there, so it survives the
+  /// book details arriving). Nil: the banner asks itself.
+  var onRequestLeave: (() -> Void)?
   @EnvironmentObject private var theme: ThemeViewModel
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AccessibilityFocusState private var focus: Field?
   @State private var isConfirmingEnd = false
+  @State private var isConfirmingLeave = false
   /// Focus is reset by SwiftUI when its element goes away, often before the removal's onChange runs,
   /// so the last focused element and when focus was lost are remembered.
   @State private var lastFocus: Field?
@@ -32,15 +40,19 @@ struct ListenTogetherBanner: View {
     case banner
   }
 
+  private var sessionAction: ListenTogetherSessionAction? {
+    ListenTogetherSessionAction.action(for: service.state, usesOwnCopy: service.isUsingOwnCopy)
+  }
+
   var body: some View {
-    let visible = ListenTogetherStatus.visibleText(for: service.state)
+    let line = ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)
     VStack(spacing: 0) {
-      if let visible {
-        content(visible: visible)
+      if let line {
+        content(line: line)
           .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
       }
     }
-    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: visible != nil)
+    .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: line != nil)
     .onChange(of: focus) { old, new in
       if let new {
         lastFocus = new
@@ -54,14 +66,15 @@ struct ListenTogetherBanner: View {
         if pendingRemoval.kind == .banner || old == .end { recover(from: pendingRemoval.kind) }
       }
     }
-    .onChange(of: visible == nil) { _, isGone in
+    .onChange(of: line == nil) { _, isGone in
       guard isGone else { return }
       removed(.banner, hadFocus: hadFocusJustNow(nil))
     }
-    .onChange(of: ListenTogetherStatus.endHint(for: service.state, usesOwnCopy: service.isUsingOwnCopy) == nil) { _, endIsGone in
-      guard endIsGone else { return }
-      // The session ended some other way while the confirmation was up: nothing left to confirm.
+    .onChange(of: sessionAction == nil) { _, actionIsGone in
+      guard actionIsGone else { return }
+      // The session ended some other way while a confirmation was up: nothing left to confirm.
       isConfirmingEnd = false
+      isConfirmingLeave = false
       removed(.end, hadFocus: hadFocusJustNow(.end))
     }
     .confirmationDialog(
@@ -76,66 +89,60 @@ struct ListenTogetherBanner: View {
       }
       Button("cancel_button".localized, role: .cancel) {}
     } message: {
-      if let hint = ListenTogetherStatus.endHint(for: service.state, usesOwnCopy: service.isUsingOwnCopy) {
-        Text(hint)
-      }
+      Text("listen_together_end_hint_sharer".localized)
     }
+    .listenTogetherLeaveConfirmation(isPresented: $isConfirmingLeave, service: service)
   }
 
-  private func content(visible: String) -> some View {
-    let state = service.state
-    let endHint = ListenTogetherStatus.endHint(for: state, usesOwnCopy: service.isUsingOwnCopy)
+  private func content(line: ListenTogetherStatusLine) -> some View {
+    let action = showsActionButton ? sessionAction : nil
     let layout = dynamicTypeSize.isAccessibilitySize
       ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
       : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
     return layout {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Image(systemName: ListenTogetherStatus.isProblem(state) ? "exclamationmark.triangle" : "shareplay")
+        Image(systemName: line.icon.systemName)
           .resizable()
           .scaledToFit()
           .frame(width: iconSize, height: iconSize)
-          .foregroundStyle(theme.linkColor)
-          .accessibilityHidden(true)
-        Text(visible)
-          .bpFont(.subheadline)
+          // Primary, not link: link fails 3:1 in four theme variants (leave guidance section 4).
           .foregroundStyle(theme.primaryColor)
-          .multilineTextAlignment(.leading)
-          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(line.text)
+            .bpFont(.subheadline)
+            .foregroundStyle(theme.primaryColor)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+          if let detail = line.detail {
+            Text(detail)
+              .bpFont(.footnote)
+              .foregroundStyle(theme.primaryColor)
+              .multilineTextAlignment(.leading)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .layoutPriority(1)
       .accessibilityElement(children: .combine)
-      .accessibilityLabel(ListenTogetherStatus.spokenText(for: state) ?? visible)
+      .accessibilityLabel(line.spoken)
       .accessibilityFocused($focus, equals: .status)
       .accessibilityActions {
-        if endHint != nil {
-          Button("listen_together_end_button".localized) { requestEnd() }
+        if let action = sessionAction {
+          Button(action.label) { perform(action) }
         }
       }
 
-      if let endHint {
-        Button(action: requestEnd) {
-          Text("listen_together_end_button".localized)
-            .bpFont(.body)
-            .foregroundStyle(theme.linkColor)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(minWidth: 44, minHeight: 44)
-            .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil)
-            .overlay(Capsule().stroke(theme.linkColor, lineWidth: 1.5))
-            .contentShape(Capsule())
+      if let action {
+        ListenTogetherSessionButton(action: action, isFullWidth: dynamicTypeSize.isAccessibilitySize) {
+          perform(action)
         }
-        .buttonStyle(.plain)
-        .accessibilityHint(endHint)
-        .accessibilityIdentifier("listenTogether.end")
         .accessibilityFocused($focus, equals: .end)
       }
     }
     .padding(12)
     .background(
-      // The theme's background: link-coloured text and outlines are designed against it.
       RoundedRectangle(cornerRadius: 12)
         .fill(theme.systemBackgroundColor)
     )
@@ -146,14 +153,21 @@ struct ListenTogetherBanner: View {
     .accessibilityElement(children: .contain)
   }
 
-  /// Cancelling a share that is still being prepared is cheap; ending a running session is not
-  /// (everyone stops, or the listener's copy is deleted), so that asks first.
-  private func requestEnd() {
-    if case .preparing = service.state {
+  /// Cancelling a share that is still being prepared is cheap and acts at once; ending a running
+  /// session (everyone stops) and leaving (this device's copy is deleted) ask once.
+  private func perform(_ action: ListenTogetherSessionAction) {
+    switch action.kind {
+    case .cancelSharing:
       focus = .status
       service.end()
-    } else {
+    case .endForEveryone:
       isConfirmingEnd = true
+    case .leave:
+      if let onRequestLeave {
+        onRequestLeave()
+      } else {
+        isConfirmingLeave = true
+      }
     }
   }
 
@@ -172,7 +186,7 @@ struct ListenTogetherBanner: View {
     }
   }
 
-  /// End went away: stay on the status. The banner went away: the host picks a target.
+  /// The button went away: stay on the status. The banner went away: the host picks a target.
   private func recover(from kind: Removal) {
     focusLostAt = nil
     lastFocus = nil
@@ -180,6 +194,68 @@ struct ListenTogetherBanner: View {
     case .end: focus = .status
     case .banner: onRemovedWhileFocused?()
     }
+  }
+}
+
+/// The session button (R40): SF Symbol plus visible text, the player's outline capsule style in the
+/// theme's primary colour on its background (at least 6.40:1 in all 22 theme variants), at least
+/// 44 pt high, Dynamic Type without truncation, one element with the Button trait and the same label.
+struct ListenTogetherSessionButton: View {
+  let action: ListenTogetherSessionAction
+  var isFullWidth = false
+  let perform: () -> Void
+  @EnvironmentObject private var theme: ThemeViewModel
+
+  var body: some View {
+    Button(action: perform) {
+      Label {
+        Text(action.label)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+      } icon: {
+        Image(systemName: action.systemImage)
+          .accessibilityHidden(true)
+      }
+      .bpFont(.body)
+      .foregroundStyle(theme.primaryColor)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+      .frame(minWidth: 44, minHeight: 44)
+      .frame(maxWidth: isFullWidth ? .infinity : nil)
+      .overlay(Capsule().stroke(theme.primaryColor, lineWidth: 1.5))
+      .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(action.label)
+    .accessibilityHint(action.hint ?? "")
+    .accessibilityIdentifier("listenTogether.end")
+  }
+}
+
+/// "Leave Listen Together?" (leave guidance): Leave is destructive, Cancel is the cancel action, so the
+/// two-finger scrub only ever cancels. Leave asks the service to leave; nothing else.
+struct ListenTogetherLeaveConfirmation: ViewModifier {
+  @Binding var isPresented: Bool
+  @ObservedObject var service: SharePlaySessionService
+
+  func body(content: Content) -> some View {
+    content
+      .onChange(of: service.isListenerSession) { _, isListening in
+        // The session ended some other way while the question was up: nothing left to confirm.
+        if !isListening { isPresented = false }
+      }
+      .alert("listen_together_leave_confirm_title".localized, isPresented: $isPresented) {
+        Button("listen_together_leave_button".localized, role: .destructive) { service.leave() }
+        Button("cancel_button".localized, role: .cancel) {}
+      } message: {
+        Text(ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: service.isUsingOwnCopy))
+      }
+  }
+}
+
+extension View {
+  func listenTogetherLeaveConfirmation(isPresented: Binding<Bool>, service: SharePlaySessionService) -> some View {
+    modifier(ListenTogetherLeaveConfirmation(isPresented: isPresented, service: service))
   }
 }
 
@@ -198,7 +274,11 @@ struct ListenTogetherNeedsFaceTimeAlert: ViewModifier {
         }
         Task {
           try? await Task.sleep(for: .milliseconds(600))
-          if service.state == .needsFaceTime { isPresented = true }
+          guard service.state == .needsFaceTime else { return }
+          isPresented = true
+          // E18: a failure reason, so "Speak error messages" reads the title too.
+          service.messages.deliver(
+            .alertShownElsewhere(text: "listen_together_needs_facetime_title".localized, key: "needsFaceTime"))
         }
       }
       .onChange(of: isPresented) { _, shown in

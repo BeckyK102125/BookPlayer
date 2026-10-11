@@ -19,6 +19,10 @@ struct ListenerPlayerView: View {
   /// How long to wait before moving focus to the title: long for a fresh cover, short when this view
   /// replaces the "getting the book" screen inside a cover that is already up.
   var initialFocusDelay: Duration = .milliseconds(600)
+  /// "Leave Listen Together?" is up: the title focus move is skipped so it doesn't pull focus from it.
+  var isConfirmingLeave = false
+  /// Leave Listen Together: asks through the listener screen.
+  var onRequestLeave: (() -> Void)?
   /// Escape: closes the screen only; never ends, pauses or starts anything.
   var onClose: () -> Void = {}
 
@@ -30,10 +34,12 @@ struct ListenerPlayerView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
         ListenerHeaderView(listener: listener, focus: $focus)
-        ListenTogetherBanner(service: service)
+        ListenTogetherBanner(service: service, onRequestLeave: onRequestLeave)
         ListenerPositionView(listener: listener)
-        ListenerTransportRow(listener: listener)
+        ListenerTransportRow(listener: listener, service: service)
           .frame(maxWidth: .infinity)
+        // Zoom (C.1, C.2): why Play does nothing, right under the controls. Hidden from VoiceOver.
+        ListenerWaitingCaption(service: service)
         ListenerExtrasRow(listener: listener) { showingChapters = true }
       }
       .padding(16)
@@ -49,6 +55,7 @@ struct ListenerPlayerView: View {
     .task {
       // Wait for the cover to finish presenting; an earlier request is often lost.
       try? await Task.sleep(for: initialFocusDelay)
+      guard !isConfirmingLeave else { return }
       focus = .title
       // Own copy: "Joined. Playing your copy." comes after the title, never over it (a11y I2).
       service.listenerTitleFocused()
@@ -97,9 +104,10 @@ struct ListenerHeaderView: View {
         .accessibilityHeading(.h1)
         .accessibilityFocused(focus, equals: .title)
 
+      // Primary (A9): secondary is below 4.5:1 in most light themes.
       Text(manifest.author.isEmpty ? "voiceover_unknown_author".localized : manifest.author)
         .bpFont(.body)
-        .foregroundStyle(theme.secondaryColor)
+        .foregroundStyle(theme.primaryColor)
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
 
@@ -113,5 +121,25 @@ struct ListenerHeaderView: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+/// The reason playback is held, under the play controls (C.1, C.2): where a Zoom user looks when Play
+/// "does nothing". The only intentionally duplicated visual text; hidden from VoiceOver, which hears it
+/// in the status and as the play button's value.
+struct ListenerWaitingCaption: View {
+  @ObservedObject var service: SharePlaySessionService
+  @EnvironmentObject private var theme: ThemeViewModel
+
+  var body: some View {
+    if let caption = ListenTogetherStatus.waitingCaption(service.statusConditions) {
+      Text(caption)
+        .bpFont(.subheadline)
+        .foregroundStyle(theme.primaryColor)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
+    }
   }
 }

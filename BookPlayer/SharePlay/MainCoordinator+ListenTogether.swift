@@ -29,8 +29,12 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
       .publisher(for: UIApplication.didBecomeActiveNotification)
       .receive(on: DispatchQueue.main)
       .sink { [weak self] _ in
-        MainActor.assumeIsolated { self?.showWaitingNeedsCopyNotice() }
+        MainActor.assumeIsolated {
+          self?.showWaitingNeedsCopyNotice()
+          self?.scheduleListenTogetherAlert()
+        }
       }
+    bindListenTogetherAlerts()
   }
 
   private func listenTogetherStateChanged(_ state: ListenTogetherState) {
@@ -237,6 +241,13 @@ extension MainCoordinator {
 
   private func attemptNeedsCopyPresentation(generation: Int, attempt: Int) {
     guard generation == needsCopyPresentationGeneration, needsCopyAlertController == nil else { return }
+    // One Listen Together alert at a time (A.4): wait while a message alert is up.
+    if listenTogetherAlertController != nil {
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.invitationRetryDelay) { [weak self] in
+        MainActor.assumeIsolated { self?.attemptNeedsCopyPresentation(generation: generation, attempt: attempt + 1) }
+      }
+      return
+    }
     // A notice whose session ended or that is older than the limit is discarded here, unshown.
     let notice = sharePlayService.needsCopyNoticeIsCurrent() ? sharePlayService.needsCopyNotice : nil
     let isActive = UIApplication.shared.applicationState == .active
@@ -277,7 +288,131 @@ extension MainCoordinator {
     }
     // On screen: only now does the decline go out (a11y I3).
     sharePlayService.needsCopyNoticePresented()
+    // E18: a failure reason, so "Speak error messages" reads it too.
+    sharePlayService.messages.deliver(.alertShownElsewhere(text: notice.title, key: "needsCopy"))
     return true
+  }
+}
+
+// MARK: Listen Together message alerts (addendum 3, guidance A.0, A.3, A.4)
+
+extension MainCoordinator {
+  enum ListenTogetherAlertStep: Equatable {
+    case present
+    /// Not active: shown when the app is next active (unless dropped by a new session first).
+    case waitForActive
+    /// A listener's ending waits until the listener cover has gone (A.0).
+    case waitForCover
+    /// Another Listen Together alert is up, or nothing to present from: try again shortly.
+    case retry
+  }
+
+  /// What to do with the next alert. Pure; unit tested.
+  nonisolated static func listenTogetherAlertStep(
+    isActive: Bool, waitsForCover: Bool, isCoverOnScreen: Bool, isOtherAlertOnScreen: Bool
+  ) -> ListenTogetherAlertStep {
+    guard isActive else { return .waitForActive }
+    if waitsForCover, isCoverOnScreen { return .waitForCover }
+    if isOtherAlertOnScreen { return .retry }
+    return .present
+  }
+
+  /// After a trigger (a new alert, the cover gone, the previous alert gone, the app active) the next
+  /// alert is tried this long later, so a cover's or alert's dismissal has settled (A.0, A.4).
+  nonisolated static let listenTogetherAlertDelay: TimeInterval = 0.5
+  /// After an ending alert has gone, VoiceOver focus moves to the mini player this long later (A.0).
+  nonisolated static let listenTogetherAlertFocusDelay: TimeInterval = 0.3
+
+  fileprivate func bindListenTogetherAlerts() {
+    sharePlayService.messages.$alerts
+      .map(\.next?.id)
+      .removeDuplicates()
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated { self?.scheduleListenTogetherAlert() }
+      }
+      .store(in: &listenTogetherAlertSubscriptions)
+    sharePlayService.messages.coverTracker.$isListenerCoverOnScreen
+      .removeDuplicates()
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] onScreen in
+        guard !onScreen else { return }
+        MainActor.assumeIsolated { self?.scheduleListenTogetherAlert() }
+      }
+      .store(in: &listenTogetherAlertSubscriptions)
+  }
+
+  /// Starts a new attempt chain after the settle delay; an older chain stops.
+  func scheduleListenTogetherAlert() {
+    listenTogetherAlertGeneration += 1
+    let generation = listenTogetherAlertGeneration
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.listenTogetherAlertDelay) { [weak self] in
+      MainActor.assumeIsolated { self?.attemptListenTogetherAlert(generation: generation) }
+    }
+  }
+
+  private func attemptListenTogetherAlert(generation: Int) {
+    guard generation == listenTogetherAlertGeneration, listenTogetherAlertController == nil else { return }
+    let messages = sharePlayService.messages
+    guard let item = messages.alerts.next else { return }
+    let step = Self.listenTogetherAlertStep(
+      isActive: UIApplication.shared.applicationState == .active,
+      waitsForCover: item.message.waitsForListenerCover,
+      isCoverOnScreen: messages.coverTracker.isListenerCoverOnScreen,
+      isOtherAlertOnScreen: needsCopyAlertController != nil || isAskingToLeaveListenTogether)
+    switch step {
+    case .waitForActive, .waitForCover:
+      // didBecomeActive and the cover's dismissal start a new chain.
+      return
+    case .retry:
+      scheduleListenTogetherAlert()
+    case .present:
+      if !presentListenTogetherAlert(item) { scheduleListenTogetherAlert() }
+    }
+  }
+
+  private func presentListenTogetherAlert(_ item: ListenTogetherAlertQueue.Item) -> Bool {
+    guard let top = topmostPresenter() else { return false }
+    let alert = ListenTogetherMessageAlert.make(title: item.message.text) { [weak self] in
+      self?.listenTogetherAlertClosed(item)
+    }
+    listenTogetherAlertController = alert
+    top.present(alert, animated: true)
+    guard alert.presentingViewController != nil else {
+      listenTogetherAlertController = nil
+      return false
+    }
+    sharePlayService.messages.alertPresented(item.id)
+    return true
+  }
+
+  private func listenTogetherAlertClosed(_ item: ListenTogetherAlertQueue.Item) {
+    listenTogetherAlertController = nil
+    sharePlayService.messages.alertClosed(item.id)
+    if item.message.waitsForListenerCover {
+      // A.0: OK (or the scrub) only closes it; then focus goes to the mini player when it is shown,
+      // otherwise VoiceOver's default applies. Never to the removed Listen Together row.
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.listenTogetherAlertFocusDelay) {
+        MainActor.assumeIsolated { ListenTogetherFocusRequests.shared.requestMiniPlayerFocus() }
+      }
+    }
+    scheduleListenTogetherAlert()
+  }
+}
+
+/// A Listen Together message as a centred system alert (A.3): the title is the whole sentence, no
+/// message (so nothing is read twice), and one OK with the cancel style, so the two-finger scrub,
+/// Return and Escape all close it the same way. Closing is reported once (OK, or taken down).
+enum ListenTogetherMessageAlert {
+  @MainActor
+  static func make(title: String, onClose: @escaping @MainActor () -> Void) -> ListenTogetherLeaveAlertController {
+    let once = ListenTogetherOnce(onClose)
+    let alert = ListenTogetherLeaveAlertController(title: title, message: nil, preferredStyle: .alert)
+    alert.addAction(UIAlertAction(title: "ok_button".localized, style: .cancel) { _ in
+      MainActor.assumeIsolated { once.run() }
+    })
+    alert.onDisappear = { MainActor.assumeIsolated { once.run() } }
+    return alert
   }
 }
 

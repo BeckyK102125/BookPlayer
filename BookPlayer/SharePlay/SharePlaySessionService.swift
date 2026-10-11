@@ -14,7 +14,9 @@ enum ListenTogetherState: Equatable {
 
   enum EndReason: Equatable {
     case normal
-    case sendFailed
+    /// Sharer: the book couldn't be prepared at all (its files couldn't be read), so nothing could be
+    /// sent and the session ended (E14). A piece failure never ends a session (decision 5).
+    case prepareFailed
     case unavailable
     /// Listener: the person sharing pressed End (addendum 3, decision 9).
     case sharerEnded
@@ -25,8 +27,8 @@ enum ListenTogetherState: Equatable {
   }
 }
 
-/// Ongoing conditions of a running session that are not a state of their own (addendum 3). Logic
-/// only: the visible and spoken text for them is added in Task B.
+/// Ongoing conditions of a running session that are not a state of their own (addendum 3). Shown as
+/// status text by the banner (`ListenTogetherStatus.line`) and announced once per episode.
 enum ListenTogetherNotice: Equatable {
   /// Listener: nothing heard from the person sharing for a while (or they left the roster). The
   /// group is paused until they are back, for at most `sharerReturnLimit`.
@@ -72,6 +74,25 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// been shown (`acknowledgeEndNotice()`) or a new session starts. The session itself, its player,
   /// row and temporary copy are already gone when this is set.
   @Published private(set) var endNotice: ListenTogetherState.EndReason?
+  /// Listener: the person sharing left the roster and the 60 s grace runs (the group is paused).
+  @Published private(set) var isSharerGraceRunning = false
+  /// Listener: the group waits for a piece this device doesn't have yet (mirrors the player).
+  @Published private(set) var isListenerWaitingForPiece = false
+  /// Someone else paused the group; cleared by the next play (E9).
+  @Published private(set) var isPausedByOther = false
+  /// Sharer, owners-only: someone couldn't join (no copy). Shown until the count changes or the end (E11).
+  @Published private(set) var someoneDeclined = false
+
+  /// What the status line needs besides the state.
+  var statusConditions: ListenTogetherStatusConditions {
+    ListenTogetherStatusConditions(
+      notice: notice, isSharerGraceRunning: isSharerGraceRunning,
+      isWaitingForPiece: isListenerWaitingForPiece, isPausedByOther: isPausedByOther,
+      someoneDeclined: someoneDeclined)
+  }
+
+  /// Every alert, announcement and spoken message goes through here (guidance A.2).
+  let messages: ListenTogetherMessageDelivery
 
   var invitationUsesOwnCopy: Bool { invitationOwnCopy != nil }
 
@@ -174,6 +195,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var announcedWaiting = false
   /// Play/pause pressed again and again while held for a piece: "waiting" at most once per 3 s.
   var waitingToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
+  /// Play pressed while the person sharing is missing: "Waiting for the person sharing" at most every 2 s.
+  var sharerWaitToggleLimiter = ListenTogetherRepeatLimiter(interval: 2)
   /// Roster by participant id (when the transport reports ids): everyone present, everyone counted
   /// (present for `joinConfirmationDelay` and not declined), and everyone who declined.
   var rosterIDs = Set<UUID>()
@@ -271,6 +294,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     defaults: UserDefaults = .standard,
     ownCopyFinder: ListenTogetherOwnCopyFinding? = nil,
     appSystem: ListenTogetherAppSystem? = nil,
+    speaker: ListenTogetherSpeaking? = nil,
+    coverTracker: ListenTogetherCoverTracker? = nil,
+    focusRequests: ListenTogetherFocusRequests? = nil,
     transportFactory: @escaping @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
       = { GroupSessionTransport(session: $0, downloadFolder: $1) }
   ) {
@@ -282,7 +308,12 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.defaults = defaults
     self.ownCopyFinder = ownCopyFinder
     // Built here rather than as a default argument, which would run outside the main actor.
-    self.appSystem = appSystem ?? UIKitListenTogetherAppSystem()
+    let system = appSystem ?? UIKitListenTogetherAppSystem()
+    self.appSystem = system
+    self.messages = ListenTogetherMessageDelivery(
+      announcer: self.announcer, speaker: speaker ?? ListenTogetherSpeaker.shared,
+      coverTracker: coverTracker ?? .shared, focusRequests: focusRequests ?? .shared,
+      isAppActive: { system.appState == .active })
     let groupStateObserver = GroupStateObserver()
     self.isEligibleForGroupSession = { groupStateObserver.isEligibleForGroupSession }
     observeAppState()
@@ -296,7 +327,28 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setState(_ newState: ListenTogetherState) { state = newState }
   func setListener(_ player: ListenerPlayer?) { listener = player }
   func setOwnCopy(_ value: Bool) { isUsingOwnCopy = value }
-  func setNotice(_ value: ListenTogetherNotice?) { if notice != value { notice = value } }
+  func setSharerGraceRunning(_ value: Bool) { if isSharerGraceRunning != value { isSharerGraceRunning = value } }
+  func setListenerWaitingForPiece(_ value: Bool) {
+    if isListenerWaitingForPiece != value { isListenerWaitingForPiece = value }
+  }
+  func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
+  func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
+
+  /// A new notice is said once per episode (guidance A.2, C): "Waiting for the person sharing" when
+  /// it starts, "The person sharing is back." when it clears during the session, and "Couldn't send
+  /// part of the book. Trying again." once until every piece is sent again. Teardown clears the notice
+  /// directly, so an ending never says "is back".
+  func setNotice(_ value: ListenTogetherNotice?) {
+    guard notice != value else { return }
+    let old = notice
+    notice = value
+    switch (old, value) {
+    case (_, .waitingForSharer?): messages.deliver(.waitingForSharer)
+    case (_, .retryingSend?): messages.deliver(.retryingSend)
+    case (.waitingForSharer?, nil): messages.deliver(.sharerBack)
+    default: break
+    }
+  }
 
   /// App state changes reach `appStateChanged(to:)` for the service's lifetime.
   private func observeAppState() {
@@ -309,8 +361,12 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// The listener's message after "The person sharing ended/left" has been shown.
   func acknowledgeEndNotice() { endNotice = nil }
 
-  /// A new session starts: an older ending message is no longer relevant.
-  func clearEndNotice() { endNotice = nil }
+  /// A new session starts: an older ending message is no longer relevant, and alerts still waiting
+  /// about an earlier session are dropped (guidance A.0, A.4).
+  func clearEndNotice() {
+    endNotice = nil
+    messages.dropPendingAlerts()
+  }
 
   // MARK: Starting and joining
 
@@ -510,7 +566,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     cancelledShareIDs.insert(shareID)
     clearPendingShare()
     state = .idle
-    announceSheetResult("listen_together_cancelled_announcement".localized, for: shareID)
+    afterSheetSettled(shareID) { [weak self] in
+      self?.announcer.announce("listen_together_cancelled_announcement".localized)
+    }
   }
 
   /// Sent but no session in time, or the sheet never reported back: Listen Together is offered again
@@ -524,18 +582,18 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if let replaced = lateShare, replaced.id != shareID { cancelledShareIDs.insert(replaced.id) }
     lateShare = (shareID, item)
     state = .idle
-    announceSheetResult("listen_together_didnt_start_announcement".localized, for: shareID)
+    // A failure reason: a centred alert (E13), not only an announcement.
+    afterSheetSettled(shareID) { [weak self] in self?.messages.deliver(.didntStart) }
   }
 
-  /// Announced after the sheet's screen change has settled, and only if nothing has happened since: no
-  /// newer share, nothing pending, no session, no invitation on screen. A locked phone may not speak it
-  /// (the guide says so).
-  private func announceSheetResult(_ text: String, for shareID: UUID) {
+  /// Runs `action` (the sheet's result message) after the sheet's screen change has settled, and only if
+  /// nothing has happened since: no newer share, nothing pending, no session, no invitation on screen.
+  private func afterSheetSettled(_ shareID: UUID, _ action: @escaping @MainActor () -> Void) {
     schedule(Self.sheetAnnouncementDelay) { [weak self] in
       guard let self, self.latestSheetShareID == shareID, self.pendingShareID == nil, !self.isInSession,
         self.pendingInvitation == nil, !self.isShowingInvitation
       else { return }
-      self.announcer.announce(text)
+      action()
     }
   }
 
@@ -778,6 +836,16 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     tearDown(reason: .normal, announcement: announcement)
   }
 
+  /// "Leave Listen Together" (listener, leave guidance): this device leaves and deletes its temporary
+  /// copy; the others keep listening. "You left Listen Together." is said once, after the listener
+  /// cover has gone and VoiceOver focus has moved to the mini player (when it is shown).
+  func leave() {
+    guard role == .listener else { return }
+    if let shareID { endedShareIDs.insert(shareID) }
+    tearDown(reason: .normal, announces: false)
+    messages.afterListenerCoverGone(announce: "listen_together_left_for_own_book".localized)
+  }
+
   /// Ends Listen Together for this device. The sharer also tells everyone else it is over.
   func end() {
     if isPreparing, !isInSession {
@@ -840,8 +908,16 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   // MARK: Teardown
 
-  /// Stops playback, leaves the session, deletes this share's files and announces the end.
-  func tearDown(reason: ListenTogetherState.EndReason, announcement: String? = nil, leaveTransport: Bool = true) {
+  /// Stops playback, leaves the session, deletes this share's files and tells the person once.
+  ///
+  /// The person's own End: "Listen Together ended" (or `announcement`) is announced. Someone else
+  /// ending it, or a book that couldn't be prepared: no announcement and no ended banner; after
+  /// everything is cleared, the one message goes through `messages` (an alert shown after the listener
+  /// cover has gone, guidance A.0). `announces: false` leaves the announcement to the caller.
+  func tearDown(
+    reason: ListenTogetherState.EndReason, announcement: String? = nil, announces: Bool = true,
+    leaveTransport: Bool = true
+  ) {
     guard isInSession else { return }
     let transport = self.transport
     let shareID = self.shareID
@@ -870,6 +946,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     sharerParticipantID = nil
     hasSeenOtherParticipants = false
     notice = nil
+    isSharerGraceRunning = false
+    isListenerWaitingForPiece = false
+    isPausedByOther = false
+    someoneDeclined = false
     localEventsBag.removeAll()
     bridge?.invalidate()
     bridge = nil
@@ -898,16 +978,24 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.shareID = nil
     if leaveTransport { transport?.leave() }
     if let shareID { storage.remove(shareID: shareID) }
-    announcer.announce(announcement ?? ListenTogetherAnnouncements.ended())
+    let message = ListenTogetherUserMessage.ending(for: reason)
+    if announces, message == nil { announcer.announce(announcement ?? ListenTogetherAnnouncements.ended()) }
     Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
     if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare].contains(reason) { endNotice = reason }
     // Never offered or joined again in this app session. `.unavailable` has no share (it ends before
     // one starts), and an own End or Leave records it before tearing down.
-    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .sendFailed].contains(reason), let shareID {
+    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed].contains(reason), let shareID {
       endedShareIDs.insert(shareID)
     }
     state = .ended(reason: reason)
     scheduleReturnToIdle()
+    // Last, once the player, row and temporary copy are gone (A.0 order).
+    if let message {
+      messages.deliver(message) { [weak self] in
+        guard let self, self.endNotice == reason else { return }
+        self.acknowledgeEndNotice()
+      }
+    }
   }
 
   // MARK: Private
@@ -1107,6 +1195,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Shows the invitation and announces it (queued), so a VoiceOver user hears it whatever is on
   /// screen. Test seam.
   func showInvitation(title: String, author: String) {
+    // A queued alert about an earlier session is no longer relevant (A.4).
+    messages.dropPendingAlerts()
     state = .invitation(title: title, author: author)
     announcer.announce(ListenTogetherAnnouncements.invitation(title: title, author: author))
   }
@@ -1116,10 +1206,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     pendingItem = nil
   }
 
-  /// Listen Together could not start (SharePlay unavailable or no folder for the files). Announced,
-  /// because otherwise a VoiceOver user hears nothing. Internal for tests.
+  /// Listen Together could not start (SharePlay unavailable or no folder for the files). A centred
+  /// alert (E12, R41): seen as well as heard, never a timed banner. Internal for tests.
   func endUnavailable() {
-    announcer.announce("listen_together_unavailable".localized)
+    messages.deliver(.unavailable)
     state = .ended(reason: .unavailable)
     scheduleReturnToIdle()
   }

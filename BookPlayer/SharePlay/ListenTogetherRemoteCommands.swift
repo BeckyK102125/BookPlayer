@@ -180,6 +180,9 @@ final class ListenTogetherRemoteCommands {
     // Joined, but the book details have not arrived: nothing to play yet. Saying so (rather than
     // `.success`) avoids a silent failure; the user's own paused book must not start either.
     guard let listener = service.listener else { return .noActionableNowPlayingItem }
+    // Waiting for the person sharing (C.2): lock screen, AirPods and Control Center play do nothing,
+    // silently. The lock screen keeps showing the paused state.
+    if listener.isHeldForSharer, Self.isPlayCommand(command) { return .success }
     switch command {
     case .togglePlayPause:
       listener.userTogglePlay()
@@ -201,6 +204,13 @@ final class ListenTogetherRemoteCommands {
       schedulePosition(position)
     }
     return .success
+  }
+
+  nonisolated static func isPlayCommand(_ command: Command) -> Bool {
+    switch command {
+    case .togglePlayPause, .play, .pause: return true
+    default: return false
+    }
   }
 
   // MARK: Position
