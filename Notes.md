@@ -438,3 +438,43 @@ gesture)" removed; TIP-2 sentence on pausing your own book from the lock screen 
 -derivedDataPath and "Invalid API Key" notes restored in one line. Tests: ListenTogetherRowTests 23 +
 SharePlayMenuTests: "Executed 38 tests, with 0 failures", ** TEST SUCCEEDED **. Full: "Executed 716 tests,
 with 0 failures", ** TEST SUCCEEDED ** (no restart). No new warnings; no project file changes.
+
+## 2026-10-10 - listen-together-messages - addendum 1 Change B: start from Messages
+Branch `listen-together-messages` from develop at 63e9578b. No FaceTime call needed: when
+GroupStateObserver.isEligibleForGroupSession is false, Apple's GroupActivitySharingController is presented
+instead of the "start a FaceTime call" alert. SDK check: the class lives in _GroupActivities_UIKit
+(re-exported by GroupActivities), `init(_ activity:) throws`, `var result: GroupActivitySharingResult
+{ get async }` with .success / .cancelled. No delegate callback exists; `result` is what tells us the sheet
+finished.
+- ListenTogetherSharingSheet.swift (new): ListenTogetherStartRoute (activate / sharingSheet /
+  needsFaceTime), ListenTogetherSharingSheetOutcome (sent / cancelled / unavailable), protocol
+  ListenTogetherSharingSheetPresenting (canPresentSharingSheet, presentSharingSheet(for:) async).
+- SharePlaySessionService: pure `startRoute(isEligibleForGroupSession:canPresentSharingSheet:)`;
+  startSharing routes through it. Test seams: `isEligibleForGroupSession` closure (wraps the observer),
+  `schedule` (delay + action; tests use a ManualScheduler, no real clock), weak `sharingSheetPresenter`
+  (nil = fallback alert, so the existing first-share-note tests still end at needsFaceTime). Sheet path:
+  the share is recorded pending WITHOUT `.preparing` (no banner, nothing announced before the sheet).
+  Cancelled: cancelledShareIDs + clear + .idle at once, "Listen Together was not started." announced
+  0.7 s later. Sent: at 0.7 s, if our session has not arrived, `.preparing` + "Preparing <title> to share"
+  announced; at 3 s, if still pending, same cancel path. Unavailable: `.needsFaceTime` (fallback alert).
+  Timers check the share ID, so End on the banner or a newer share is never touched by an old timer.
+  `received` now uses `claimOwnShare(_:)` (test seam).
+- MainCoordinator+ListenTogether: conforms to the presenter; sets itself in bindListenTogether. Waits
+  600 ms (More menu / first-share note closing, same as the alerts), presents from the topmost screen
+  (shared `topmostPresenter()` helper, also used by the invitation), falls back to .unavailable if the
+  init throws or UIKit does not accept the presentation, awaits `result`, dismisses the sheet if it is
+  still up.
+- Strings (all 26 files, English values): invitation messages no longer mention FaceTime ("Listen to %@ by
+  %@ together." / "Listen to %@ together."); needs-FaceTime title/message -> "Couldn't open sharing" text
+  from the guidance; new listen_together_cancelled_announcement.
+- Guide: "Two ways to start" (Messages, FaceTime), Magic Tap warning only for FaceTime (Discord VERIFY
+  hedge), share steps rewritten, join step for Messages invitations, end/limitations wording.
+- Tests: ListenTogetherSharingSheetTests (11). RED: build failed (startRoute, presenter, outcome,
+  schedule, delays missing). GREEN after two test fixes (item file must exist in the processed folder;
+  cancel announcement is a second scheduled step): "Executed 11 tests, with 0 failures", ** TEST
+  SUCCEEDED **. Full: "Executed 727 tests, with 0 failures", ** TEST SUCCEEDED ** (716 + 11). No new
+  warnings in touched files.
+- Not done / VERIFY on device: whether the sheet dismisses itself and when `result` resolves (assumed on
+  close); whether `result` resolves if the app is backgrounded or the player closes under the sheet (if it
+  never resolves the share stays pending and Listen Together stays hidden until relaunch); B2.7 (timeout
+  on return to foreground) not implemented separately.

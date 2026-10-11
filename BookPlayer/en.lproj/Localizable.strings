@@ -509,9 +509,9 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_end_button" = "End Listen Together";
 "listen_together_join_button" = "Join";
 "listen_together_decline_button" = "Not Now";
-"listen_together_invitation_message" = "Listen to %@ by %@ with the people on this FaceTime call.";
-"listen_together_needs_facetime_title" = "Start a FaceTime call first";
-"listen_together_needs_facetime_message" = "Listen Together works during a FaceTime call. Call the people you want to listen with, then choose Listen Together again.";
+"listen_together_invitation_message" = "Listen to %@ by %@ together.";
+"listen_together_needs_facetime_title" = "Couldn't open sharing";
+"listen_together_needs_facetime_message" = "Listen Together couldn't open the sharing options. Start a FaceTime call with the people you want to listen with, then choose Listen Together again.";
 "listen_together_status_sharing" = "Listen Together, %d people, sharing";
 "listen_together_status_listening" = "Listen Together, %d people, listening";
 "listen_together_status_downloading" = "Listen Together, getting the book, %d percent";
@@ -529,7 +529,8 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_waiting_download" = "Waiting for the book to download";
 "listen_together_send_failed" = "Couldn't send part of the book. Listen Together ended.";
 "listen_together_unavailable" = "Listen Together isn't available right now.";
-"listen_together_invitation_message_no_author" = "Listen to %@ with the people on this FaceTime call.";
+"listen_together_invitation_message_no_author" = "Listen to %@ together.";
+"listen_together_cancelled_announcement" = "Listen Together was not started.";
 "listen_together_join_hint" = "Pauses your current book and starts listening together.";
 "listen_together_end_hint_sharer" = "Ends Listen Together for everyone.";
 "listen_together_end_hint_listener" = "Leaves Listen Together and deletes your copy of the book.";

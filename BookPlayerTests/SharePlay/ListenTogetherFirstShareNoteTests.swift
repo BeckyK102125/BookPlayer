@@ -38,7 +38,8 @@ final class ListenTogetherFirstShareNoteTests: XCTestCase {
     await service.acknowledgeFirstShareNote()
     XCTAssertFalse(service.showsFirstShareNote)
     XCTAssertTrue(defaults.bool(forKey: SharePlaySessionService.firstShareNoteSeenKey))
-    // Sharing started (no FaceTime call in the simulator, so it stops at needs-FaceTime).
+    // Sharing started (no FaceTime call in the simulator and no sharing-sheet presenter, so it stops at
+    // needs-FaceTime).
     XCTAssertEqual(service.state, .needsFaceTime)
     service.acknowledgeNeedsFaceTime()
 

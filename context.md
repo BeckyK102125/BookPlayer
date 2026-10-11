@@ -3,8 +3,8 @@
 Date: 2026-10-10
 
 ## Goal
-Add SharePlay "Listen Together" to Becky's fork of BookPlayer: one person shares a local audiobook over
-a FaceTime call, the other listens to a copy that is deleted when the session ends, and playback stays
+Add SharePlay "Listen Together" to Becky's fork of BookPlayer: one person shares a local audiobook (from
+Messages, or on a FaceTime call), the other listens to a copy that is deleted when the session ends, and playback stays
 in sync. Everything must work with VoiceOver.
 - Spec: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md
 - Plan: docs/superpowers/plans/2026-10-10-shareplay-listen-together.md
@@ -13,9 +13,9 @@ in sync. Everything must work with VoiceOver.
 ## Branch and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork). upstream = github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream develop at eb19a92f. NOT pushed anywhere.
-- Branch `listen-together-lock-screen` (Change C of addendum 1), from develop at e634f5c7 (which holds
-  the whole Listen Together work plus the guide and addendum 1). Last work: escape goes back + Listen
-  Together status row, R35/R36 (fix round 1, this commit; parent 8b76a6e5). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
+- Branch `listen-together-messages` (Change B of addendum 1), from develop at 63e9578b (which holds Change
+  C, escape + row R35/R36). Last work: Change B, start from Messages (this commit). Not pushed. Only
+  worktree, clean after commit. Change A (streamed-book alert) is NOT done yet.
 - Never committed (gitignored): BuildConfiguration/Debug.xcconfig. Local copy only.
 - BookPlayer/Player/PlayerManager.swift is untouched (git diff eb19a92f --stat on it prints nothing).
 
@@ -28,29 +28,25 @@ coordinator bridge (AVDelegatingPlaybackCoordinator); session service state mach
 UI: More-menu item, banner with End, invitation sheet (presented by MainCoordinator from the topmost
 screen), listener screen with a "getting the book" state, needs-FaceTime alert; Magic Tap to the listener.
 
-## Most recent work: escape goes back + Listen Together row (R35, R36; 2026-10-10)
-- Escape on the listener screen and "Getting the book" closes the screen only (never ends, pauses or
-  starts anything). ListStateManager.isListenerScreenRequested (user intent): on at session start and
-  from the row; off after escape, a system dismissal, session end or a new invitation. Pure functions in
-  ListenTogetherPresentation: showsListenerScreen(..., isRequested:), isListenerScreenRequested(after:),
-  closeListenerScreen(listState:) (takes no service), focusesRowAfterListenerScreenCloses.
-- ListenTogetherStatusRow (SharePlay/Views/): one Button, label "Listen Together", value "playing, Moby
-  Dick" / paused / waiting / "getting the book, N percent" (25 percent steps) / "sharing, title"; hint;
-  id listenTogether.row; no End. MainView stacks it above the mini player in the mini player slot (one
-  bottom clearance, moved out of MiniPlayerView). Listener: own mini player hidden (R36); sharer: row +
-  mini player. iOS 26.0 accessory: listener = row; sharer = mini player with the sharing value.
-  After escape (or a sharer closing the player) focus goes to the row after 500 ms.
-- 8 new listen_together_row_* keys in all 26 Localizable.strings. Guide updated (guidance section 8).
-- Report: .superpowers/sdd/2026-10-10-shareplay-listen-together/escape-row-report.md
+## Most recent work: Change B, start from Messages (2026-10-10)
+- Not on a FaceTime call: Apple's GroupActivitySharingController opens (from MainCoordinator's topmost
+  screen, after 600 ms) instead of the FaceTime alert. Pure SharePlaySessionService.startRoute decides
+  activate / sharingSheet / needsFaceTime (fallback only when the sheet can't be created or shown).
+- Sheet up: share pending, no banner, nothing announced. Cancel: cancelled at once, "Listen Together was
+  not started." 0.7 s later. Sent: "Preparing <title> to share" at 0.7 s if the session is not here yet;
+  no session by 3 s = cancel. Seams: isEligibleForGroupSession, schedule, sharingSheetPresenter.
+- Invitation strings no longer say FaceTime; fallback alert "Couldn't open sharing"; guide "Two ways to
+  start", Magic Tap warning only for FaceTime. Report: change-b-report.md (sdd folder).
 
 ## Earlier work
+- Escape goes back + Listen Together row (R35, R36): escape-row-report.md.
 - Addendum 1 Change C (lock screen, Control Center, AirPods control the shared book; first-share note with
   Share/Cancel, R33/R34): ListenTogetherRemoteCommands, ListenTogetherNowPlaying. See Notes.md and
   change-c-report.md. Final fix wave (R31, R32): final-fix-report.md.
 
 ## Test evidence (2026-10-10)
-- Escape + row: Fix round 1: ListenTogetherRowTests 23 tests; full suite "Executed 716 tests, with 0 failures".
-- Before (Change C fix round 2): 693 tests, 0 failures. Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
+- Change B: ListenTogetherSharingSheetTests 11 tests; full suite "Executed 727 tests, with 0 failures".
+- Before (escape + row fix round 1): 716 tests, 0 failures. Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
   'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
   -only-testing:BookPlayerTests test.
 - SharePlay cannot run in the simulator (no FaceTime). Release build (Change C): `-configuration Release -destination 'generic/platform=iOS Simulator' build` OK.
@@ -69,8 +65,7 @@ screen), listener screen with a "getting the book" state, needs-FaceTime alert; 
   screen instead of the library on that simulator.
 
 ## Device and assistive-technology acceptance
-Status: NOT STARTED. No real-device run has happened. Needs two devices (iOS 18.0 or later, the deployment target) on a FaceTime
-call, signed with a team and bundle ID that has the Group Activities capability (see decisions).
+Status: NOT STARTED. No real-device run has happened. Needs two devices (iOS 18.0 or later), signed with a team and bundle ID that has the Group Activities capability (see decisions).
 
 Spec checklist, two devices, VoiceOver on, on both:
 1. Share a single-file m4b.
@@ -108,6 +103,13 @@ Change C (addendum-a11y-guidance.md C and G), listener phone locked, VoiceOver o
 - End while locked (from either phone): wake: Now Playing is the own book or empty, never the shared one;
   lock-screen Play and AirPods then control the own book.
 - FaceTime-based session: the guide's Magic Tap warning matches what happens.
+Change B (addendum-a11y-guidance.md B and G), VoiceOver on:
+- Start from Messages with no call: sheet read in full (people, Messages, FaceTime, Cancel); "Preparing"
+  heard after it closes; focus back on More. Does the sheet close itself, and when does `result` arrive?
+- Listener opens the Messages invitation: BookPlayer opens, "Listen Together invitation: ..." spoken.
+- Discord voice + Messages session, both phones locked (see Change C items); Magic Tap in a Discord call.
+- Cancel the sheet (button and Z): "Listen Together was not started"; More offers Listen Together again.
+  Also: background the app or close the player while the sheet is up (pending share must not get stuck).
 - First-share note read in full, Share starts sharing, Cancel and Z do not; the 15 s refresh does not re-read the scrubber.
 - A11y residuals: Magic Tap before the book arrives gives no audio; after the getting-book swap focus
   lands on the player heading once.
@@ -121,8 +123,6 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
 - The sharer's exported pieces take about the book's size in tmp until the session ends.
 - End asks for confirmation (except while preparing). Becky to decide if it stays.
 - If the sharer switches to a different book mid-session, listeners keep the old book (R12).
-- While sharing, closing the player hides the status banner and End; the Listen Together row (R35) now
-  shows the session and reopens the player.
 - A failed piece load is retried only when new pieces arrive (the very last piece may not retry).
 - If the sharer's app is killed while the FaceTime call continues, listeners are not stopped; they wait
   (review item I5, R32). Ending the call does end it.
@@ -135,7 +135,7 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
 - Other deferred minor items are listed in the ledger (progress.md) under each task.
 
 ## Open problems and next steps (in order)
-0. Review and merge `listen-together-lock-screen`; Changes A and B of addendum 1 are still to do.
+0. Review and merge `listen-together-messages` (Change B); Change A of addendum 1 is still to do.
 1. Becky decides the three questions below.
 2. Set up signing for two devices, install, run the acceptance lists above, record results here and in
    Notes.md.

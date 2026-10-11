@@ -703,6 +703,7 @@
 		9236C57F833C70652BDD1FA3 /* TabEditingEnvironmentKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDD933F7FDEDC1BF67EC567 /* TabEditingEnvironmentKey.swift */; };
 		9305492473601C69B999F588 /* VideoArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCD948B0DFDC349DADE2A3D8 /* VideoArtworkView.swift */; };
 		9586CECD8FB418C6CFB0A7DD /* IntegrationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C407B5BD19D3CF9CC64EC7 /* IntegrationLibraryView.swift */; };
+		971F4B6C84E05907DECA84D7 /* ListenTogetherSharingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A804239A874E24B3265C5BC /* ListenTogetherSharingSheet.swift */; };
 		97C948F5A17FE2D0AE64E80B /* MainCoordinator+ListenTogether.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FCC472897EEE5BFE1DF39A9 /* MainCoordinator+ListenTogether.swift */; };
 		98BA9BA4D6A94BC8BCCE5F8B /* IntegrationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D9D68F735D2519CDBC18495 /* IntegrationSettingsView.swift */; };
 		99329DB72F3AA8F6003F8E73 /* PlayControlsRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99329DB62F3AA8F6003F8E73 /* PlayControlsRowView.swift */; };
@@ -886,6 +887,7 @@
 		9FFCC08F289418CA00F4952E /* SimpleChapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FFCC08E289418CA00F4952E /* SimpleChapter.swift */; };
 		9FFCC090289418CA00F4952E /* SimpleChapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FFCC08E289418CA00F4952E /* SimpleChapter.swift */; };
 		A13B98C548AA6BFD0E6FC0C7 /* PreferencesSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D25EF2A5FFF30CF12F2C21 /* PreferencesSyncService.swift */; };
+		A1AE458AACC76CD32490D4A0 /* ListenTogetherSharingSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */; };
 		A34DA648F3EF87A9E11631B3 /* IntegrationAudiobookDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424AE6DFF6B641DB69DF3D78 /* IntegrationAudiobookDetailsView.swift */; };
 		A7A0756EBA206652A801B9D3 /* VideoPlayerSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2107EC31217A7421B2BA6A /* VideoPlayerSurface.swift */; };
 		A7FA45CB2BD6567C9B5EA372 /* IntegrationTagsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643E169A5F153B754F726AE1 /* IntegrationTagsView.swift */; };
@@ -1117,6 +1119,7 @@
 		013647A398A96741C5760C86 /* ListenTogetherTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherTransport.swift; path = ListenTogetherTransport.swift; sourceTree = "<group>"; };
 		055E458481EFE4ED15B689F6 /* ListenTogetherPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherPresentation.swift; path = ListenTogetherPresentation.swift; sourceTree = "<group>"; };
 		056B7A76F1A44CEC30562382 /* IntegrationQuickConnectViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationQuickConnectViews.swift; sourceTree = "<group>"; };
+		087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherSharingSheetTests.swift; path = ListenTogetherSharingSheetTests.swift; sourceTree = "<group>"; };
 		0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherCoordinatorBridge.swift; path = ListenTogetherCoordinatorBridge.swift; sourceTree = "<group>"; };
 		0AF8478D8CF5C6D6C0B4EA68 /* ListenTogetherRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherRowTests.swift; path = ListenTogetherRowTests.swift; sourceTree = "<group>"; };
 		0EA09FE5A35CEA0B87F83EF3 /* PreferencesSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesSyncServiceTests.swift; sourceTree = "<group>"; };
@@ -1721,6 +1724,7 @@
 		6906A552217211C600A9E0B2 /* StubFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubFactory.swift; sourceTree = "<group>"; };
 		69343D322133844D000C425E /* VoiceOverService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOverService.swift; sourceTree = "<group>"; };
 		69343D35213A07B4000C425E /* VoiceOverServiceTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOverServiceTest.swift; sourceTree = "<group>"; };
+		6A804239A874E24B3265C5BC /* ListenTogetherSharingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherSharingSheet.swift; path = ListenTogetherSharingSheet.swift; sourceTree = "<group>"; };
 		6F83542FF9A240EC87E55AC8 /* ReviewPromptServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewPromptServiceTests.swift; sourceTree = "<group>"; };
 		6FB91B577BC77F45EDB2AAAA /* IntegrationConnectionFormViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationConnectionFormViewModel.swift; sourceTree = "<group>"; };
 		700DFD61111AC10253D6EBAA /* SyncTasksStorageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SyncTasksStorageTests.swift; sourceTree = "<group>"; };
@@ -3956,6 +3960,7 @@
 				5FCC472897EEE5BFE1DF39A9 /* MainCoordinator+ListenTogether.swift */,
 				B58A4B1BB464553A1C9B8C80 /* ListenTogetherNowPlaying.swift */,
 				9C124416B3D56E1670259CD0 /* ListenTogetherRemoteCommands.swift */,
+				6A804239A874E24B3265C5BC /* ListenTogetherSharingSheet.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -3998,6 +4003,7 @@
 				FCF34F3FB3220FF00FA75BFA /* ListenTogetherNowPlayingTests.swift */,
 				1FE34E079C6876D76B36207D /* ListenTogetherFirstShareNoteTests.swift */,
 				0AF8478D8CF5C6D6C0B4EA68 /* ListenTogetherRowTests.swift */,
+				087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */,
 			);
 			name = SharePlay;
 			path = SharePlay;
@@ -5226,6 +5232,7 @@
 				4BC44AB5A917DF772E90F115 /* ListenTogetherNowPlaying.swift in Sources */,
 				3B7B45D3B5FBE61A2654CA39 /* ListenTogetherRemoteCommands.swift in Sources */,
 				557B4782BCBE7FAE57F53E3B /* ListenTogetherStatusRow.swift in Sources */,
+				971F4B6C84E05907DECA84D7 /* ListenTogetherSharingSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5294,6 +5301,7 @@
 				C355470197EC9D4CCF2EE597 /* ListenTogetherNowPlayingTests.swift in Sources */,
 				FAEC45A393A6C74D90A42A1E /* ListenTogetherFirstShareNoteTests.swift in Sources */,
 				E25B40E7827FFB7EC41EF252 /* ListenTogetherRowTests.swift in Sources */,
+				A1AE458AACC76CD32490D4A0 /* ListenTogetherSharingSheetTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

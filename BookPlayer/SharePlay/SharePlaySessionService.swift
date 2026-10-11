@@ -50,6 +50,23 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   static let firstShareNoteSeenKey = "listenTogetherFirstShareNoteSeen"
   /// Pause between upload attempts. Test seam.
   var uploadRetryDelay: Duration = .seconds(1)
+  /// Shows Apple's sharing sheet when there is no FaceTime call. Set by MainCoordinator; nil means the
+  /// "Couldn't open sharing" alert is shown instead.
+  weak var sharingSheetPresenter: ListenTogetherSharingSheetPresenting?
+  /// Whether this device is on a FaceTime call that can carry SharePlay. Test seam.
+  var isEligibleForGroupSession: @MainActor () -> Bool
+  /// Runs `action` after `delay`. Test seam, so the sharing sheet's waits need no real clock.
+  var schedule: @MainActor (Duration, @escaping @MainActor () -> Void) -> Void = { delay, action in
+    Task { @MainActor in
+      try? await Task.sleep(for: delay)
+      action()
+    }
+  }
+  /// After the sharing sheet closes: lets its screen change finish before anything is announced.
+  static let sheetAnnouncementDelay: Duration = .milliseconds(700)
+  /// After the sharing sheet closes with a send: how long to wait for our session before treating
+  /// it as cancelled (the sheet cannot tell a late session from a cancel).
+  static let sheetSessionTimeout: Duration = .seconds(3)
 
   // Active session. Reset by `tearDown(reason:)`.
   var role: Role?
@@ -74,7 +91,6 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var eventLoop: Task<Void, Never>?
 
   // SharePlay plumbing.
-  private let groupStateObserver = GroupStateObserver()
   private var observeTask: Task<Void, Never>?
   /// The real GroupSession behind the current transport, if any (never set in tests).
   var activeSession: GroupSession<ListenTogetherActivity>?
@@ -101,6 +117,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.announcer = announcer ?? ListenTogetherAnnouncer()
     self.transportFactory = transportFactory
     self.defaults = defaults
+    let groupStateObserver = GroupStateObserver()
+    self.isEligibleForGroupSession = { groupStateObserver.isEligibleForGroupSession }
   }
 
   var isInSession: Bool { role != nil }
@@ -147,13 +165,35 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     state = .idle
   }
 
+  /// Eligible (on a FaceTime call): activate. Otherwise Apple's sharing sheet, or the fallback alert
+  /// when the sheet can't be shown.
+  nonisolated static func startRoute(
+    isEligibleForGroupSession: Bool, canPresentSharingSheet: Bool
+  ) -> ListenTogetherStartRoute {
+    if isEligibleForGroupSession { return .activate }
+    return canPresentSharingSheet ? .sharingSheet : .needsFaceTime
+  }
+
   /// A second call while one share is still being prepared is ignored.
   func startSharing(_ item: PlayableItem) async {
     guard !isInSession, !isPreparing else { return }
-    guard groupStateObserver.isEligibleForGroupSession else {
+    let presenter = sharingSheetPresenter
+    switch Self.startRoute(
+      isEligibleForGroupSession: isEligibleForGroupSession(),
+      canPresentSharingSheet: presenter?.canPresentSharingSheet ?? false
+    ) {
+    case .activate:
+      await activateOnCall(item)
+    case .sharingSheet:
+      guard let presenter else { return }
+      await shareWithSheet(item, presenter: presenter)
+    case .needsFaceTime:
       state = .needsFaceTime
-      return
     }
+  }
+
+  /// On a FaceTime call: the system confirms, then the session arrives through `sessions()`.
+  private func activateOnCall(_ item: PlayableItem) async {
     guard let shareID = beginPreparing(item) else { return }
     let activity = ListenTogetherActivity(shareID: shareID, title: item.title, author: item.author)
 
@@ -180,6 +220,55 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     @unknown default:
       clearPendingShare()
       state = .idle
+    }
+  }
+
+  // MARK: Sharing sheet (no FaceTime call)
+
+  /// Records the share as pending without showing `.preparing`: the sheet has the screen, and a
+  /// banner or announcement now would be cut off or come before anyone is chosen. Nothing is announced
+  /// before the sheet; it announces itself.
+  private func shareWithSheet(_ item: PlayableItem, presenter: ListenTogetherSharingSheetPresenting) async {
+    guard let shareID = recordPendingShare(item) else { return }
+    if state == .needsFaceTime { state = .idle }
+    let activity = ListenTogetherActivity(shareID: shareID, title: item.title, author: item.author)
+    let outcome = await presenter.presentSharingSheet(for: activity)
+    sharingSheetFinished(outcome, shareID: shareID)
+  }
+
+  /// The sheet closed. Internal for tests.
+  func sharingSheetFinished(_ outcome: ListenTogetherSharingSheetOutcome, shareID: UUID) {
+    switch outcome {
+    case .unavailable:
+      // Nothing was shared, so there is no session to leave later.
+      guard pendingShareID == shareID else { return }
+      clearPendingShare()
+      state = .needsFaceTime
+    case .cancelled:
+      cancelSheetShare(shareID)
+    case .sent:
+      schedule(Self.sheetAnnouncementDelay) { [weak self] in self?.sheetPreparingMoment(shareID) }
+      schedule(Self.sheetSessionTimeout) { [weak self] in self?.cancelSheetShare(shareID) }
+    }
+  }
+
+  /// Shortly after a send: if our session hasn't arrived yet, show and announce "Preparing".
+  private func sheetPreparingMoment(_ shareID: UUID) {
+    guard pendingShareID == shareID, let item = pendingItem, !isInSession else { return }
+    state = .preparing(title: item.title)
+    announcer.announce(String.localizedStringWithFormat("listen_together_status_preparing".localized, item.title))
+  }
+
+  /// Cancel in the sheet, or no session in time: the share is cancelled (a late session is left), and
+  /// one short announcement says so once the sheet's dismissal has settled. Does nothing if the session
+  /// arrived or the share was already ended.
+  private func cancelSheetShare(_ shareID: UUID) {
+    guard pendingShareID == shareID, !isInSession else { return }
+    cancelledShareIDs.insert(shareID)
+    clearPendingShare()
+    state = .idle
+    schedule(Self.sheetAnnouncementDelay) { [weak self] in
+      self?.announcer.announce("listen_together_cancelled_announcement".localized)
     }
   }
 
@@ -220,12 +309,24 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Records the share being prepared and shows `.preparing`. Returns nil if one is already
   /// being prepared or a session is active. Test seam (no GroupSession needed).
   func beginPreparing(_ item: PlayableItem) -> UUID? {
+    guard let shareID = recordPendingShare(item) else { return nil }
+    state = .preparing(title: item.title)
+    return shareID
+  }
+
+  private func recordPendingShare(_ item: PlayableItem) -> UUID? {
     guard !isInSession, !isPreparing else { return nil }
     let shareID = UUID()
     pendingShareID = shareID
     pendingItem = item
-    state = .preparing(title: item.title)
     return shareID
+  }
+
+  /// Our own session arrived: takes the pending share (cleared) for sharing. Test seam.
+  func claimOwnShare(_ shareID: UUID) -> PlayableItem? {
+    guard pendingShareID == shareID, let item = pendingItem else { return nil }
+    clearPendingShare()
+    return item
   }
 
   func joinInvitation() {
@@ -358,11 +459,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       break
     }
     // Our own session: start sharing.
-    guard let pendingShareID, let item = pendingItem else { return }
-    clearPendingShare()
+    let shareID = session.activity.shareID
+    guard let item = claimOwnShare(shareID) else { return }
     let folder: URL
     do {
-      folder = try storage.folder(for: pendingShareID, role: .sharer)
+      folder = try storage.folder(for: shareID, role: .sharer)
     } catch {
       Self.logger.error("Listen Together: could not create the share folder: \(error.localizedDescription)")
       session.leave()
@@ -372,7 +473,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let transport = transportFactory(session, folder)
     activeSession = session
     session.join()
-    Task { await self.beginSharing(with: transport, item: item, shareID: pendingShareID) }
+    Task { await self.beginSharing(with: transport, item: item, shareID: shareID) }
   }
 
   private func offerInvitation(_ session: GroupSession<ListenTogetherActivity>) {

@@ -1,5 +1,6 @@
 import BookPlayerKit
 import Combine
+import GroupActivities
 import SwiftUI
 import UIKit
 
@@ -8,6 +9,7 @@ import UIKit
 /// also announces the invitation, so a VoiceOver user hears it wherever focus is.
 extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
   func bindListenTogether() {
+    sharePlayService.sharingSheetPresenter = self
     listenTogetherSubscription = sharePlayService.$state
       .receive(on: DispatchQueue.main)
       .sink { [weak self] state in
@@ -51,12 +53,19 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
     }
   }
 
-  @discardableResult
-  private func presentInvitation(title: String, author: String) -> Bool {
-    guard var top = mainController, top.viewIfLoaded?.window != nil else { return false }
+  /// The topmost screen that is not on its way out: the invitation and the sharing sheet are shown
+  /// from it, so an open sheet (Settings, an item's details, the player…) can't hide or drop them.
+  private func topmostPresenter() -> UIViewController? {
+    guard var top = mainController, top.viewIfLoaded?.window != nil else { return nil }
     while let presented = top.presentedViewController, !presented.isBeingDismissed {
       top = presented
     }
+    return top
+  }
+
+  @discardableResult
+  private func presentInvitation(title: String, author: String) -> Bool {
+    guard let top = topmostPresenter() else { return false }
     let view = ListenTogetherInvitationView(
       title: title,
       author: author,
@@ -105,6 +114,41 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
     else { return }
     invitationController = nil
     if sharePlayService.hasPendingInvitation { sharePlayService.declineInvitation() }
+  }
+}
+
+// MARK: Sharing sheet (Change B: start from Messages)
+
+extension MainCoordinator: ListenTogetherSharingSheetPresenting {
+  var canPresentSharingSheet: Bool { mainController?.viewIfLoaded?.window != nil }
+
+  /// Apple's `GroupActivitySharingController`, shown when there is no FaceTime call. It is presented
+  /// silently (it announces itself); the service announces what happens after it closes.
+  func presentSharingSheet(for activity: ListenTogetherActivity) async -> ListenTogetherSharingSheetOutcome {
+    // Let the More menu (or the first-share note) finish closing first; presenting over a closing
+    // alert can fail without any sign, and a VoiceOver user would get no cue at all.
+    try? await Task.sleep(for: .milliseconds(600))
+    guard let top = topmostPresenter() else { return .unavailable }
+    let controller: GroupActivitySharingController
+    do {
+      controller = try GroupActivitySharingController(activity)
+    } catch {
+      SharePlaySessionService.logger.error("Listen Together: could not create the sharing sheet: \(error.localizedDescription)")
+      return .unavailable
+    }
+    top.present(controller, animated: true)
+    // UIKit refused the presentation (something else is being presented): use the fallback alert.
+    guard controller.presentingViewController != nil else { return .unavailable }
+    let result = await controller.result
+    // The sheet normally closes itself; make sure it is gone before anything is announced.
+    if controller.presentingViewController != nil, !controller.isBeingDismissed {
+      controller.dismiss(animated: true)
+    }
+    switch result {
+    case .success: return .sent
+    case .cancelled: return .cancelled
+    @unknown default: return .cancelled
+    }
   }
 }
 

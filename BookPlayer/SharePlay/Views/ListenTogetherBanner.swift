@@ -183,8 +183,8 @@ struct ListenTogetherBanner: View {
   }
 }
 
-/// The "Start a FaceTime call first" alert. It waits a moment so it is not dropped while the More
-/// menu is still closing, and OK returns the service to idle.
+/// The "Couldn't open sharing" alert, shown only when Apple's sharing sheet can't be. It waits a
+/// moment so it is not dropped while the More menu is still closing, and OK returns the service to idle.
 struct ListenTogetherNeedsFaceTimeAlert: ViewModifier {
   @ObservedObject var service: SharePlaySessionService
   @State private var isPresented = false
