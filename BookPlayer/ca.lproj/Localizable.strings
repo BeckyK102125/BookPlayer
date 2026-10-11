@@ -527,7 +527,11 @@ Estem treballant dur per oferir una experiència perfecta; si és possible, pose
 "listen_together_ended" = "Listen Together ended";
 "listen_together_download_progress" = "Book %d percent downloaded";
 "listen_together_waiting_download" = "Waiting for the book";
-"listen_together_joining" = "Joining…";
+"listen_together_finding_place" = "Finding the group's place";
+"listen_together_finding_place_slow" = "If this doesn't change, choose Leave Listen Together and join again.";
+"listen_together_row_value_finding_place" = "finding the group's place, %@";
+"listen_together_ready" = "Ready. Play works now.";
+"listen_together_time_unknown" = "--:--";
 "listen_together_send_failed" = "Couldn't send part of the book. Trying again.";
 "listen_together_unavailable" = "Listen Together isn't available right now.";
 "listen_together_invitation_message_no_author" = "Listen to %@ together.";

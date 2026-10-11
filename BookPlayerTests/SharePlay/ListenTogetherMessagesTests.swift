@@ -357,6 +357,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
 
   func testSharerGoneForAMinuteEndsWithTheLeftMessage() async throws {
     let (service, transport, _) = await startListeningWithManifest()
+    service.bridge?.handleSeek(itemTime: 0)   // the group's place is known (start-position fix)
     let me = UUID(), sharer = UUID()
     transport.emit(.sharerParticipant(id: sharer))
     transport.emit(.participantsChanged(count: 2, ids: [me, sharer]))
@@ -472,7 +473,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertFalse(service.isPausedByOther)
     transport.emit(.message(.action(.paused)))
     await waitUntil { service.isPausedByOther }
-    service.bridge?.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
+    service.bridge?.handleSeek(itemTime: 0)   // the group's place is known (start-position fix C, round 1 I2)
     try XCTUnwrap(service.listener).userTogglePlay()
     XCTAssertFalse(service.isPausedByOther, "the person's own play clears it")
   }

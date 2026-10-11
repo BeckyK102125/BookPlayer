@@ -41,6 +41,7 @@ private final class FakeCoordinatorControl: ListenTogetherCoordinatorControlling
   func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float) {
     transitions.append(Transition(identifier: identifier, time: time, rate: rate))
   }
+  func reapplyCurrentItemState() { log.append("reapply") }
 }
 
 @MainActor
@@ -67,7 +68,8 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     let target = FakePlaybackTarget()
     let control = FakeCoordinatorControl()
     let bridge = ListenTogetherCoordinatorBridge(target: target, shareID: UUID(), control: control)
-    bridge.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
+    bridge.handleSeek(itemTime: 0)   // the group's place is known (start-position fix C)
+    target.log = []
     target.subject.send(.played(at: 10, rate: 1.5))
     target.subject.send(.paused(at: 12))
     target.subject.send(.seeked(to: 300, from: 12))
@@ -218,9 +220,9 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
   func testListenerJumpIntoMissingPieceIsCoordinatedBeforeSuspending() {
     let player = ListenerPlayer(manifest: listenerManifest())
     let control = FakeCoordinatorControl()
-    let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: UUID(), control: control)
+    // As the sharer's bridge: no "finding the place" gate (tested in ListenTogetherStartPositionTests).
+    let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: UUID(), role: .sharer, control: control)
     player.onNeedsPiece = { _ in bridge.waitForPiece() }
-    bridge.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
 
     player.userJump(to: 15)
 
@@ -231,9 +233,9 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
   func testListenerPlayInMissingPieceIsCoordinatedBeforeSuspending() {
     let player = ListenerPlayer(manifest: listenerManifest())
     let control = FakeCoordinatorControl()
-    let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: UUID(), control: control)
+    // As the sharer's bridge: no "finding the place" gate (tested in ListenTogetherStartPositionTests).
+    let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: UUID(), role: .sharer, control: control)
     player.onNeedsPiece = { _ in bridge.waitForPiece() }
-    bridge.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
 
     player.userTogglePlay()
 

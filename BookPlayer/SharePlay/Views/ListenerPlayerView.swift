@@ -95,6 +95,8 @@ struct ListenerHeaderView: View {
   @EnvironmentObject private var theme: ThemeViewModel
 
   static func chapter(for listener: ListenerPlayer) -> SharedChapter? {
+    // No chapter while the place is unknown: it would be the first one (a11y I2).
+    guard !listener.isJoiningGroup else { return nil }
     let manifest = listener.manifest
     if let chapter = manifest.chapter(at: listener.bookTime) { return chapter }
     // At the very end the time equals the last chapter's end.

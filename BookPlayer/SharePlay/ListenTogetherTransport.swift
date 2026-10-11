@@ -17,6 +17,8 @@ enum TransportEvent: Equatable {
   /// The participant who sent a message only the sharer sends (manifest, piece map, heartbeat): lets
   /// listeners tell when the sharer leaves the roster, however many people are in it.
   case sharerParticipant(id: UUID)
+  /// A listener reported `.inStep(at:)`; `from` is its participant id (nil when unknown).
+  case inStep(at: TimeInterval, from: UUID?)
 }
 
 /// Everything the session service needs from SharePlay, so tests can use a fake.
@@ -168,6 +170,8 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
         case .manifest, .pieceUploaded, .heartbeat:
           continuation.yield(.sharerParticipant(id: context.source.id))
           continuation.yield(.message(message))
+        case .inStep(let time):
+          continuation.yield(.inStep(at: time, from: context.source.id))
         default:
           continuation.yield(.message(message))
         }

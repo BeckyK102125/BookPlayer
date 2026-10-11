@@ -23,6 +23,37 @@ enum ListenerTimeText {
   }
 }
 
+/// What the position element shows and reads. While the group's place is not known yet, no time is
+/// shown or read (a11y I2): a listener's own timeline is still at 0, which would look like the session
+/// started at the beginning again.
+@MainActor
+enum ListenerPositionText {
+  static func elapsed(for listener: ListenerPlayer) -> TimeInterval {
+    min(max(listener.bookTime, 0), max(listener.manifest.duration, 0))
+  }
+
+  static func remaining(for listener: ListenerPlayer) -> TimeInterval {
+    max(max(listener.manifest.duration, 0) - elapsed(for: listener), 0)
+  }
+
+  static func value(for listener: ListenerPlayer) -> String {
+    if listener.isJoiningGroup { return "listen_together_finding_place".localized }
+    return String.localizedStringWithFormat(
+      "listen_together_time_value".localized,
+      ListenerTimeText.spoken(elapsed(for: listener)),
+      ListenerTimeText.spoken(remaining(for: listener)))
+  }
+
+  static func elapsedText(for listener: ListenerPlayer) -> String {
+    listener.isJoiningGroup ? "listen_together_time_unknown".localized : TimeParser.formatTime(elapsed(for: listener))
+  }
+
+  static func remainingText(for listener: ListenerPlayer) -> String {
+    listener.isJoiningGroup
+      ? "listen_together_time_unknown".localized : "-" + TimeParser.formatTime(remaining(for: listener))
+  }
+}
+
 /// The book position: one adjustable element. Swipe up or down moves 30 seconds, and VoiceOver reads
 /// "Elapsed …, remaining …" after each step. The visible bar and times are hidden from VoiceOver so the
 /// time is never read twice. The bar is read-only: dragging would send a seek for every tick.
@@ -33,8 +64,7 @@ struct ListenerPositionView: View {
 
   var body: some View {
     let duration = max(listener.manifest.duration, 0)
-    let elapsed = min(max(listener.bookTime, 0), duration)
-    let remaining = max(duration - elapsed, 0)
+    let elapsed = ListenerPositionText.elapsed(for: listener)
     let layout = dynamicTypeSize.isAccessibilitySize
       ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
       : AnyLayout(HStackLayout(spacing: 8))
@@ -43,10 +73,12 @@ struct ListenerPositionView: View {
       ProgressView(value: duration > 0 ? elapsed / duration : 0)
         .tint(theme.primaryColor)
         .animation(nil, value: elapsed)
+        // No bar while the place is unknown: an empty bar would say "at the beginning" (a11y I2).
+        .opacity(listener.isJoiningGroup ? 0 : 1)
       layout {
-        Text(TimeParser.formatTime(elapsed))
+        Text(ListenerPositionText.elapsedText(for: listener))
         if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-        Text("-" + TimeParser.formatTime(remaining))
+        Text(ListenerPositionText.remainingText(for: listener))
       }
       .bpFont(.footnote)
       .monospacedDigit()
@@ -58,11 +90,7 @@ struct ListenerPositionView: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("listen_together_position_title".localized)
     .accessibilityHint("listen_together_position_hint".localized)
-    .accessibilityValue(
-      String.localizedStringWithFormat(
-        "listen_together_time_value".localized,
-        ListenerTimeText.spoken(elapsed),
-        ListenerTimeText.spoken(remaining)))
+    .accessibilityValue(ListenerPositionText.value(for: listener))
     .accessibilityAdjustableAction { direction in
       switch direction {
       case .increment: listener.userSkip(by: ListenerSkip.seconds)
@@ -110,7 +138,8 @@ struct ListenerTransportRow: View {
     systemName: String, label: String, identifier: String, action: @escaping () -> Void
   ) -> some View {
     Button {
-      UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+      // A refused press (waiting, finding the place) gets no "pressed" haptic (a11y M5).
+      if !listener.refusesUserActions { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
       action()
     } label: {
       Image(systemName: systemName)

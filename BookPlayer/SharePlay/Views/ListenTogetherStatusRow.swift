@@ -45,6 +45,8 @@ enum ListenTogetherRow {
     var title: String
     var isPlaying: Bool
     var isWaiting: Bool
+    /// The listener's place in the book is not known yet (start-position fix, a11y M2).
+    var isFindingPlace = false
   }
 
   /// What the person sharing is doing, for the listener's row value (C.2, a11y I4).
@@ -80,6 +82,8 @@ enum ListenTogetherRow {
         key = "listen_together_row_value_waiting_sharer"
       } else if listener.isWaiting {
         key = "listen_together_row_value_waiting"
+      } else if listener.isFindingPlace {
+        key = "listen_together_row_value_finding_place"
       } else if sharerPresence == .quiet {
         key = "listen_together_row_value_sharer_quiet"
       } else if listener.isPlaying {
@@ -239,7 +243,8 @@ struct ListenTogetherStatusRow: View {
 
   private static func snapshot(of listener: ListenerPlayer) -> ListenTogetherRow.ListenerSnapshot {
     ListenTogetherRow.ListenerSnapshot(
-      title: listener.manifest.title, isPlaying: listener.isPlaying, isWaiting: listener.isWaitingForPiece)
+      title: listener.manifest.title, isPlaying: listener.isPlaying, isWaiting: listener.isWaitingForPiece,
+      isFindingPlace: listener.isJoiningGroup)
   }
 
   /// The listener's playing and waiting state, without observing its twice-a-second time.
@@ -251,8 +256,8 @@ struct ListenTogetherStatusRow: View {
         guard let listener else { return Just(nil).eraseToAnyPublisher() }
         let title = listener.manifest.title
         return listener.$isPlaying
-          .combineLatest(listener.$isWaitingForPiece)
-          .map { ListenTogetherRow.ListenerSnapshot(title: title, isPlaying: $0, isWaiting: $1) }
+          .combineLatest(listener.$isWaitingForPiece, listener.$isJoiningGroup)
+          .map { ListenTogetherRow.ListenerSnapshot(title: title, isPlaying: $0, isWaiting: $1, isFindingPlace: $2) }
           .eraseToAnyPublisher()
       }
       .switchToLatest()

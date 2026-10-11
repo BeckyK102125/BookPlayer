@@ -136,6 +136,22 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
     XCTAssertFalse(events.isEmpty)
   }
 
+  /// Fix round 1: while the place in the book is not known yet, lock screen, AirPods and Control
+  /// Center do nothing and say nothing (like waiting for the person sharing).
+  func testEveryCommandIsSilentAndDoesNothingWhileFindingThePlace() {
+    let listener = startListening(at: 150)
+    listener.isJoiningGroup = true
+    var refusals = 0
+    listener.onActionWhileJoining = { refusals += 1 }
+    for command in allCommands {
+      XCTAssertEqual(router.handle(command), .success, "\(command)")
+    }
+    scheduled.forEach { $0() }
+    XCTAssertEqual(events, [])
+    XCTAssertEqual(refusals, 0, "nothing is said from the background")
+    assertPlayerManagerUntouched()
+  }
+
   func testPlayAndToggleReportAPlay() {
     startListening(at: 40)
     XCTAssertEqual(router.handle(.play), .success)

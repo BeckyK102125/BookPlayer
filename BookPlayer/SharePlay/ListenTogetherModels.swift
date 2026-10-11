@@ -71,6 +71,9 @@ enum ListenTogetherMessage: Codable, Equatable {
   /// Sharer: the book's files could not be read at the start, so the share ends (instead of
   /// `.sessionEnding`, so listeners can say why).
   case sharerCouldNotPrepare
+  /// Listener -> sharer (start-position fix round 1, C1): this listener received its first group time
+  /// and is at `at`. Only this confirms that a joiner is in step with the person sharing.
+  case inStep(at: TimeInterval)
 
   /// The kind of message, for logs (never its contents).
   var kind: String {
@@ -84,6 +87,7 @@ enum ListenTogetherMessage: Codable, Equatable {
     case .heartbeat: return "heartbeat"
     case .needPiece: return "needPiece"
     case .sharerCouldNotPrepare: return "sharerCouldNotPrepare"
+    case .inStep: return "inStep"
     }
   }
 }

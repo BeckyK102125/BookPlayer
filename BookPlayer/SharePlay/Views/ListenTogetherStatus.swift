@@ -14,8 +14,10 @@ struct ListenTogetherStatusConditions: Equatable {
   var isPausedByOther = false
   /// Sharer: someone couldn't join (no copy).
   var someoneDeclined = false
-  /// Listener: the group's timing is not known yet; Play and the skips do nothing ("Joining…").
+  /// Listener: the group's place is not known yet; Play and the skips do nothing.
   var isJoiningGroup = false
+  /// Listener: still finding the place after a while: the line also says what to do.
+  var isJoiningSlow = false
 }
 
 /// One status line in the banner: a first line, an optional second line, what VoiceOver reads and the
@@ -104,8 +106,13 @@ enum ListenTogetherStatus {
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, spokenDetail), icon: .hourglass)
       }
       if conditions.isJoiningGroup {
-        // Start-position fix C: why Play does nothing yet. The percent stays visible under it.
-        let text = "listen_together_joining".localized
+        // Start-position fix C: why Play does nothing yet. The percent stays visible under it, until
+        // the wait is long: then the second line says what to do (round 1, a11y I1).
+        let text = "listen_together_finding_place".localized
+        if conditions.isJoiningSlow {
+          let slow = "listen_together_finding_place_slow".localized
+          return ListenTogetherStatusLine(text: text, detail: slow, spoken: joined(text, slow), icon: .hourglass)
+        }
         let detail = downloaded < 1 ? base : nil
         let spokenDetail = downloaded < 1 ? baseSpoken : nil
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, spokenDetail), icon: .hourglass)
@@ -144,7 +151,7 @@ enum ListenTogetherStatus {
   static func waitingCaption(_ conditions: ListenTogetherStatusConditions) -> String? {
     if conditions.isSharerGraceRunning { return "listen_together_waiting_for_sharer".localized }
     if conditions.isWaitingForPiece { return "listen_together_waiting_download".localized }
-    if conditions.isJoiningGroup { return "listen_together_joining".localized }
+    if conditions.isJoiningGroup { return "listen_together_finding_place".localized }
     return nil
   }
 

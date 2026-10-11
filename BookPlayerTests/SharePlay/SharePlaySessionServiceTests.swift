@@ -332,7 +332,8 @@ final class SharePlaySessionServiceTests: XCTestCase {
     transport.emit(.message(.manifest(manifest(id))))
     await waitUntil { service.listener != nil }
     let listener = try? XCTUnwrap(service.listener)
-    service.bridge?.handlePause(itemTime: 0)   // the group's timing is known (start-position fix C)
+    listener?.onNeedsPiece = nil   // no stall suspension on the real (session-less) coordinator
+    service.bridge?.handleSeek(itemTime: 0)   // the group's place is known (start-position fix C, round 1 I2)
 
     listener?.userSetRate(1.5)
     listener?.userSetRate(2)

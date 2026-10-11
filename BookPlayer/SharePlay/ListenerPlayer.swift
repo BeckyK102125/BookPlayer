@@ -23,10 +23,15 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   var isHeldForSharer = false
   /// Play or pause pressed while `isHeldForSharer`: nothing happens; the service says why.
   var onToggleWhileHeldForSharer: (() -> Void)?
-  /// True until the group's timing is known here (the first coordinator command; set by the service).
+  /// True until the group's place is known here (the first play or seek command; set by the service).
   /// Meanwhile this player's timeline is "paused at 0", so play, pause, skips and speed would move the
-  /// whole group there (the 0:00 start, build 3): they do nothing, and the service says "Joining…".
-  var isJoiningGroup = false
+  /// whole group there (the 0:00 start, build 3): they do nothing, and the service says "Finding the
+  /// group's place". The position, chapter and lock-screen time are not shown meanwhile (a11y I2).
+  @Published var isJoiningGroup = false
+  /// A press now does nothing (the service says why): no "pressed" haptic for it (a11y M5).
+  var refusesUserActions: Bool {
+    isHeldForSharer || isJoiningGroup || (isWaitingForPiece && isHeldWhilePlaying)
+  }
   /// A control was used while `isJoiningGroup`: nothing happened; the service says why.
   var onActionWhileJoining: (() -> Void)?
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
@@ -204,15 +209,16 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       onToggleWhileHeldForSharer?()
       return
     }
-    if isJoiningGroup {
-      onActionWhileJoining?()
-      return
-    }
     // The group is playing but held for our piece: toggling would only send everyone a second play
     // (or, to the user's ear, a pause that stops the group for no reason). Do nothing; say we wait.
     // A paused seek into a missing piece is different: Play there still starts the group (R14).
+    // Checked in the status line's order: sharer, waiting for the book, finding the place (a11y M6).
     if isWaitingForPiece, isHeldWhilePlaying {
       onToggleWhileWaiting?()
+      return
+    }
+    if isJoiningGroup {
+      onActionWhileJoining?()
       return
     }
     if isPlaying {

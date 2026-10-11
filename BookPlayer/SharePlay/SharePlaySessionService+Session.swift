@@ -422,18 +422,21 @@ extension SharePlaySessionService {
       guard let self, self.sharerWaitToggleLimiter.allows(at: Date()) else { return }
       self.announcer.announce("listen_together_waiting_for_sharer".localized)
     }
-    // Start-position fix C: until the first coordinator command, the group's timing is unknown here.
-    // Play, pause, skips and speed do nothing to the group; "Joining…" shows in the status and under
-    // the controls, and a press says it (VoiceOver), at most every 3 s like "Waiting for the book".
+    // Start-position fix C: until the first play or seek command, the group's place is unknown here.
+    // Play, pause, skips and speed do nothing to the group; "Finding the group's place" shows in the
+    // status and under the controls, and a press says it (VoiceOver), at most every 3 s like "Waiting
+    // for the book". Round 1: a staged fallback runs meanwhile (`scheduleFindingPlaceFallback`).
     player.isJoiningGroup = !bridge.hasGroupTiming
     setListenerJoining(!bridge.hasGroupTiming)
     player.onActionWhileJoining = { [weak self] in
-      guard let self, self.joiningToggleLimiter.allows(at: self.now()) else { return }
-      self.announcer.announce("listen_together_joining".localized)
+      guard let self else { return }
+      self.refusedPressWhileJoining = true
+      guard self.joiningToggleLimiter.allows(at: self.now()) else { return }
+      self.announcer.announce("listen_together_finding_place".localized)
     }
-    bridge.onGroupTimingKnown = { [weak self, weak player] in
+    bridge.onGroupTimingKnown = { [weak self, weak player] time in
       player?.isJoiningGroup = false
-      self?.setListenerJoining(false)
+      self?.listenerFoundPlace(at: time, playing: player?.isPlaying == true)
     }
     // The status line and the Zoom caption follow the player's wait for a piece.
     player.$isWaitingForPiece
@@ -453,11 +456,66 @@ extension SharePlaySessionService {
     // Connect first, then transition (fix A).
     bridge.start(session: activeSession)
     observeLocalEvents(of: player)
+    if let transport, isListenerJoining { scheduleFindingPlaceFallback(on: transport, bridge: bridge) }
     // Pieces that arrived before the manifest.
     for (attachmentID, index) in pieceIndexByAttachment {
       if let url = heldAttachments.removeValue(forKey: attachmentID) { place(index: index, url: url) }
     }
     updateListeningState()
+  }
+
+  /// The listener received its first group time (round 1): the sharer is told it is in step (C1),
+  /// the fallback's status ends, and what waited for the place is said now.
+  private func listenerFoundPlace(at time: TimeInterval, playing: Bool) {
+    setListenerJoining(false)
+    setListenerJoiningSlow(false)
+    outbox?.yield(.inStep(at: time))
+    if ownCopyLineWaitsForPlace, let transport {
+      ownCopyLineWaitsForPlace = false
+      refusedPressWhileJoining = false
+      announceOwnCopyJoined(on: transport)
+      return
+    }
+    // a11y M3: a press was refused and the group is paused: say once that Play works now.
+    if refusedPressWhileJoining, !playing {
+      announcer.announce("listen_together_ready".localized)
+    }
+    refusedPressWhileJoining = false
+  }
+
+  /// Round 1 fallback while the group's place is unknown, all on the session clock and stopped by
+  /// teardown: at 3 s the coordinator is asked to re-send the group's state; from 5 s the sharer is
+  /// asked every `stateRequestInterval` (`.requestState`, own copy too); at 12 s a second status line
+  /// says what to do, announced once.
+  private func scheduleFindingPlaceFallback(on transport: ListenTogetherTransport, bridge: ListenTogetherCoordinatorBridge) {
+    let stillFinding: @MainActor (SharePlaySessionService) -> Bool = { [weak transport, weak bridge] service in
+      guard let transport, let bridge else { return false }
+      return service.transport === transport && service.bridge === bridge && service.role == .listener
+        && service.isListenerJoining
+    }
+    scheduleSessionTimer(Self.joiningReapplyDelay) { [weak self, weak bridge] in
+      guard let self, stillFinding(self) else { return }
+      bridge?.reapplyCurrentItemState()
+    }
+    scheduleFindingPlaceRequest(after: Self.joiningRequestDelay, stillFinding: stillFinding)
+    scheduleSessionTimer(Self.joiningSlowDelay) { [weak self] in
+      guard let self, stillFinding(self) else { return }
+      Self.logger.info("Listen Together: the group's place is still not known; showing what to do")
+      self.setListenerJoiningSlow(true)
+      self.announcer.announce(
+        "listen_together_finding_place".localized + ". " + "listen_together_finding_place_slow".localized)
+    }
+  }
+
+  private func scheduleFindingPlaceRequest(
+    after delay: Duration, stillFinding: @escaping @MainActor (SharePlaySessionService) -> Bool
+  ) {
+    scheduleSessionTimer(delay) { [weak self] in
+      guard let self, stillFinding(self) else { return }
+      Self.logger.info("Listen Together: asking the person sharing for the group's place")
+      self.outbox?.yield(.requestState)
+      self.scheduleFindingPlaceRequest(after: Self.stateRequestInterval, stillFinding: stillFinding)
+    }
   }
 
   private func listenerNeedsPiece(_ index: Int) {
@@ -625,11 +683,20 @@ extension SharePlaySessionService {
     case .message(.requestState):
       // A listener without the manifest or piece map: send both again (to everyone; harmless).
       guard role == .sharer else { return }
+      // Round 1 fallback: a joiner still finding the place asks too. The place is asserted only while
+      // a joiner is not in step and the shared book is loaded (never a stale start position).
+      if let target = sharerTarget, !target.isGroupEstablished, target.holdsSharedBook, target.allowsReassert() {
+        bridge?.assertPosition()
+      }
       await answerStateRequest(on: transport)
     case .message(.needPiece(let index)):
       guard role == .sharer else { return }
       Self.logger.info("Listen Together: a listener waits for piece \(index, privacy: .public)")
       await listenerNeeds(index, on: transport)
+    case .inStep(let time, let id):
+      listenerInStep(at: time, from: id)
+    case .message(.inStep(let time)):
+      listenerInStep(at: time, from: nil)
     case .message(.sharerCouldNotPrepare):
       Self.logger.info("Listen Together: the sharer could not prepare the book")
       tearDown(reason: role == .listener ? .sharerCouldNotPrepare : .normal)
@@ -678,6 +745,9 @@ extension SharePlaySessionService {
     rosterIDs = []
     confirmedParticipantIDs = []
     declinedParticipantIDs = []
+    awaitingInStep = []
+    awaitingAnonymousInStep = 0
+    hasInStepSinceArm = false
   }
 
   /// Someone couldn't join an owners-only share (no copy). They are never counted, and their brief
@@ -688,6 +758,7 @@ extension SharePlaySessionService {
     if let id {
       declinedParticipantIDs.insert(id)
       if confirmedParticipantIDs.remove(id) != nil { applyParticipantCount(confirmedParticipantIDs.count) }
+      if awaitingInStep.remove(id) != nil { confirmIfEveryJoinerIsInStep() }
     }
     guard role == .sharer else { return }
     // E11: also a second status line, so a sharer without VoiceOver learns why no one joined.
@@ -711,6 +782,13 @@ extension SharePlaySessionService {
     let arrived = ids.subtracting(rosterIDs)
     let gone = rosterIDs.subtracting(ids)
     rosterIDs = ids
+    if role == .sharer {
+      if !arrived.isEmpty { sharerJoinersArrived(ids: arrived) }
+      if !gone.isEmpty, !awaitingInStep.isDisjoint(with: gone) {
+        awaitingInStep.subtract(gone)
+        confirmIfEveryJoinerIsInStep()
+      }
+    }
     declinedParticipantIDs.subtract(gone)
     let countedLeft = !gone.isDisjoint(with: confirmedParticipantIDs)
     confirmedParticipantIDs.subtract(gone)
@@ -751,13 +829,8 @@ extension SharePlaySessionService {
 
   /// Late joiners get journal attachments automatically, but not earlier messages: re-send the
   /// manifest and the piece map. Nothing is uploaded again.
-  ///
-  /// Until the group has been seen at the sharer's place, the place is asserted again too, so someone
-  /// arriving before then starts there (start-position fix B).
   private func resendForLateJoiners(on transport: ListenTogetherTransport) async {
-    guard role == .sharer else { return }
-    if sharerTarget?.isGroupEstablished == false { bridge?.assertPosition() }
-    guard let manifest else { return }
+    guard role == .sharer, let manifest else { return }
     await send(.manifest(manifest), on: transport)
     for message in uploadedPieceMessages {
       guard self.transport === transport else { return }
@@ -782,11 +855,53 @@ extension SharePlaySessionService {
       return
     }
     if count > previous {
+      if role == .sharer { sharerJoinersArrived(count: count - previous) }
       announcer.announce(ListenTogetherAnnouncements.joined())
       await resendForLateJoiners(on: transport)
     } else if count < previous {
+      if role == .sharer, awaitingAnonymousInStep > count - 1 {
+        awaitingAnonymousInStep = max(0, count - 1)
+        confirmIfEveryJoinerIsInStep()
+      }
       announcer.announce(ListenTogetherAnnouncements.left())
     }
+  }
+
+  // MARK: Sharer: joiners in step (start-position fix round 1, C1)
+
+  /// Someone joined: the sharer's place is protected again until each joiner reports `.inStep`, and is
+  /// asserted for them (start-position fix B), unless another book is loaded.
+  private func sharerJoinersArrived(ids: Set<UUID> = [], count: Int = 0) {
+    awaitingInStep.formUnion(ids)
+    awaitingAnonymousInStep += count
+    hasInStepSinceArm = false
+    sharerTarget?.rearm()
+    bridge?.assertPosition()
+  }
+
+  /// A listener said it is in step at `time`. At the sharer's place: that joiner is confirmed, and
+  /// when every joiner is, the group is. Elsewhere: the place is asserted again (at most every 3 s).
+  private func listenerInStep(at time: TimeInterval, from id: UUID?) {
+    guard role == .sharer, let target = sharerTarget else { return }
+    guard target.isInStepReportAtOwnPlace(time) else {
+      Self.logger.info(
+        "Listen Together: a listener is in step at \(time, privacy: .public), not at the sharer's place \(target.bookTime, privacy: .public)")
+      if target.allowsReassert() { bridge?.assertPosition() }
+      return
+    }
+    Self.logger.info("Listen Together: a listener is in step at the sharer's place \(time, privacy: .public)")
+    if let id, awaitingInStep.contains(id) {
+      awaitingInStep.remove(id)
+    } else if awaitingAnonymousInStep > 0 {
+      awaitingAnonymousInStep -= 1
+    }
+    hasInStepSinceArm = true
+    confirmIfEveryJoinerIsInStep()
+  }
+
+  private func confirmIfEveryJoinerIsInStep() {
+    guard role == .sharer, hasInStepSinceArm, awaitingInStep.isEmpty, awaitingAnonymousInStep == 0 else { return }
+    sharerTarget?.confirmGroup()
   }
 
   /// This device's playback target in the current session, whichever role it has.

@@ -279,6 +279,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     let url = try makeLibraryFile()
     XCTAssertTrue(service.startListening(
       with: transport, shareID: id, ownCopy: try ownCopy(of: url), title: "T", author: "A", shared: fingerprint()))
+    service.bridge?.handleSeek(itemTime: 0)   // the group's place is known: the line may be said (a11y I3)
 
     // No "getting the book" screen: the player exists from Join, complete, nothing downloading.
     let listener = try XCTUnwrap(service.listener)
@@ -517,6 +518,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
   func testJoinedLineFollowsTheTitleFocusOnce() async throws {
     let service = makeService(), transport = OwnCopyTransport()
     service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+    service.bridge?.handleSeek(itemTime: 0)   // the group's place is known: the line may be said (a11y I3)
     XCTAssertEqual(scheduled.map(\.delay), [SharePlaySessionService.ownCopyJoinedFallbackDelay])
     let fallback = scheduled.removeFirst()
     service.listenerTitleFocused()
@@ -532,6 +534,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
   func testJoinedLineFallsBackWhenThePlayerIsNotShown() async throws {
     let service = makeService(), transport = OwnCopyTransport()
     service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+    service.bridge?.handleSeek(itemTime: 0)   // the group's place is known: the line may be said (a11y I3)
     runScheduled()
     XCTAssertEqual(posted, ["listen_together_joined_own_copy".localized])
   }

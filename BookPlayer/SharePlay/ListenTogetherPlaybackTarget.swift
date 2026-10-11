@@ -23,4 +23,13 @@ protocol ListenTogetherPlaybackTarget: AnyObject {
   func applySeek(to bookTime: TimeInterval)
   /// Sets the speed without playing or reporting it (a speed change made elsewhere while paused).
   func applyRate(_ rate: Float)
+  /// The book the group shares is playing here (the sharer may be playing another book).
+  var isPlayingForGroup: Bool { get }
+  /// This device's place may be asserted to the group (sharer only; never while another book plays).
+  var canAssertPlace: Bool { get }
+}
+
+extension ListenTogetherPlaybackTarget {
+  var isPlayingForGroup: Bool { isPlaying }
+  var canAssertPlace: Bool { true }
 }

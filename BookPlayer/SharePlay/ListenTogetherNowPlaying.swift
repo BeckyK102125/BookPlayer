@@ -15,12 +15,15 @@ struct ListenTogetherNowPlayingState: Equatable {
   var rate: Float
   var isPlaying: Bool
   var isWaitingForPiece: Bool
+  /// The listener's place in the book is not known yet: no elapsed time and no chapter (a11y I2).
+  var isPlaceUnknown = false
 
   /// `isPlaying` can stay set while the group is held for a missing piece: the time is not moving then.
   var isActuallyPlaying: Bool { isPlaying && !isWaitingForPiece }
 
   var chapterIndex: Int? {
-    chapters.firstIndex { bookTime >= $0.start && bookTime < $0.end }
+    guard !isPlaceUnknown else { return nil }
+    return chapters.firstIndex { bookTime >= $0.start && bookTime < $0.end }
   }
 
   init(
@@ -37,10 +40,14 @@ struct ListenTogetherNowPlayingState: Equatable {
     self.isWaitingForPiece = isWaitingForPiece
   }
 
-  init(manifest: SharedBookManifest, bookTime: TimeInterval, rate: Float, isPlaying: Bool, isWaitingForPiece: Bool) {
+  init(
+    manifest: SharedBookManifest, bookTime: TimeInterval, rate: Float, isPlaying: Bool, isWaitingForPiece: Bool,
+    isPlaceUnknown: Bool = false
+  ) {
     self.init(
       title: manifest.title, author: manifest.author, chapters: manifest.chapters, duration: manifest.duration,
       bookTime: bookTime, rate: rate, isPlaying: isPlaying, isWaitingForPiece: isWaitingForPiece)
+    self.isPlaceUnknown = isPlaceUnknown
   }
 }
 
@@ -68,7 +75,7 @@ enum ListenTogetherNowPlaying {
       info[MPNowPlayingInfoPropertyChapterCount] = state.chapters.count
     }
     info[MPMediaItemPropertyPlaybackDuration] = state.duration
-    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = state.bookTime
+    if !state.isPlaceUnknown { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = state.bookTime }
     info[MPNowPlayingInfoPropertyPlaybackRate] = state.isActuallyPlaying ? Double(state.rate) : 0.0
     info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
     info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
@@ -170,10 +177,13 @@ final class ListenTogetherNowPlayingPublisher {
     let manifest = listener.manifest
     // The published values, not the properties: @Published emits before the property is stored.
     Publishers.CombineLatest4(listener.$bookTime, listener.$isPlaying, listener.$rate, listener.$isWaitingForPiece)
-      .sink { [weak self] bookTime, isPlaying, rate, isWaiting in
+      .combineLatest(listener.$isJoiningGroup)
+      .sink { [weak self] values, isFindingPlace in
+        let (bookTime, isPlaying, rate, isWaiting) = values
         MainActor.assumeIsolated {
           self?.update(ListenTogetherNowPlayingState(
-            manifest: manifest, bookTime: bookTime, rate: rate, isPlaying: isPlaying, isWaitingForPiece: isWaiting))
+            manifest: manifest, bookTime: bookTime, rate: rate, isPlaying: isPlaying, isWaitingForPiece: isWaiting,
+            isPlaceUnknown: isFindingPlace))
         }
       }
       .store(in: &listenerBag)
@@ -206,7 +216,8 @@ final class ListenTogetherNowPlayingPublisher {
       publish(
         ListenTogetherNowPlayingState(
           manifest: listener.manifest, bookTime: listener.bookTime, rate: listener.rate,
-          isPlaying: listener.isPlaying, isWaitingForPiece: listener.isWaitingForPiece),
+          isPlaying: listener.isPlaying, isWaitingForPiece: listener.isWaitingForPiece,
+          isPlaceUnknown: listener.isJoiningGroup),
         at: now())
     } else if let gettingBookTitle {
       sink.publish(ListenTogetherNowPlaying.gettingBookInfo(title: gettingBookTitle), playbackState: .paused)

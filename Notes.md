@@ -1176,3 +1176,53 @@ time as progress). Brief: start-position-brief.md. Report: start-position-report
 - Not done / open: no fallback if a listener never receives a coordinator command (it would stay on
   "Joining…"); Apple's behaviour for the explicit seek before anyone joined and for late joiners is
   inferred, to be checked on devices (context.md item S).
+
+## 2026-10-11 - listen-together-start-position - fix round 1
+Parent 017ab284. Inputs: start-position-code-review.md (1 Critical, 3 Important, 7 Minor),
+start-position-a11y-review.md (3 Important, 6 Minor), rulings start-position-fix-round-1.md.
+- Wording ruling: "Finding the group's place" (no ellipsis) replaces "Joining…" everywhere (status line,
+  caption, Play value, row, guide). Key `listen_together_joining` removed; new keys
+  `listen_together_finding_place`, `_finding_place_slow`, `_row_value_finding_place`, `_ready`,
+  `_time_unknown` ("--:--") in Base and all 25 other lproj (English).
+- C1: confirmation only from listeners. New message `ListenTogetherMessage.inStep(at:)`, sent once by a
+  listener (outbox) when its gate opens, with the command's time; the transport turns it into
+  `TransportEvent.inStep(at:from:)` with the sender's participant id. Sharer: every join (roster ids or a
+  count increase) calls `sharerJoinersArrived` -> `awaitingInStep`/`awaitingAnonymousInStep`, target
+  `rearm()` (protected place = current place), `assertPosition()`. An in-step report at the sharer's place
+  removes that joiner; when none is left (and one report came since the last arm) `confirmGroup()`.
+  Joiners who leave or decline stop counting. An in-step report elsewhere re-asserts (throttled).
+  Coordinator commands never confirm (the sharer's own echo can't). Restore backstop keyed to the same
+  state and to the protected place of the last arming.
+- I1: `placeTolerance` = max(2, 1.5*rate) + rate while playing; re-asserts at most one per 3 s
+  (`allowsReassert`, service clock), and the bridge reads the sharer's place when it sends the seek.
+- I2: only play/seek commands open the listener gate (`noteGroupTiming(at:)` after applying them).
+- Fallback (I3 / a11y I1, ruling): at 3 s `reapplyCurrentItemState()` (new control method ->
+  `reapplyCurrentItemStateToPlaybackControlDelegate`); from 5 s `.requestState` every 5 s (own copy too);
+  at 12 s `isListenerJoiningSlow` -> second status line "If this doesn't change, choose Leave Listen Together
+  and join again." + one announcement (announcer only; Speak doesn't apply). Sharer on `.requestState`
+  asserts only while a joiner is not in step, the shared book is loaded and the 3 s limit allows.
+- a11y I2: while finding the place the position value is the waiting text, both times "--:--", the bar is
+  hidden, no chapter title, and Now Playing omits elapsed time and chapter (`isPlaceUnknown`).
+- a11y I3: own-copy "Joined. Playing your copy." waits until the place is found (`ownCopyLineWaitsForPlace`).
+- Minors: row value "finding the group's place, %@" (after the waiting keys); "Ready. Play works now." once
+  when the place is found paused after a refused press; guide step 7 (lock screen silent, every control
+  listed, 12 s advice) and step 10 (per-joiner confirmation, older builds); no tap haptic on a refused press
+  (`refusesUserActions`); press checks in the status order (waiting before finding the place); no
+  assert/play while another book is loaded (`canAssertPlace`, `isPlayingForGroup`, also for the transition's
+  proposed rate); lock screen/AirPods/Control Center return `.success` silently while finding the place
+  (test); strings test uses XCTFail; a test checks a re-assert sends no message.
+- Left (noted): the restore backstop does not check a shared book that is no longer loaded (code M7).
+  Initial assert with no book loaded still happens (start position is current then); not while another
+  book is loaded (minor ruling), so such a session relies on the proposal and the 12 s advice.
+- Mixed builds: a build-3 listener never sends `inStep` (sharer protected all session, its deliberate jumps
+  re-asserted); a build-3 peer can't decode `inStep` (dropped).
+- Added beyond the list: an `.inStep` report is compared with the sharer's place allowing 2 s x rate more
+  while the shared book plays (`isInStepReportAtOwnPlace`): it travels as a message and is said once, so a
+  miss would leave the protection on for the whole session. Red-checked (fails with the plain tolerance).
+- Tests: ListenTogetherStartPositionTests 46 (was 21); RemoteCommands +1. Existing tests that opened the
+  gate with a pause now use `handleSeek`; own-copy line tests open the gate first; the two bridge tests on
+  listener ordering use a sharer-role bridge (no gate).
+- TDD red with API stubs only: 31 tests failed. Green: 30 SharePlay classes 534/0 (** TEST SUCCEEDED **);
+  full suite "Executed 1106 tests, with 0 failures", ** TEST SUCCEEDED ** (one earlier full run hit the known
+  InsertBooksTests CoreData crash and restart; reran); TSan on the 30 SharePlay classes 534/0, 0
+  ThreadSanitizer warnings, ** TEST SUCCEEDED **.

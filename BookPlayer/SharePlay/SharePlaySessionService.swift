@@ -95,9 +95,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   @Published private(set) var isPausedByOther = false
   /// Sharer, owners-only: someone couldn't join (no copy). Shown until the count changes or the end (E11).
   @Published private(set) var someoneDeclined = false
-  /// Listener: the group's timing is not known yet (no coordinator command so far). Local play, pause,
-  /// skips and speed do nothing to the group meanwhile; the status says "Joining…".
+  /// Listener: the group's place is not known yet (no play or seek command so far). Local play, pause,
+  /// skips and speed do nothing to the group meanwhile; the status says "Finding the group's place".
   @Published private(set) var isListenerJoining = false
+  /// Listener: still finding the place after `joiningSlowDelay`: the status also says what to do.
+  @Published private(set) var isListenerJoiningSlow = false
 
   /// What the status line needs besides the state.
   var statusConditions: ListenTogetherStatusConditions {
@@ -106,7 +108,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       isWaitingForPiece: isListenerWaitingForPiece, isListenerPlaying: isListenerPlaying,
       isPausedByOther: isPausedByOther,
       someoneDeclined: someoneDeclined,
-      isJoiningGroup: isListenerJoining)
+      isJoiningGroup: isListenerJoining,
+      isJoiningSlow: isListenerJoiningSlow)
   }
 
   /// Every alert, announcement and spoken message goes through here (guidance A.2).
@@ -218,8 +221,22 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var waitingToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
   /// Play pressed while the person sharing is missing: "Waiting for the person sharing" at most every 2 s.
   var sharerWaitToggleLimiter = ListenTogetherRepeatLimiter(interval: 2)
-  /// A control pressed while joining: "Joining…" at most once per 3 s (like the waiting message).
+  /// A control pressed while finding the place: said at most once per 3 s (like the waiting message).
   var joiningToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
+  /// Listener: a press was refused while finding the place ("Ready. Play works now." afterwards, M3).
+  var refusedPressWhileJoining = false
+  /// Listener, own copy: "Joined. Playing your copy." waits until the place is found (a11y I3).
+  var ownCopyLineWaitsForPlace = false
+  /// Listener fallback while finding the place (round 1): ask the coordinator again, then the sharer
+  /// (every `stateRequestInterval`), then say what to do.
+  static let joiningReapplyDelay: Duration = .seconds(3)
+  static let joiningRequestDelay: Duration = .seconds(5)
+  static let joiningSlowDelay: Duration = .seconds(12)
+  /// Sharer: joiners (by participant id) who have not yet reported `.inStep`; joiners known only by a
+  /// roster count; and whether an `.inStep` arrived since the last join (round 1, C1).
+  var awaitingInStep = Set<UUID>()
+  var awaitingAnonymousInStep = 0
+  var hasInStepSinceArm = false
   /// Roster by participant id (when the transport reports ids): everyone present, everyone counted
   /// (present for `joinConfirmationDelay` and not declined), and everyone who declined.
   var rosterIDs = Set<UUID>()
@@ -375,6 +392,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
   func setListenerJoining(_ value: Bool) { if isListenerJoining != value { isListenerJoining = value } }
+  func setListenerJoiningSlow(_ value: Bool) { if isListenerJoiningSlow != value { isListenerJoiningSlow = value } }
 
   /// "Couldn't send part of the book. Trying again." is said once per episode (guidance A.2, C5), until
   /// every piece is sent again.
@@ -849,6 +867,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Says "Joined. Playing your copy." once per session, whichever of the two moments comes first.
   func announceOwnCopyJoined(on transport: ListenTogetherTransport) {
     guard self.transport === transport, isUsingOwnCopy, pendingOwnCopyJoinedLine else { return }
+    // a11y I3: nothing plays yet while the group's place is unknown; said once it is found.
+    if isListenerJoining {
+      ownCopyLineWaitsForPlace = true
+      return
+    }
     pendingOwnCopyJoinedLine = false
     announcer.announce("listen_together_joined_own_copy".localized)
   }
@@ -1055,7 +1078,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     isSharerGraceRunning = false
     isListenerWaitingForPiece = false
     isListenerJoining = false
+    isListenerJoiningSlow = false
     joiningToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
+    refusedPressWhileJoining = false
+    ownCopyLineWaitsForPlace = false
+    awaitingInStep = []
+    awaitingAnonymousInStep = 0
+    hasInStepSinceArm = false
     isListenerPlaying = false
     isPausedByOther = false
     someoneDeclined = false

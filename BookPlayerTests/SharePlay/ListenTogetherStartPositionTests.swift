@@ -1,6 +1,7 @@
 @testable import BookPlayer
 @testable import BookPlayerKit
 import Combine
+import MediaPlayer
 import XCTest
 
 /// Records everything the bridge asks of the coordinator, in order.
@@ -16,6 +17,7 @@ private final class StartPositionControl: ListenTogetherCoordinatorControlling {
   var transitions: [Transition] = []
   var seeks: [TimeInterval] = []
   var rateChanges: [Float] = []
+  var reapplies = 0
 
   func coordinateRateChange(to rate: Float) {
     rateChanges.append(rate)
@@ -32,6 +34,10 @@ private final class StartPositionControl: ListenTogetherCoordinatorControlling {
   func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float) {
     transitions.append(Transition(identifier: identifier, time: time, rate: rate))
     log.append("transition \(identifier == nil ? "nil" : "item")")
+  }
+  func reapplyCurrentItemState() {
+    reapplies += 1
+    log.append("reapply")
   }
 }
 
@@ -190,31 +196,27 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     XCTAssertEqual(control.seeks, [900], "never 0 just because no book is loaded")
   }
 
-  func testSharerStartsFromTheSharedBooksPlaceWhenAnotherBookIsLoaded() {
+  func testSharerProposesTheSharedBooksPlaceButNeverAssertsWhileAnotherBookIsLoaded() {
     let item = PlayableItem.stub(currentTime: 900, duration: 3600)
     playerManager.currentItem = PlayableItem.stub(currentTime: 50, duration: 3600)
+    playerManager.underlyingIsPlaying = true   // the other book plays: the group must not start
     let service = makeService()
     service.startSharingSession(with: FakeTransport(), item: item, shareID: UUID())
-    XCTAssertEqual(control.seeks, [900], "not the other book's position")
+    XCTAssertEqual(control.transitions.first?.time, 900, "not the other book's position")
+    XCTAssertEqual(control.transitions.first?.rate, 0, "the other book playing is not the shared book playing")
+    XCTAssertEqual(control.seeks, [], "no assert while another book is loaded")
+    XCTAssertEqual(control.rateChanges, [])
   }
 
-  func testAJoinBeforeTheGroupIsAtTheSharersPlaceReassertsIt() async {
-    let (service, transport, _) = startSharingLoadedBook()
-    let me = UUID(), becky = UUID(), third = UUID()
-    transport.emit(.participantsChanged(count: 1, ids: [me]))
-    await waitUntil { service.hasParticipantBaseline }
-    XCTAssertEqual(control.seeks, [1234])
-
-    transport.emit(.participantsChanged(count: 2, ids: [me, becky]))
-    await waitUntil { self.control.seeks.count == 2 }
-    XCTAssertEqual(control.seeks, [1234, 1234], "the late joiner is given the sharer's place")
-
-    // The group is seen at the sharer's place: later joiners get the group's own state.
-    service.bridge?.handleSeek(itemTime: 1234.4)
-    transport.emit(.participantsChanged(count: 3, ids: [me, becky, third]))
-    await waitUntil { service.participantCount == 3 }
-    await drainMainQueue()
-    XCTAssertEqual(control.seeks, [1234, 1234])
+  private func makeOwnCopy() throws -> ListenTogetherOwnCopy {
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let file = root.appendingPathComponent("own-\(UUID().uuidString).m4a")
+    try AudioFixture.makeM4A(seconds: 1, at: file)
+    let size = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64)
+    return ListenTogetherOwnCopy(
+      relativePath: file.lastPathComponent,
+      files: [SourceFile(url: file, bookStart: 0, duration: 20, byteSize: size)],
+      chapters: [SharedChapter(title: "One", start: 0, duration: 20)], duration: 20)
   }
 
   func testAStateRequestBeforeConfirmationReassertsThePosition() async {
@@ -227,12 +229,14 @@ final class ListenTogetherStartPositionTests: XCTestCase {
   // MARK: D. The sharer's saved place is protected
 
   func testSharerIgnoresAGroupPlayAtZeroBeforeTheGroupIsAtItsPlace() async {
-    let (service, _, _) = startSharingLoadedBook()
+    let (service, transport, _) = startSharingLoadedBook()
     service.bridge?.handlePlay(itemTime: 0, rate: 1)
     XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled, "a jump persists the time: it must never happen")
     XCTAssertEqual(playerManager.playCallsCount, 1, "plays where it is")
     await drainMainQueue()
     XCTAssertEqual(control.seeks, [1234, 1234], "and puts the group back at its place")
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(transport.sent, [], "a re-assert is never a message to the others")
   }
 
   func testSharerIgnoresAGroupSeekToZeroBeforeTheGroupIsAtItsPlace() async {
@@ -244,22 +248,136 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     XCTAssertEqual(control.seeks, [1234, 1234])
   }
 
-  func testAfterTheGroupIsAtTheSharersPlaceDeliberateJumpsApply() {
+  // MARK: Fix round 1, C1: only a listener confirms
+
+  private let me = UUID(), becky = UUID(), third = UUID()
+
+  /// Michael alone, then Becky joins.
+  private func shareAndLetBeckyJoin() async -> (SharePlaySessionService, FakeTransport) {
+    let (service, transport, _) = startSharingLoadedBook()
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.hasParticipantBaseline }
+    transport.emit(.participantsChanged(count: 2, ids: [me, becky]))
+    await waitUntil { service.participantCount == 2 }
+    return (service, transport)
+  }
+
+  func testTheSharersOwnEchoNeverConfirms() async {
     let (service, _, _) = startSharingLoadedBook()
-    service.bridge?.handlePlay(itemTime: 1234.5, rate: 1)
-    XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled, "within 0.5 s: no jump")
-    XCTAssertTrue(service.sharerTarget?.isGroupEstablished == true)
+    service.bridge?.handleSeek(itemTime: 1234)   // the echo of its own assert-seek
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, false)
+    service.bridge?.handleSeek(itemTime: 0)
+    service.bridge?.handlePlay(itemTime: 0, rate: 1)
+    XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled, "still protected after the echo")
+  }
+
+  func testAJoinersPausedAtZeroNeverMovesTheSharer() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    XCTAssertEqual(control.seeks, [1234, 1234], "asserted again for the joiner")
+    service.bridge?.handleSeek(itemTime: 0)
+    service.bridge?.handlePlay(itemTime: 0, rate: 1)
+    XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled)
+    await drainMainQueue()
+    XCTAssertFalse(transport.sent.contains { if case .action = $0 { return true } else { return false } },
+                   "a re-assert is never a message to the others")
+  }
+
+  func testTheJoinersInStepConfirmsAndThenDeliberateJumpsApply() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    transport.emit(.inStep(at: 1234.3, from: becky))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, true)
     service.bridge?.handleSeek(itemTime: 600)
     XCTAssertEqual(playerManager.jumpToRecordBookmarkReceivedInvocations.map(\.time), [600])
     XCTAssertEqual(playerManager.jumpToRecordBookmarkReceivedArguments?.recordBookmark, false)
   }
 
+  func testWhilePlayingAnInStepReportAllowsForTheMessageDelay() async {
+    let item = PlayableItem.stub(currentTime: 1234, duration: 3600)
+    playerManager.currentItem = item
+    playerManager.underlyingIsPlaying = true
+    let service = makeService(), transport = FakeTransport()
+    service.startSharingSession(with: transport, item: item, shareID: UUID())
+    // 1x playing: 3 s for the tick + 2 s for the message.
+    transport.emit(.inStep(at: 1229.5, from: nil))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, true)
+  }
+
+  func testAnInStepAwayFromTheSharersPlaceReassertsIt() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    timers.advance(by: .seconds(4))   // past the re-assert limit
+    transport.emit(.inStep(at: 0, from: becky))
+    await waitUntil { self.control.seeks.count == 3 }
+    XCTAssertEqual(control.seeks, [1234, 1234, 1234])
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, false)
+  }
+
+  func testALateJoinerRearmsTheProtectionUntilItIsInStep() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    transport.emit(.inStep(at: 1234, from: becky))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+
+    transport.emit(.participantsChanged(count: 3, ids: [me, becky, third]))
+    await waitUntil { service.participantCount == 3 }
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, false, "re-armed for the new joiner")
+    XCTAssertEqual(control.seeks.last, 1234, "and the place is asserted for it")
+    service.bridge?.handleSeek(itemTime: 0)
+    XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled)
+
+    transport.emit(.inStep(at: 1234.5, from: third))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, true)
+  }
+
+  func testTwoJoinersBothHaveToBeInStep() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    transport.emit(.participantsChanged(count: 3, ids: [me, becky, third]))
+    await waitUntil { service.participantCount == 3 }
+    transport.emit(.inStep(at: 1234, from: becky))
+    await waitUntil { self.timers.now >= .zero && service.participantCount == 3 }
+    await drainMainQueue()
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, false, "the third joiner isn't in step yet")
+    transport.emit(.inStep(at: 1234, from: third))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, true)
+  }
+
+  func testAJoinerWhoLeavesBeforeItIsInStepNoLongerHoldsTheProtection() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    transport.emit(.participantsChanged(count: 3, ids: [me, becky, third]))
+    await waitUntil { service.participantCount == 3 }
+    transport.emit(.inStep(at: 1234, from: becky))
+    transport.emit(.participantsChanged(count: 2, ids: [me, becky]))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+    XCTAssertEqual(service.sharerTarget?.isGroupEstablished, true)
+  }
+
+  func testRestoreFollowsTheListenerConfirmation() async {
+    // Only the echo: still unconfirmed, so a moved-back place is restored.
+    let (service, _, _) = startSharingLoadedBook()
+    service.bridge?.handleSeek(itemTime: 1234)
+    playerManager.currentItem?.currentTime = 0
+    service.end()
+    XCTAssertEqual(playerManager.jumpToRecordBookmarkReceivedInvocations.map(\.time), [1234])
+  }
+
+  func testAConfirmedSessionNeverRestores() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    transport.emit(.inStep(at: 1234, from: becky))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+    service.bridge?.handleSeek(itemTime: 100)   // a deliberate group jump
+    service.end()
+    XCTAssertEqual(playerManager.jumpToRecordBookmarkReceivedInvocations.map(\.time), [100])
+  }
+
   func testADifferentBookIsNeverMovedOrPlayed() async {
     let item = PlayableItem.stub(currentTime: 900, duration: 3600)
     playerManager.currentItem = PlayableItem.stub(currentTime: 50, duration: 3600)
-    let service = makeService()
-    service.startSharingSession(with: FakeTransport(), item: item, shareID: UUID())
-    service.bridge?.handleSeek(itemTime: 900.5)   // the group is at the shared book's place
+    let service = makeService(), transport = FakeTransport()
+    service.startSharingSession(with: transport, item: item, shareID: UUID())
+    transport.emit(.inStep(at: 900, from: nil))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
     service.bridge?.handleSeek(itemTime: 10)
     service.bridge?.handlePlay(itemTime: 20, rate: 1)
     service.bridge?.handlePause(itemTime: 30)
@@ -276,14 +394,6 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     withExtendedLifetime(item) {}
   }
 
-  func testAConfirmedSessionNeverRestores() {
-    let (service, _, _) = startSharingLoadedBook()
-    service.bridge?.handleSeek(itemTime: 1234)
-    service.bridge?.handleSeek(itemTime: 100)   // a deliberate group jump
-    service.end()
-    XCTAssertEqual(playerManager.jumpToRecordBookmarkReceivedInvocations.map(\.time), [100])
-  }
-
   func testListeningOnBeforeConfirmationIsNotUndone() {
     let (service, _, _) = startSharingLoadedBook()
     playerManager.currentItem?.currentTime = 1500   // Michael kept listening
@@ -291,7 +401,94 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled)
   }
 
+  // MARK: Fix round 1, I1: speed-aware tolerance and at most one re-assert per 3 s
+
+  private func target(rate: Float, playing: Bool) -> (SharerPlaybackTarget, PlayableItem) {
+    let item = PlayableItem.stub(currentTime: 1234, duration: 3600)
+    playerManager.currentItem = item
+    playerManager.underlyingIsPlaying = playing
+    playerManager.underlyingCurrentSpeed = rate
+    let target = SharerPlaybackTarget(
+      playerManager: playerManager, sharedItemUUID: item.uuid, startPosition: 1234, seekCheckInterval: 1000,
+      now: { [unowned self] in self.clock() }, deliversOnMainQueue: false)
+    return (target, item)
+  }
+
+  private func clock() -> Date {
+    let elapsed = timers.now.components
+    return base.addingTimeInterval(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
+  }
+
+  private func reasserts(_ target: SharerPlaybackTarget, _ body: () -> Void) -> [LocalPlaybackEvent] {
+    var events: [LocalPlaybackEvent] = []
+    let cancellable = target.localEvents.sink { events.append($0) }
+    body()
+    withExtendedLifetime(cancellable) {}
+    return events.filter { if case .reasserted = $0 { return true } else { return false } }
+  }
+
+  func testTheToleranceGrowsWithSpeedWhilePlaying() {
+    // max(2, 1.5 x rate) + rate x 1 s while playing.
+    for (rate, inside, outside) in [(Float(1), 1236.9, 1237.2), (2, 1238.9, 1239.2), (3, 1241.4, 1241.7)] {
+      timers.advance(by: .seconds(10))
+      let (target, _) = self.target(rate: rate, playing: true)
+      XCTAssertEqual(reasserts(target) { target.applySeek(to: inside) }.count, 0, "rate \(rate) inside")
+      XCTAssertEqual(reasserts(target) { target.applySeek(to: outside) }.count, 1, "rate \(rate) outside")
+      target.stop()
+    }
+  }
+
+  func testPausedToleranceIsTwoSecondsAtNormalSpeed() {
+    let (target, _) = self.target(rate: 1, playing: false)
+    XCTAssertEqual(reasserts(target) { target.applySeek(to: 1235.9) }.count, 0)
+    XCTAssertEqual(reasserts(target) { target.applySeek(to: 1236.2) }.count, 1)
+    target.stop()
+  }
+
+  func testAtMostOneReassertEveryThreeSeconds() {
+    let (target, _) = self.target(rate: 1, playing: false)
+    let events = reasserts(target) {
+      target.applySeek(to: 0)
+      target.applyPlay(at: 10, rate: 1)
+      timers.advance(by: .seconds(2))
+      target.applySeek(to: 20)
+      timers.advance(by: .seconds(1.5))
+      target.applySeek(to: 30)
+    }
+    XCTAssertEqual(events.count, 2)
+    XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled)
+    target.stop()
+  }
+
+  func testAReassertUsesTheSharersPlaceWhenItIsSent() async {
+    let (service, _, item) = startSharingLoadedBook()
+    service.bridge?.handleSeek(itemTime: 0)
+    item.currentTime = 1250   // Michael's player moved on before the re-assert goes out
+    await drainMainQueue()
+    XCTAssertEqual(control.seeks, [1234, 1250])
+  }
+
+  // MARK: Fix round 1, I2 + C1: only time-carrying commands open the listener's gate
+
+  func testAPauseDoesNotOpenTheListenersGate() async throws {
+    let (service, transport) = await startListeningWithManifest()
+    service.bridge?.handlePause(itemTime: 0)
+    XCTAssertTrue(service.isListenerJoining)
+    service.listener?.userSkip(by: 30)
+    XCTAssertEqual(control.seeks, [])
+    service.bridge?.handleSeek(itemTime: 12)
+    XCTAssertFalse(service.isListenerJoining)
+    await waitUntil { transport.sent.contains(.inStep(at: 12)) }
+    XCTAssertEqual(transport.sent.filter { $0 == .inStep(at: 12) }.count, 1)
+    service.bridge?.handlePlay(itemTime: 12, rate: 1)
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(transport.sent.filter { if case .inStep = $0 { return true } else { return false } }.count, 1,
+                   "said once")
+  }
+
   // MARK: C. The listener waits for the group's timing
+
+  private var findingPlace: String { "listen_together_finding_place".localized }
 
   func testListenerSendsNothingToTheGroupUntilItsFirstCommand() async throws {
     let (service, transport) = await startListeningWithManifest()
@@ -308,9 +505,9 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     XCTAssertFalse(listener.isPlaying)
     XCTAssertEqual(listener.bookTime, 0)
     XCTAssertFalse(transport.sent.contains { if case .action = $0 { return true } else { return false } })
-    XCTAssertEqual(posted.filter { $0 == "listen_together_joining".localized }.count, 1, "one announcement (throttled)")
+    XCTAssertEqual(posted.filter { $0 == findingPlace }.count, 1, "one announcement (throttled)")
 
-    service.bridge?.handlePause(itemTime: 12)
+    service.bridge?.handleSeek(itemTime: 12)
     XCTAssertFalse(service.statusConditions.isJoiningGroup)
     XCTAssertEqual(listener.bookTime, 12)
     listener.userTogglePlay()
@@ -318,59 +515,227 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     listener.stop()
   }
 
-  func testTheJoiningStateIsVisibleNextToTheControlsAndInTheStatus() async {
+  func testTheWaitingStateIsVisibleNextToTheControlsAndInTheStatus() async {
     let (service, _) = await startListeningWithManifest()
-    let joining = "listen_together_joining".localized
-    XCTAssertEqual(ListenTogetherStatus.waitingCaption(service.statusConditions), joining)
+    XCTAssertEqual(findingPlace, "Finding the group's place")
+    XCTAssertEqual(ListenTogetherStatus.waitingCaption(service.statusConditions), findingPlace)
     let line = ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)
-    XCTAssertEqual(line?.text, joining)
+    XCTAssertEqual(line?.text, findingPlace)
     XCTAssertEqual(line?.icon, .hourglass)
 
-    service.bridge?.handlePause(itemTime: 5)
-    XCTAssertNil(ListenTogetherStatus.waitingCaption(service.statusConditions))
+    service.bridge?.handleSeek(itemTime: 5)
+    XCTAssertNotEqual(ListenTogetherStatus.waitingCaption(service.statusConditions), findingPlace)
     XCTAssertNotEqual(
-      ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text, joining)
+      ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text, findingPlace)
   }
 
-  func testTheJoiningAnnouncementIsThrottled() async throws {
+  func testTheWaitingAnnouncementIsThrottled() async throws {
     let (service, _) = await startListeningWithManifest()
     let listener = try XCTUnwrap(service.listener)
-    let joining = "listen_together_joining".localized
     listener.userTogglePlay()
     listener.userTogglePlay()
-    XCTAssertEqual(posted.filter { $0 == joining }.count, 1)
-    timers.advance(by: .seconds(4))
+    XCTAssertEqual(posted.filter { $0 == findingPlace }.count, 1)
+    timers.advance(by: .seconds(2.5))
     listener.userTogglePlay()
-    XCTAssertEqual(posted.filter { $0 == joining }.count, 2)
+    XCTAssertEqual(posted.filter { $0 == findingPlace }.count, 1)
+    timers.advance(by: .seconds(1))
+    listener.userTogglePlay()
+    XCTAssertEqual(posted.filter { $0 == findingPlace }.count, 2)
   }
 
-  func testEveryLocalActionIsHeldWhileJoining() async throws {
+  func testEveryLocalActionIsHeldWhileFindingThePlace() async throws {
     let (service, _) = await startListeningWithManifest()
     let listener = try XCTUnwrap(service.listener)
     var events: [LocalPlaybackEvent] = []
     let cancellable = listener.localEvents.sink { events.append($0) }
     listener.userJump(to: 15)
     listener.userTogglePlay()
+    listener.userSetRate(2)
     XCTAssertEqual(events, [])
+    XCTAssertTrue(listener.refusesUserActions)
     withExtendedLifetime(cancellable) {}
   }
 
-  func testTheJoiningStateEndsWithTheSession() async {
+  func testTheWaitingStateEndsWithTheSession() async {
     let (service, _) = await startListeningWithManifest()
     XCTAssertTrue(service.isListenerJoining)
     service.end()
     XCTAssertFalse(service.isListenerJoining)
   }
 
-  func testJoiningTextIsInEveryLanguageFile() throws {
+  // MARK: Fix round 1: staged fallback
+
+  func testAfterThreeSecondsTheListenerAsksItsCoordinatorAgain() async {
+    let (service, _) = await startListeningWithManifest()
+    timers.advance(by: .seconds(2.9))
+    XCTAssertEqual(control.reapplies, 0)
+    timers.advance(by: .seconds(0.2))
+    XCTAssertEqual(control.reapplies, 1)
+    withExtendedLifetime(service) {}
+  }
+
+  func testFromFiveSecondsTheListenerAsksTheSharerEveryFiveSeconds() async {
+    let (service, transport) = await startListeningWithManifest()
+    let requests = { transport.sent.filter { $0 == .requestState }.count }
+    let before = requests()
+    timers.advance(by: .seconds(5))
+    await waitUntil { requests() == before + 1 }
+    XCTAssertEqual(requests(), before + 1)
+    timers.advance(by: .seconds(5))
+    await waitUntil { requests() == before + 2 }
+    XCTAssertEqual(requests(), before + 2)
+    service.bridge?.handleSeek(itemTime: 3)
+    timers.advance(by: .seconds(10))
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(requests(), before + 2, "not once the place is found")
+  }
+
+  func testAnOwnCopyListenerAlsoAsksTheSharer() async throws {
+    let service = makeService(), transport = FakeTransport()
+    let ownCopy = try makeOwnCopy()
+    XCTAssertTrue(service.startListening(with: transport, shareID: UUID(), ownCopy: ownCopy, title: "T"))
+    XCTAssertTrue(service.isListenerJoining)
+    timers.advance(by: .seconds(5))
+    await waitUntil { transport.sent.contains(.requestState) }
+    XCTAssertTrue(transport.sent.contains(.requestState))
+    service.listener?.stop()
+  }
+
+  func testAfterTwelveSecondsTheStatusSaysWhatToDoAndItIsSaidOnce() async {
+    let (service, _) = await startListeningWithManifest()
+    let slow = "listen_together_finding_place_slow".localized
+    XCTAssertEqual(slow, "If this doesn't change, choose Leave Listen Together and join again.")
+    timers.advance(by: .seconds(11.9))
+    XCTAssertNotEqual(ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.detail, slow)
+    timers.advance(by: .seconds(0.2))
+    let line = ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)
+    XCTAssertEqual(line?.text, findingPlace)
+    XCTAssertEqual(line?.detail, slow)
+    XCTAssertEqual(line?.spoken, findingPlace + ". " + slow)
+    XCTAssertEqual(posted.filter { $0.contains(slow) }.count, 1)
+    timers.advance(by: .seconds(30))
+    XCTAssertEqual(posted.filter { $0.contains(slow) }.count, 1, "once")
+    service.bridge?.handleSeek(itemTime: 3)
+    XCTAssertNotEqual(ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.detail, slow)
+  }
+
+  func testLeaveWorksWhileFindingThePlaceAndNoStageRunsAfterwards() async {
+    let (service, transport) = await startListeningWithManifest()
+    service.leave()
+    XCTAssertFalse(service.isInSession)
+    let sentBefore = transport.sent.count
+    timers.advance(by: .seconds(30))
+    XCTAssertEqual(control.reapplies, 0)
+    XCTAssertEqual(transport.sent.count, sentBefore)
+    XCTAssertFalse(posted.contains { $0.contains("listen_together_finding_place_slow".localized) })
+  }
+
+  func testAStateRequestMakesTheSharerAssertOnlyWhileAJoinerIsNotInStepAndItHoldsTheBook() async {
+    let (service, transport) = await shareAndLetBeckyJoin()
+    timers.advance(by: .seconds(4))
+    transport.emit(.message(.requestState))
+    await waitUntil { self.control.seeks.count == 3 }
+    XCTAssertEqual(control.seeks.count, 3, "Becky isn't in step: asserted")
+
+    transport.emit(.inStep(at: 1234, from: becky))
+    await waitUntil { service.sharerTarget?.isGroupEstablished == true }
+    timers.advance(by: .seconds(4))
+    transport.emit(.message(.requestState))
+    try? await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(control.seeks.count, 3, "everyone in step: the group's own state stands")
+  }
+
+  func testAStateRequestNeverAssertsWhileTheSharerHoldsAnotherBook() async {
+    let item = PlayableItem.stub(currentTime: 900, duration: 3600)
+    playerManager.currentItem = PlayableItem.stub(currentTime: 50, duration: 3600)
+    let service = makeService(), transport = FakeTransport()
+    service.startSharingSession(with: transport, item: item, shareID: UUID())
+    transport.emit(.message(.requestState))
+    try? await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(control.seeks, [])
+  }
+
+  // MARK: Fix round 1: a11y
+
+  func testWhileFindingThePlaceThePositionShowsNoTimeAndNoChapter() async throws {
+    let (service, _) = await startListeningWithManifest()
+    let listener = try XCTUnwrap(service.listener)
+    XCTAssertTrue(listener.isJoiningGroup)
+    XCTAssertEqual(ListenerPositionText.value(for: listener), findingPlace)
+    XCTAssertEqual(ListenerPositionText.elapsedText(for: listener), "--:--")
+    XCTAssertEqual(ListenerPositionText.remainingText(for: listener), "--:--")
+    XCTAssertNil(ListenerHeaderView.chapter(for: listener))
+
+    service.bridge?.handleSeek(itemTime: 5)
+    XCTAssertNotEqual(ListenerPositionText.value(for: listener), findingPlace)
+    XCTAssertEqual(ListenerPositionText.elapsedText(for: listener), TimeParser.formatTime(5))
+    XCTAssertNotNil(ListenerHeaderView.chapter(for: listener))
+  }
+
+  func testTheLockScreenHasNoElapsedTimeWhileFindingThePlace() {
+    let manifest = manifest(UUID())
+    var state = ListenTogetherNowPlayingState(
+      manifest: manifest, bookTime: 0, rate: 1, isPlaying: false, isWaitingForPiece: false)
+    state.isPlaceUnknown = true
+    let info = ListenTogetherNowPlaying.info(for: state)
+    XCTAssertNil(info[MPNowPlayingInfoPropertyElapsedPlaybackTime])
+    XCTAssertNil(info[MPNowPlayingInfoPropertyChapterNumber])
+    state.isPlaceUnknown = false
+    XCTAssertNotNil(ListenTogetherNowPlaying.info(for: state)[MPNowPlayingInfoPropertyElapsedPlaybackTime])
+  }
+
+  func testTheRowSaysFindingThePlace() {
+    let value = ListenTogetherRow.value(
+      state: .listening(participants: 2, downloaded: 1), joinedTitle: nil,
+      listener: .init(title: "Moby Dick", isPlaying: false, isWaiting: false, isFindingPlace: true),
+      sharerTitle: nil)
+    XCTAssertEqual(value, "finding the group's place, Moby Dick")
+  }
+
+  func testOwnCopyJoinedLineWaitsUntilThePlaceIsFound() async throws {
+    let service = makeService(), transport = FakeTransport()
+    let ownCopy = try makeOwnCopy()
+    service.startListening(with: transport, shareID: UUID(), ownCopy: ownCopy, title: "T")
+    let joined = "listen_together_joined_own_copy".localized
+    service.listenerTitleFocused()
+    timers.advance(by: .seconds(2))
+    XCTAssertFalse(posted.contains(joined), "not while the place is unknown")
+    service.bridge?.handleSeek(itemTime: 0)
+    XCTAssertEqual(posted.filter { $0 == joined }.count, 1)
+    timers.advance(by: .seconds(5))
+    XCTAssertEqual(posted.filter { $0 == joined }.count, 1)
+    service.listener?.stop()
+  }
+
+  func testReadyIsSaidOnceWhenThePlaceIsFoundPausedAfterARefusedPress() async throws {
+    let (service, _) = await startListeningWithManifest()
+    let ready = "listen_together_ready".localized
+    service.listener?.userTogglePlay()   // refused
+    service.bridge?.handleSeek(itemTime: 5)   // found, paused
+    XCTAssertEqual(posted.filter { $0 == ready }.count, 1)
+  }
+
+  func testReadyIsNotSaidWithoutARefusedPress() async throws {
+    let (service, _) = await startListeningWithManifest()
+    service.bridge?.handleSeek(itemTime: 5)
+    XCTAssertFalse(posted.contains("listen_together_ready".localized))
+  }
+
+  func testNewTextIsInEveryLanguageFile() throws {
     let folder = Bundle(for: SharePlaySessionService.self).bundleURL
     let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
       .filter { $0.pathExtension == "lproj" }
     XCTAssertFalse(files.isEmpty)
+    let keys = ["listen_together_finding_place", "listen_together_finding_place_slow",
+                "listen_together_row_value_finding_place", "listen_together_ready", "listen_together_time_unknown"]
     for lproj in files {
       let strings = lproj.appendingPathComponent("Localizable.strings")
-      guard let table = NSDictionary(contentsOf: strings) else { continue }
-      XCTAssertNotNil(table["listen_together_joining"], lproj.lastPathComponent)
+      guard let table = NSDictionary(contentsOf: strings) else {
+        XCTFail("\(lproj.lastPathComponent) can't be read")
+        continue
+      }
+      for key in keys { XCTAssertNotNil(table[key], "\(lproj.lastPathComponent) \(key)") }
+      XCTAssertNil(table["listen_together_joining"], "the old wording is gone")
     }
   }
 }

@@ -183,6 +183,9 @@ final class ListenTogetherRemoteCommands {
     // Waiting for the person sharing (C.2): lock screen, AirPods and Control Center play do nothing,
     // silently. The lock screen keeps showing the paused state.
     if listener.isHeldForSharer, Self.isPlayCommand(command) { return .success }
+    // Finding the group's place (start-position fix): every command does nothing, silently (nothing
+    // said from the background); the player screen says why.
+    if listener.isJoiningGroup { return .success }
     switch command {
     case .togglePlayPause:
       listener.userTogglePlay()
