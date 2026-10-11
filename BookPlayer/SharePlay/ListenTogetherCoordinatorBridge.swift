@@ -44,6 +44,9 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   /// Called once, when `hasGroupTiming` becomes true, with the group time that command carried (after
   /// it was applied).
   var onGroupTimingKnown: ((TimeInterval) -> Void)?
+  /// Listener: called after every play or seek command was applied, with its group time (round 2, N2:
+  /// the listener tells the sharer where it is after each, not only the first).
+  var onGroupTime: ((TimeInterval) -> Void)?
 
   /// `role` decides the initial timing (`start(session:)`): the sharer proposes where it really is
   /// (time and rate) and then asserts that place with a coordinated seek, so the group starts there; a
@@ -175,6 +178,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     guard !isInvalidated else { return }
     target?.applyPlay(at: itemTime, rate: rate)
     noteGroupTiming(at: itemTime)
+    if role == .listener { onGroupTime?(itemTime) }
     pieceBecameAvailable()
   }
 
@@ -190,6 +194,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     guard !isInvalidated else { return }
     target?.applySeek(to: itemTime)
     noteGroupTiming(at: itemTime)
+    if role == .listener { onGroupTime?(itemTime) }
     if shouldBuffer { waitIfNotReady() } else { pieceBecameAvailable() }
   }
 

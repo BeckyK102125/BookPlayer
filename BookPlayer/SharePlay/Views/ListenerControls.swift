@@ -59,6 +59,13 @@ enum ListenerPositionText {
 /// time is never read twice. The bar is read-only: dragging would send a seek for every tick.
 struct ListenerPositionView: View {
   @ObservedObject var listener: ListenerPlayer
+
+  /// A swipe on the position. While the group's place is being found it does nothing and says nothing:
+  /// VoiceOver re-reads the value ("Finding the group's place") anyway (round 2, a11y M-a).
+  @MainActor static func adjust(_ listener: ListenerPlayer, by seconds: TimeInterval) {
+    guard !listener.isJoiningGroup else { return }
+    listener.userSkip(by: seconds)
+  }
   @EnvironmentObject private var theme: ThemeViewModel
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -93,8 +100,8 @@ struct ListenerPositionView: View {
     .accessibilityValue(ListenerPositionText.value(for: listener))
     .accessibilityAdjustableAction { direction in
       switch direction {
-      case .increment: listener.userSkip(by: ListenerSkip.seconds)
-      case .decrement: listener.userSkip(by: -ListenerSkip.seconds)
+      case .increment: Self.adjust(listener, by: ListenerSkip.seconds)
+      case .decrement: Self.adjust(listener, by: -ListenerSkip.seconds)
       @unknown default: break
       }
     }

@@ -74,8 +74,11 @@ enum ListenTogetherNowPlaying {
       info[MPNowPlayingInfoPropertyChapterNumber] = index
       info[MPNowPlayingInfoPropertyChapterCount] = state.chapters.count
     }
-    info[MPMediaItemPropertyPlaybackDuration] = state.duration
-    if !state.isPlaceUnknown { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = state.bookTime }
+    // While the place is unknown: no length and no elapsed time, so no scrubber at 0:00 (round 2, I-B).
+    if !state.isPlaceUnknown {
+      info[MPMediaItemPropertyPlaybackDuration] = state.duration
+      info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = state.bookTime
+    }
     info[MPNowPlayingInfoPropertyPlaybackRate] = state.isActuallyPlaying ? Double(state.rate) : 0.0
     info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
     info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue

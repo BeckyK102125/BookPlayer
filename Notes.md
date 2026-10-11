@@ -1226,3 +1226,39 @@ start-position-a11y-review.md (3 Important, 6 Minor), rulings start-position-fix
   full suite "Executed 1106 tests, with 0 failures", ** TEST SUCCEEDED ** (one earlier full run hit the known
   InsertBooksTests CoreData crash and restart; reran); TSan on the 30 SharePlay classes 534/0, 0
   ThreadSanitizer warnings, ** TEST SUCCEEDED **.
+
+## 2026-10-11 - listen-together-start-position - fix round 2
+Parent d891ae79. Inputs: start-position-code-rereview-1.md (N1, N2 Important; R1-R4 Minor),
+start-position-a11y-rereview-1.md (I-A, I-B Important; M-a to M-e).
+- N1: `SharerPlaybackTarget.requestReassert()` replaces `allowsReassert`/drop: one re-assert per 3 s; one
+  refused inside the limit is pending until the limit ends (at most one), then sent only if a joiner is
+  still not in step and the place may be asserted; `stop()` and `confirmGroup()` cancel it (generation).
+  Used by rejected group times, off-place `.inStep` and `.requestState`. The target takes the session
+  clock and scheduler (`now:`, `schedule:`). The test that pinned dropping is replaced.
+- N2: the bridge calls `onGroupTime` after every play/seek command it applies (listener); the service
+  reports `.inStep` at once, then at most one per 2 s with the latest time trailing (`reportInStep`).
+  The sharer ignores `.inStep` once established.
+- R1: `.requestState` uses `requestReassert()` (so `canAssertPlace`, consistent with deviation 2: the
+  start place is asserted with no book loaded before any confirmation). R3: after the 12 s line the
+  fallback asks every 15 s instead of 5 s.
+- R2 (noted, not changed): with no book loaded `bookTime` is the start position, so an assert after the
+  sharer played on and closed the book uses the older place (saved place untouched); `rearm()` keeps the
+  older protected place while the book isn't loaded. R4 (noted): the backstop relies on the 1 s seek check
+  for `didReportLocalSeek`; a seek back followed by End within that second can be undone. Both predate or
+  are rare.
+- a11y I-A: the 12 s line is said only when it is the visible status (`isFindingPlaceLineShown`: not under
+  the sharer grace or the waiting-for-book line); otherwise once when it becomes visible (grace/wait setters
+  call `announceSlowLineIfShown`). I-B: Now Playing also omits the length while the place is unknown.
+  M-a: a position swipe while finding the place does nothing and says nothing (`ListenerPositionView.adjust`).
+  M-b: the 12 s line drops its "Finding the group's place." prefix if that was said in the last 3 s.
+  M-c: own copy after a refused press: "Joined. Playing your copy." then "Ready. Play works now.".
+  M-d/M-e: guide step 7 (shows "--:--", VoiceOver reads the waiting text, Magic Tap, lock screen, the 12 s
+  line replaces the percent and is said when shown, asks less often after).
+- Device check to add: build-4 listener with a build-3 sharer: after `inStep` is sent, the sharer's log
+  must still show later `requestState`/`needPiece` lines (else its message loop died decoding `inStep`).
+- Tests: ListenTogetherStartPositionTests 57 (11 new or rewritten). TDD red with the old behaviour patched
+  back into the source: 11 tests failed (the stop/confirm and post-confirmation-report tests pass either way
+  because `requestReassert` itself checks the state; they guard it).
+- Green: 30 SharePlay classes 545/0 (xcodebuild hung after the results); full suite "Executed 1117 tests,
+  with 0 failures", ** TEST SUCCEEDED **; TSan on the 30 SharePlay classes 545/0, 0 ThreadSanitizer
+  warnings, ** TEST SUCCEEDED **.

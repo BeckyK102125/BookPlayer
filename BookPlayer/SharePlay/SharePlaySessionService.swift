@@ -232,6 +232,15 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   static let joiningReapplyDelay: Duration = .seconds(3)
   static let joiningRequestDelay: Duration = .seconds(5)
   static let joiningSlowDelay: Duration = .seconds(12)
+  static let slowFindingPlaceRequestInterval: Duration = .seconds(15)
+  /// Listener: `.inStep` reports at most one per this many seconds (round 2, N2).
+  static let inStepInterval: TimeInterval = 2
+  var lastInStepSentAt: Date?
+  var pendingInStepTime: TimeInterval?
+  /// Listener: the 12 s line is set but not yet said (it is said when it is the visible status).
+  var slowLineWaitsToBeShown = false
+  /// Listener: when "Finding the group's place" was last said for a press.
+  var lastFindingPlaceAnnouncedAt: Date?
   /// Sharer: joiners (by participant id) who have not yet reported `.inStep`; joiners known only by a
   /// roster count; and whether an `.inStep` arrived since the last join (round 1, C1).
   var awaitingInStep = Set<UUID>()
@@ -384,9 +393,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setState(_ newState: ListenTogetherState) { state = newState }
   func setListener(_ player: ListenerPlayer?) { listener = player }
   func setOwnCopy(_ value: Bool) { isUsingOwnCopy = value }
-  func setSharerGraceRunning(_ value: Bool) { if isSharerGraceRunning != value { isSharerGraceRunning = value } }
+  func setSharerGraceRunning(_ value: Bool) {
+    if isSharerGraceRunning != value { isSharerGraceRunning = value }
+    announceSlowLineIfShown()
+  }
   func setListenerWaitingForPiece(_ value: Bool) {
     if isListenerWaitingForPiece != value { isListenerWaitingForPiece = value }
+    announceSlowLineIfShown()
   }
   func setListenerPlaying(_ value: Bool) { if isListenerPlaying != value { isListenerPlaying = value } }
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
@@ -1082,6 +1095,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     joiningToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
     refusedPressWhileJoining = false
     ownCopyLineWaitsForPlace = false
+    lastInStepSentAt = nil
+    pendingInStepTime = nil
+    slowLineWaitsToBeShown = false
+    lastFindingPlaceAnnouncedAt = nil
     awaitingInStep = []
     awaitingAnonymousInStep = 0
     hasInStepSinceArm = false

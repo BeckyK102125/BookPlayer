@@ -18,7 +18,7 @@ start-position-fix-round-1.md, start-position-report.md. Waiting for review, the
 - On origin: `develop` (85c42b29, pushed 2026-10-11), `listen-together-messages` (9c70dd06),
   `listen-together-lock-screen` (63e9578b), `shareplay-listen-together` (e634f5c7).
 - `listen-together-start-position` (local, not pushed; from 77c3037c): 017ab284 fix A-D; this commit =
-  fix round 1. Clean after the commit.
+  fix round 1 (d891ae79); this commit = fix round 2. Clean after the commit.
 - `develop` at 77c3037c (notes commits on top of 4f589c33 = transfer fix, build 3; earlier history
   (addenda 2-3, Tasks A-B, final review) in Notes.md). No extra worktrees.
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
@@ -51,33 +51,34 @@ start-position-fix-round-1.md, start-position-report.md. Waiting for review, the
   then Play/Pause/skips/speed/position/chapters do nothing (in the player: "Finding the group's place",
   at most every 3 s, no tap haptic; lock screen/AirPods/Control Center: silent `.success`). Visible:
   status line, caption under the controls, Play value, row "finding the group's place, <title>"; times
-  "--:--", no bar, no chapter, no lock-screen elapsed time. On opening: `.inStep(at:)` to the sharer
-  (outbox); "Ready. Play works now." once if a press was refused and the group is paused; own-copy
-  "Joined. Playing your copy." only now.
+  "--:--", no bar, no chapter, no lock-screen length or time; a position swipe says nothing. After every
+  play/seek command: `.inStep(at:)` to the sharer (at once, then at most one per 2 s, latest time).
+  "Ready. Play works now." once if a press was refused and the group is paused (also after the own-copy
+  "Joined. Playing your copy.", which waits for the place).
 - Round 1 fallback (listener, session clock, stopped by teardown): 3 s `reapplyCurrentItemState`; from 5 s
-  `.requestState` every 5 s (own copy too); 12 s second status line "If this doesn't change, choose Leave
-  Listen Together and join again." announced once. Sharer on `.requestState`: asserts only while a joiner
-  is not in step, the shared book is loaded, and no re-assert in the last 3 s.
+  `.requestState` every 5 s, every 15 s after the 12 s line (own copy too); 12 s second status line "If
+  this doesn't change, choose Leave Listen Together and join again.", said once when it is the visible
+  status (not under the grace or waiting lines). Sharer on `.requestState`: `requestReassert()`.
 - D (+ round 1 C1/I1): confirmation only from listeners: `TransportEvent.inStep(at:from:)` (participant
   id). Every join re-arms (`rearm()`, protected place = current); established when every awaited joiner
   (ids, or a count) reported in step at the place; joiners who leave or decline stop counting. Coordinator
-  commands (incl. the echo) never confirm. Tolerance `max(2, 1.5*rate) + rate` playing (+2 s*rate for inStep); re-asserts
-  at most one per 3 s and use the place at send time. No `jumpTo` before confirmation; another book is
+  commands (incl. the echo) and reports after confirmation never count. Tolerance `max(2, 1.5*rate) + rate`
+  playing (+2 s*rate for inStep). `requestReassert()`: one per 3 s, a refused one pending to the end of
+  the limit (cancelled by stop/confirm), current place. No `jumpTo` before confirmation; another book is
   never jumped or played. Restore backstop at `stop()`: unconfirmed, no local seek since arming, shared
   book loaded and > 2 s before the protected place.
 - Strings (Base + all lproj, English): `listen_together_finding_place`, `_finding_place_slow`,
   `_row_value_finding_place`, `_ready`, `_time_unknown`; `listen_together_joining` removed.
-- Mixed builds: a build-3 listener never sends `inStep` (sharer stays protected all session); a build-3
-  peer receiving `inStep` can't decode it (dropped).
+- Mixed builds: a build-3 listener never sends `inStep` (sharer protected all session); build-3 decoding.
 
 ## Built before this branch (on develop; details in Notes.md)
 - Addendum 2 own copy + owners-only; Task A pieces/scheduler/retries/heartbeat/grace; Task B one message
   path, Speak, Leave; final review fixes; transfer fix (build 3): pieces as `Data` with a chunked messenger
   fallback, readable error logs, End really ends SharePlay.
 
-## Test evidence (2026-10-11, start-position fix round 1)
-- ListenTogetherStartPositionTests now 46 tests (+1 RemoteCommands test). Round-1 red with API stubs: 31
-  tests failed. Green: SharePlay 534/0; full suite 1106/0; TSan 534/0, 0 warnings (all ** TEST SUCCEEDED **).
+## Test evidence (2026-10-11, start-position fix round 2)
+- ListenTogetherStartPositionTests 57 tests. Round-2 red (old behaviour patched back): 11 failed. Green:
+  SharePlay 545/0; full suite 1117/0 (** TEST SUCCEEDED **); TSan 545/0, 0 warnings (** TEST SUCCEEDED **).
 - Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
   Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests" -only-testing:BookPlayerTests
   test (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`).
@@ -125,7 +126,6 @@ Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.
 
 ## Known limitations
 - Streamed books and video cannot be shared.
-- Exported pieces take about the book's size in tmp until the end (journal mode; chunks keep 3).
 - Chunk fallback: no cloud copy; pieces come from the sharer's phone; throughput unmeasured.
 - A piece that fails for good is retried every 30 s (sharer sees the retry status); listeners wait.
 - If the sharer switches books mid-session, listeners keep the old book (R12).

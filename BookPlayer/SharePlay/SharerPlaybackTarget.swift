@@ -41,6 +41,12 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   /// The person moved their own place since the last arming (reported as a seek): never undone.
   private var didReportLocalSeek = false
   private var lastReassertAt: Date?
+  /// One re-assert waits for the end of the limit (round 2, N1): a refused one is delayed, never dropped.
+  private var isReassertPending = false
+  /// Bumped by `stop()` and `confirmGroup()`, so a pending re-assert from before never fires.
+  private var reassertGeneration = 0
+  /// Runs work after a delay (the session clock; test seam).
+  private let schedule: @MainActor (Duration, @escaping @MainActor () -> Void) -> Void
   /// A disagreement is answered with at most one re-assert per this many seconds (round 1, I1).
   static let reassertInterval: TimeInterval = 3
 
@@ -89,9 +95,16 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
     startPosition: TimeInterval? = nil,
     seekCheckInterval: TimeInterval = 0.5,
     now: @escaping () -> Date = Date.init,
+    schedule: @escaping @MainActor (Duration, @escaping @MainActor () -> Void) -> Void = { delay, work in
+      Task { @MainActor in
+        try? await Task.sleep(for: delay)
+        work()
+      }
+    },
     deliversOnMainQueue: Bool = true
   ) {
     self.playerManager = playerManager
+    self.schedule = schedule
     self.sharedItemUUID = sharedItemUUID
     self.startPosition = startPosition
     self.isGroupEstablished = startPosition == nil
@@ -139,6 +152,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   /// after the session even if something still holds this target (M4). The deinit stays as a backstop.
   func stop() {
     restoreStartPositionIfMoved()
+    cancelPendingReassert()
     seekTimer?.invalidate()
     seekTimer = nil
     disposeBag.removeAll()
@@ -178,24 +192,42 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
     guard !isGroupEstablished else { return }
     isGroupEstablished = true
     hasEverBeenEstablished = true
+    cancelPendingReassert()
     Self.logger.info("Listen Together: every listener is at the sharer's place")
   }
 
-  /// Whether a re-assert may go out now (it may be asserted, and none went out in the last
-  /// `reassertInterval`). Records the time when it returns true.
-  func allowsReassert() -> Bool {
-    guard canAssertPlace else { return false }
+  /// Asks the group to come to this device's place (`.reasserted`; the bridge sends the seek) while a
+  /// joiner is not in step. At most one goes out per `reassertInterval`: one inside the limit is not
+  /// dropped but sent when the limit ends (round 2, N1), at most one pending, and only if still needed
+  /// then. Used for rejected group times, off-place `.inStep` reports and state requests.
+  func requestReassert() {
+    guard !isGroupEstablished, canAssertPlace else { return }
     let date = now()
-    if let last = lastReassertAt, date.timeIntervalSince(last) < Self.reassertInterval {
-      Self.logger.info("Listen Together: re-assert skipped (one went out \(date.timeIntervalSince(last), privacy: .public)s ago)")
-      return false
+    guard let last = lastReassertAt, date.timeIntervalSince(last) < Self.reassertInterval else {
+      sendReassert(at: date)
+      return
     }
-    lastReassertAt = date
-    return true
+    guard !isReassertPending else { return }
+    isReassertPending = true
+    let wait = Self.reassertInterval - date.timeIntervalSince(last)
+    Self.logger.info("Listen Together: re-assert delayed \(wait, privacy: .public)s (one went out recently)")
+    let generation = reassertGeneration
+    schedule(.milliseconds(Int((wait * 1000).rounded(.up)))) { [weak self] in
+      guard let self, self.reassertGeneration == generation, self.isReassertPending else { return }
+      self.isReassertPending = false
+      guard !self.isGroupEstablished, self.canAssertPlace else { return }
+      self.sendReassert(at: self.now())
+    }
   }
 
-  private func reassertIfAllowed() {
-    if allowsReassert() { subject.send(.reasserted(at: bookTime)) }
+  private func sendReassert(at date: Date) {
+    lastReassertAt = date
+    subject.send(.reasserted(at: bookTime))
+  }
+
+  private func cancelPendingReassert() {
+    reassertGeneration += 1
+    isReassertPending = false
   }
 
   func applyPlay(at bookTime: TimeInterval, rate: Float) {
@@ -213,7 +245,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
       expectedIsPlaying = playerManager.isPlaying ? nil : (true, now())
       playerManager.play()
     }
-    if !accepted { reassertIfAllowed() }
+    if !accepted { requestReassert() }
   }
 
   func applyPause(at bookTime: TimeInterval) {
@@ -231,7 +263,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   func applySeek(to bookTime: TimeInterval) {
     guard acceptsGroupTime(bookTime) else {
       sample(self.bookTime, at: now())
-      reassertIfAllowed()
+      requestReassert()
       return
     }
     // Already there (for example the echo of this device's own coordinated seek): no jump, which
