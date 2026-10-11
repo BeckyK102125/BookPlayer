@@ -97,6 +97,34 @@ final class PiecePlannerTests: XCTestCase {
     assertTiles(pieces, files: [SourceFile(url: url, bookStart: 0, duration: 3000, byteSize: 200_000_000)])
   }
 
+  /// Fix round 1: a piece under 30 s at the end of a file joins the one before it.
+  func testATinyTrailingPieceIsMergedIntoThePreviousOne() {
+    // 2-min chapters up to 24:00, then a 10-second last chapter.
+    let starts = stride(from: 0.0, to: 1440, by: 120).map { $0 } + [1440]
+    let files = [SourceFile(url: url, bookStart: 0, duration: 1450, byteSize: 15_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: starts)
+    XCTAssertEqual(pieces.map(\.bookStart), [0, 720])
+    XCTAssertEqual(pieces.last?.duration ?? 0, 730, accuracy: 0.001)
+    assertTiles(pieces, files: files)
+  }
+
+  func testATinyPieceAfterAFullGroupIsMerged() {
+    // A 12-min group, a 0.5 s chapter, then a 20-min chapter.
+    let files = [SourceFile(url: url, bookStart: 0, duration: 1920.5, byteSize: 20_000_000)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: [0, 720, 720.5])
+    XCTAssertTrue(pieces.allSatisfy { $0.duration >= PiecePlanner.minimumDuration })
+    assertTiles(pieces, files: files)
+    assertWithinLimit(pieces)
+  }
+
+  func testATinyPieceIsNotMergedPastTheByteCap() {
+    // 1 byte/s, cap 100: [0,100] is full, so the trailing 10 s stays on its own.
+    let files = [SourceFile(url: url, bookStart: 0, duration: 110, byteSize: 110)]
+    let pieces = PiecePlanner.plan(files: files, chapterStarts: [0, 100], maxBytes: 100)
+    XCTAssertEqual(pieces.map(\.bookStart), [0, 100])
+    assertWithinLimit(pieces, maxBytes: 100)
+  }
+
   func testMultiFileBookKeepsBookTimeAndIndexes() {
     let a = URL(fileURLWithPath: "/tmp/01.mp3"), b = URL(fileURLWithPath: "/tmp/02.mp3")
     let pieces = PiecePlanner.plan(

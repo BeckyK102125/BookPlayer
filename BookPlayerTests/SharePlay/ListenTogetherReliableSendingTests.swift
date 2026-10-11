@@ -50,6 +50,8 @@ final class FakeAppSystem: ListenTogetherAppSystem {
 @MainActor
 final class FakePieceExporter {
   var errors: [Error] = []
+  /// Errors for one piece only, thrown on its next attempts.
+  var errorsByIndex: [Int: [Error]] = [:]
   private(set) var attempts: [Int] = []
   private(set) var exported: [Int] = []
   /// Runs before each attempt (to hold an export, look at the app or end the session meanwhile).
@@ -59,6 +61,11 @@ final class FakePieceExporter {
     attempts.append(piece.index)
     await beforeExport?(piece)
     if !errors.isEmpty { throw errors.removeFirst() }
+    if var pending = errorsByIndex[piece.index], !pending.isEmpty {
+      let error = pending.removeFirst()
+      errorsByIndex[piece.index] = pending
+      throw error
+    }
     exported.append(piece.index)
     let url = folder.appendingPathComponent("piece-\(piece.index).m4a")
     try Data([1]).write(to: url)
@@ -265,13 +272,14 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
 
   func testPieceFailureNeverEndsTheSessionAndRetriesWithBackoff() async throws {
     let service = makeService(), transport = FakeTransport()
-    transport.uploadErrors = Array(repeating: URLError(.networkConnectionLost), count: 4)
+    let lost = BookSplitterError.exportFailed(index: 0, preset: "AppleM4A", underlying: NSError(domain: "x", code: 1))
+    exporter.errorsByIndex = [0: Array(repeating: lost, count: 4)]
     await service.beginSharing(with: transport, item: try makeHourLongItem())
-    XCTAssertEqual(sleeps, [.seconds(2), .seconds(5), .seconds(15), .seconds(30)])
+    XCTAssertEqual(sleeps, [.seconds(2), .seconds(5), .seconds(15), .seconds(30)], "per piece")
     XCTAssertFalse(transport.sent.contains(.sessionEnding))
     XCTAssertFalse(transport.left)
     XCTAssertEqual(service.state, .sharing(participants: 1))
-    XCTAssertEqual(uploadedIndexes(transport), [0, 1, 2, 3, 4])
+    XCTAssertEqual(uploadedIndexes(transport), [1, 2, 3, 4, 0], "the failing piece went behind the others")
     XCTAssertNil(service.notice)
   }
 
@@ -291,12 +299,12 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
   func testInterruptionsDoNotCountTowardsTheBackoff() async throws {
     let service = makeService(), transport = FakeTransport()
     let interrupted = NSError(domain: AVFoundationErrorDomain, code: AVError.operationInterrupted.rawValue)
-    exporter.errors = [
+    exporter.errorsByIndex = [0: [
       BookSplitterError.exportFailed(index: 0, preset: "passthrough", underlying: interrupted),
       CancellationError(),
       BookSplitterError.exportFailed(index: 0, preset: "AppleM4A", underlying: NSError(domain: "x", code: 1)),
       BookSplitterError.exportFailed(index: 0, preset: "AppleM4A", underlying: NSError(domain: "x", code: 1)),
-    ]
+    ]]
     await service.beginSharing(with: transport, item: try makeHourLongItem())
     XCTAssertEqual(sleeps, [.seconds(2), .seconds(2), .seconds(2), .seconds(5)])
     XCTAssertEqual(uploadedIndexes(transport).count, 5)
@@ -324,7 +332,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     XCTAssertEqual(uploadedIndexes(transport), [])
     system.become(.active)
     await sending.value
-    XCTAssertEqual(uploadedIndexes(transport), [0, 1, 2, 3, 4])
+    XCTAssertEqual(uploadedIndexes(transport), [1, 2, 3, 4, 0])
   }
 
   func testEndDuringABackoffStopsThePipeline() async throws {
@@ -361,15 +369,15 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
 
   func testBackgroundTaskIsEndedOnEveryPath() async throws {
     let service = makeService(), transport = FakeTransport()
-    // Piece 0: an upload error, then success. Piece 1: background time expires during the export.
-    // Piece 2: the session ends during the export.
+    // Piece 0: an upload error (it then waits behind the others). Piece 1: background time expires
+    // during the export, then success. Piece 2: the session ends during the export.
     transport.uploadErrors = [URLError(.networkConnectionLost)]
     exporter.beforeExport = { [system, weak service] piece in
       if piece.index == 1 { system?.expireAll() }
       if piece.index == 2 { service?.end() }
     }
     await service.beginSharing(with: transport, item: try makeHourLongItem())
-    XCTAssertEqual(system.begun.count, 4)
+    XCTAssertEqual(system.begun.count, 3)
     XCTAssertEqual(Set(system.ended), Set(system.begun), "every task ended")
     XCTAssertEqual(system.ended.count, system.begun.count, "none ended twice")
   }
@@ -528,18 +536,18 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     XCTAssertEqual(service.notice, .waitingForSharer)
   }
 
-  func testSilentSharerMakesListenersWaitAndAHeartbeatResumes() async throws {
+  /// Fix round 1 (I2): silence never ends the session; it only shows the waiting notice.
+  func testSilenceForTenMinutesWhilePlayingOnlyShowsTheNotice() async throws {
     let (service, transport, _) = try await startListeningAndPlaying()
-    advance(seconds: 10)
-    XCTAssertNil(service.notice)
-    advance(seconds: 10)
+    advance(seconds: 20)
     XCTAssertEqual(service.notice, .waitingForSharer)
-    XCTAssertEqual(control.openSuspensions, 1, "the group waits")
+    XCTAssertEqual(control.openSuspensions, 0, "silence alone does not hold the group")
+    advance(seconds: 600)
+    XCTAssertTrue(service.isListenerSession, "silence never ends the session")
+    XCTAssertEqual(service.notice, .waitingForSharer)
     transport.emit(.message(.heartbeat))
     await waitUntil { service.notice == nil }
     XCTAssertNil(service.notice)
-    XCTAssertEqual(control.openSuspensions, 0)
-    XCTAssertTrue(service.isListenerSession)
   }
 
   func testRosterWithOnlyThisListenerMeansTheSharerIsMissing() async throws {
@@ -549,26 +557,41 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     transport.emit(.participantsChanged(count: 1, ids: [me]))
     await waitUntil { service.notice == .waitingForSharer }
     XCTAssertEqual(service.notice, .waitingForSharer)
+    XCTAssertEqual(control.openSuspensions, 1, "the group waits")
   }
 
-  func testWaitingForTheSharerPausesThePlayer() async throws {
-    let (service, _, _) = try await startListeningAndPlaying()
+  /// With three people, the sharer is recognised by id (from their messages) when they leave.
+  private func joinRosterWithSharer(
+    _ transport: FakeTransport, others: Set<UUID> = []
+  ) async -> (me: UUID, sharer: UUID) {
+    let me = UUID(), sharer = UUID()
+    transport.emit(.sharerParticipant(id: sharer))
+    transport.emit(.participantsChanged(count: 2 + others.count, ids: others.union([me, sharer])))
+    return (me, sharer)
+  }
+
+  func testTheSharerLeavingTheRosterPausesTheGroup() async throws {
+    let (service, transport, _) = try await startListeningAndPlaying()
     let listener = try XCTUnwrap(service.listener)
-    XCTAssertTrue(listener.isPlaying)
-    advance(seconds: 20)
+    let other = UUID()
+    let (me, _) = await joinRosterWithSharer(transport, others: [other])
+    transport.emit(.participantsChanged(count: 2, ids: [me, other]))
+    await waitUntil { service.notice == .waitingForSharer }
     XCTAssertEqual(service.notice, .waitingForSharer)
+    XCTAssertEqual(control.openSuspensions, 1)
     XCTAssertFalse(listener.isPlaying)
   }
 
-  func testSharerGoneForSixtySecondsEndsWithSharerLeft() async throws {
+  func testRosterLossForSixtyOneSecondsEndsWithSharerLeft() async throws {
     let (service, transport, id) = try await startListeningAndPlaying()
     let folder = root.appendingPathComponent("listener").appendingPathComponent(id.uuidString)
     XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path))
-    advance(seconds: 20)
-    XCTAssertEqual(service.notice, .waitingForSharer)
+    let (me, _) = await joinRosterWithSharer(transport)
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.notice == .waitingForSharer }
     advance(seconds: 55)
     XCTAssertTrue(service.isListenerSession, "not yet 60 s missing")
-    advance(seconds: 10)
+    advance(seconds: 6)
     XCTAssertEqual(service.state, .ended(reason: .sharerLeft))
     XCTAssertNil(service.listener)
     XCTAssertNil(service.joinedTitle)
@@ -577,6 +600,20 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "the temporary copy is deleted")
     XCTAssertTrue(transport.left)
     XCTAssertEqual(control.openSuspensions, 0)
+  }
+
+  func testRosterLossForThirtySecondsThenBackResumes() async throws {
+    let (service, transport, _) = try await startListeningAndPlaying()
+    let (me, sharer) = await joinRosterWithSharer(transport)
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.notice == .waitingForSharer }
+    advance(seconds: 30)
+    transport.emit(.participantsChanged(count: 2, ids: [me, sharer]))
+    await waitUntil { service.notice == nil }
+    XCTAssertNil(service.notice)
+    XCTAssertEqual(control.openSuspensions, 0)
+    advance(seconds: 60)
+    XCTAssertTrue(service.isListenerSession)
   }
 
   func testSharerEndTearsDownWithSharerEndedAndClearsEverything() async throws {
@@ -608,5 +645,193 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     service.end()
     XCTAssertEqual(service.state, .ended(reason: .normal))
     XCTAssertNil(service.endNotice)
+  }
+
+  // MARK: Fix round 1
+
+  /// I1: a failed piece load is tried again on a timer, backing off to 30 s, until teardown.
+  func testFailedPieceLoadsAreRetriedOnATimer() async throws {
+    let (service, transport, _) = try await startListeningWithManifest()
+    transport.hasFailedPieceLoads = true
+    advance(seconds: 5)
+    XCTAssertEqual(transport.loadRetries, 1)
+    advance(seconds: 10)
+    XCTAssertEqual(transport.loadRetries, 2)
+    advance(seconds: 20)
+    XCTAssertEqual(transport.loadRetries, 3)
+    advance(seconds: 30)
+    XCTAssertEqual(transport.loadRetries, 4)
+    advance(seconds: 30)
+    XCTAssertEqual(transport.loadRetries, 5, "capped at 30 s")
+    transport.hasFailedPieceLoads = false
+    advance(seconds: 60)
+    XCTAssertEqual(transport.loadRetries, 5, "nothing to retry")
+    service.end()
+    transport.hasFailedPieceLoads = true
+    advance(seconds: 120)
+    XCTAssertEqual(transport.loadRetries, 5, "stopped at teardown")
+  }
+
+  /// I1: a request for a piece already sent re-sends its map entry (the attachment is still there).
+  func testRequestForASentPieceResendsItsMessage() async throws {
+    let service = makeService(), transport = FakeTransport()
+    await service.beginSharing(with: transport, item: try makeHourLongItem())
+    XCTAssertEqual(uploadedIndexes(transport).count, 5)
+    transport.emit(.message(.needPiece(index: 2)))
+    await waitUntil { self.uploadedIndexes(transport).count == 6 }
+    XCTAssertEqual(uploadedIndexes(transport).last, 2)
+    XCTAssertEqual(transport.uploads.count, 5, "nothing uploaded again")
+  }
+
+  /// I1: ...and uploads it again when the journal no longer holds the attachment.
+  func testRequestForASentPieceWhoseAttachmentIsGoneUploadsItAgain() async throws {
+    let service = makeService(), transport = FakeTransport()
+    await service.beginSharing(with: transport, item: try makeHourLongItem())
+    guard case .pieceUploaded(_, let attachment)? = transport.sent.first(where: {
+      if case .pieceUploaded(2, _) = $0 { return true } else { return false }
+    }) else { return XCTFail("no message for piece 2") }
+    transport.goneAttachments = [attachment]
+    transport.emit(.message(.needPiece(index: 2)))
+    await waitUntil { transport.uploads.count == 6 }
+    XCTAssertEqual(transport.uploads.count, 6)
+    XCTAssertEqual(uploadedIndexes(transport).last, 2)
+    XCTAssertEqual(exporter.exported.last, 2)
+  }
+
+  /// I3: an ended share is never offered or joined again in this app session.
+  func testAnEndedShareIsNotOfferedAgain() async throws {
+    let (service, transport, id) = try await startListeningWithManifest()
+    transport.emit(.message(.sessionEnding))
+    await waitUntil { !service.isInSession }
+    XCTAssertEqual(service.decision(forIncoming: id), .endedShare)
+    XCTAssertEqual(service.decision(forIncoming: id), .endedShare, "remembered, not used up")
+    XCTAssertEqual(service.decision(forIncoming: UUID()), .invitation, "a new invitation still works")
+  }
+
+  func testAShareLeftByTheSharerOrByOwnEndIsNotOfferedAgain() async throws {
+    let (service, _, id) = try await startListeningWithManifest()
+    service.end()
+    XCTAssertEqual(service.decision(forIncoming: id), .endedShare)
+
+    let (leftService, transport, leftID) = try await startListeningAndPlaying()
+    let (me, _) = await joinRosterWithSharer(transport)
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { leftService.notice == .waitingForSharer }
+    advance(seconds: 61)
+    XCTAssertEqual(leftService.state, .ended(reason: .sharerLeft))
+    XCTAssertEqual(leftService.decision(forIncoming: leftID), .endedShare)
+  }
+
+  /// Minor 4: a piece that can't be played is dropped, loaded again and asked for.
+  func testAPieceThatCannotBePlayedIsRequestedAgain() async throws {
+    let (service, transport, _) = try await startListeningWithManifest()
+    let attachment = UUID()
+    transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
+    transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
+    await waitUntil { service.listener?.isReady(at: 1) == true }
+    let listener = try XCTUnwrap(service.listener)
+    listener.applySeek(to: 1)
+    listener.pieceFailed(index: 0)
+    XCTAssertFalse(listener.isReady(at: 1))
+    XCTAssertEqual(transport.reloadedAttachments, [attachment])
+    await waitUntil { transport.sent.contains(.needPiece(index: 0)) }
+    XCTAssertTrue(transport.sent.contains(.needPiece(index: 0)))
+    XCTAssertEqual(control.openSuspensions, 1, "the group waits for the piece")
+    // The reloaded file is placed again.
+    transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0-again")))
+    await waitUntil { listener.isReady(at: 1) }
+    XCTAssertTrue(listener.isReady(at: 1))
+    XCTAssertEqual(control.openSuspensions, 0)
+  }
+
+  /// Minor 5: a failed piece goes behind the others; a piece the group waits for goes first.
+  func testAFailedPieceGoesBehindTheNextPieces() async throws {
+    let service = makeService(), transport = FakeTransport()
+    exporter.errorsByIndex = [0: [BookSplitterError.exportFailed(index: 0, preset: "AppleM4A", underlying: nil)]]
+    await service.beginSharing(with: transport, item: try makeHourLongItem())
+    XCTAssertEqual(uploadedIndexes(transport), [1, 2, 3, 4, 0])
+    XCTAssertEqual(sleeps, [.seconds(2)])
+  }
+
+  func testAFailedPieceTheGroupWaitsForStillGoesFirst() async throws {
+    let service = makeService(), transport = FakeTransport()
+    exporter.errorsByIndex = [0: [BookSplitterError.exportFailed(index: 0, preset: "AppleM4A", underlying: nil)]]
+    exporter.beforeExport = { piece in
+      if piece.index == 0, transport.sent.contains(where: { if case .manifest = $0 { return true } else { return false } }) {
+        transport.emit(.message(.needPiece(index: 0)))
+        try? await Task.sleep(for: .milliseconds(50))
+      }
+    }
+    await service.beginSharing(with: transport, item: try makeHourLongItem())
+    XCTAssertEqual(uploadedIndexes(transport), [0, 1, 2, 3, 4])
+  }
+
+  /// Minor 6: the idle timer is only switched back if this code switched it off.
+  func testIdleTimerSetByAnotherFeatureIsLeftAlone() async throws {
+    let service = makeService(), transport = FakeTransport()
+    system.isIdleTimerDisabled = true
+    system.idleTimerHistory = []
+    await service.beginSharing(with: transport, item: try makeHourLongItem())
+    service.end()
+    XCTAssertTrue(system.isIdleTimerDisabled)
+    XCTAssertFalse(system.idleTimerHistory.contains(false))
+  }
+
+  func testIdleTimerTurnedOnByUsIsTurnedOffEvenIfItWasChangedMeanwhile() async throws {
+    let service = makeService(), transport = FakeTransport()
+    exporter.beforeExport = { [system] piece in
+      if piece.index == 1 { system?.isIdleTimerDisabled = false }   // another screen switched it back
+    }
+    await service.beginSharing(with: transport, item: try makeHourLongItem())
+    XCTAssertFalse(system.isIdleTimerDisabled, "never left on for good")
+  }
+
+  /// Minor 7: answers to state requests are rate-limited and coalesced.
+  func testStateRequestsAreAnsweredAtMostOncePerTwoSeconds() async throws {
+    let service = makeService(), transport = FakeTransport()
+    await service.beginSharing(with: transport, item: try makeHourLongItem())
+    let isManifest: (ListenTogetherMessage) -> Bool = { if case .manifest = $0 { return true } else { return false } }
+    let before = count(transport, isManifest)
+    transport.emit(.message(.requestState))
+    transport.emit(.message(.requestState))
+    transport.emit(.message(.requestState))
+    await waitUntil { self.count(transport, isManifest) == before + 1 }
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(count(transport, isManifest), before + 1, "one answer now")
+    advance(seconds: 2)
+    await waitUntil { self.count(transport, isManifest) == before + 2 }
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(count(transport, isManifest), before + 2, "the others coalesced into one later answer")
+    _ = service
+  }
+
+  /// Minor 9: a book that can't be prepared reaches listeners as its own reason.
+  func testAPrepareFailureReachesListenersAsItsOwnReason() async throws {
+    let service = makeService(), transport = FakeTransport()
+    let missing = PlayableItem.stub(currentTime: 0, duration: 3600)   // no file on disk
+    await service.beginSharing(with: transport, item: missing)
+    XCTAssertTrue(transport.sent.contains(.sharerCouldNotPrepare))
+    XCTAssertFalse(transport.sent.contains(.sessionEnding))
+    XCTAssertEqual(service.state, .ended(reason: .sendFailed))
+
+    let (listenerService, listenerTransport, _) = try await startListeningWithManifest()
+    listenerTransport.emit(.message(.sharerCouldNotPrepare))
+    await waitUntil { !listenerService.isInSession }
+    XCTAssertEqual(listenerService.state, .ended(reason: .sharerCouldNotPrepare))
+    XCTAssertEqual(listenerService.endNotice, .sharerCouldNotPrepare)
+  }
+
+  /// Minor 10: at most one heartbeat waits in the outbox.
+  func testHeartbeatsDoNotPileUp() async throws {
+    let service = makeService(), transport = FakeTransport()
+    transport.holdSends = true
+    service.startSharingSession(with: transport, item: try makeHourLongItem(), shareID: UUID())
+    for _ in 0..<4 {
+      advance(seconds: 5)
+      try? await Task.sleep(for: .milliseconds(20))
+    }
+    transport.releaseSends()
+    try? await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(count(transport) { $0 == .heartbeat }, 1)
   }
 }

@@ -72,7 +72,7 @@ People listening do not need their own copy of the book, unless the person shari
 8. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing". If you close the player, a **Listen Together** row stays above the tab bar. Choose it to return to the player.
 9. When the session has started after the sharing screen, VoiceOver says "Listen Together started".
 10. Wait until someone has joined and you hear the book playing before you lock the phone.
-11. While the book is still being sent, your iPhone does not lock by itself if BookPlayer is on screen. Keep BookPlayer open for the first minute or so if you can: the book is sent in small parts, starting where you are listening, and leaving BookPlayer can pause the sending. It carries on when you come back.
+11. While the book is still being sent, your iPhone does not lock by itself if BookPlayer is on screen. Keep BookPlayer open while the book is sent if you can: it is sent in small parts, starting where you are listening. If you switch to another app or lock the phone, the sending can pause; listeners who are waiting for the book keep waiting and may see that they are waiting for the person sharing. Listen Together does not end because of it, and the sending carries on when you come back to BookPlayer.
 
 If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives.
 
@@ -162,7 +162,11 @@ When the session ends, the lock screen, Control Center and AirPods control your 
 - VoiceOver says "Listen Together ended".
 - When the person sharing ends Listen Together, it ends for every listener, and the listener's player and Listen Together row go away.
 
-If listeners stop hearing from the person sharing while the book is playing (for example their iPhone lost its connection, or they left), everyone pauses and waits. If the person sharing is back within a minute, the book carries on. If not, Listen Together ends for everyone and the temporary copy is deleted. If everyone is paused, a person sharing who has simply locked their phone does not end the session.
+If the person sharing leaves Listen Together (they are no longer in the session, for example their iPhone lost its connection or BookPlayer was closed), everyone pauses and waits. If they are back within a minute, the book carries on. If not, Listen Together ends for everyone and the temporary copy is deleted.
+
+If the person sharing is still in the session but their iPhone has gone quiet (for example they switched to another app or locked the phone while the book was still being sent), listeners may be told they are waiting for the person sharing. This never ends Listen Together: it carries on as soon as the person sharing comes back to BookPlayer.
+
+After Listen Together has ended, the same invitation can't be used to join again. The person sharing can start Listen Together again with a new invitation.
 
 ## What happens to the shared book
 

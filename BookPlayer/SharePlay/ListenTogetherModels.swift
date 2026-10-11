@@ -60,6 +60,9 @@ enum ListenTogetherMessage: Codable, Equatable {
   case heartbeat
   /// Listener: the group waits for this piece on this device; the sharer sends it next.
   case needPiece(index: Int)
+  /// Sharer: the book's files could not be read at the start, so the share ends (instead of
+  /// `.sessionEnding`, so listeners can say why).
+  case sharerCouldNotPrepare
 
   /// The kind of message, for logs (never its contents).
   var kind: String {
@@ -72,6 +75,7 @@ enum ListenTogetherMessage: Codable, Equatable {
     case .requestState: return "requestState"
     case .heartbeat: return "heartbeat"
     case .needPiece: return "needPiece"
+    case .sharerCouldNotPrepare: return "sharerCouldNotPrepare"
     }
   }
 }

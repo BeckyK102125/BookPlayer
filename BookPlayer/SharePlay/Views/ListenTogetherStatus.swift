@@ -25,7 +25,7 @@ enum ListenTogetherStatus {
       return "listen_together_send_failed".localized
     case .ended(.unavailable):
       return "listen_together_unavailable".localized
-    case .ended(.sharerEnded), .ended(.sharerLeft):
+    case .ended(.sharerEnded), .ended(.sharerLeft), .ended(.sharerCouldNotPrepare):
       // The generic line for now; the visible "The person sharing ..." message comes with Task B.
       return "listen_together_ended".localized
     case .idle, .needsFaceTime, .invitation:

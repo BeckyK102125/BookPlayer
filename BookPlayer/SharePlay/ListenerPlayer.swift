@@ -22,8 +22,11 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
   /// is no longer needed can end (path 3).
   var onPositionReady: (() -> Void)?
+  /// A received piece could not be played (its item failed): it was dropped and must come again.
+  var onPieceFailed: ((Int) -> Void)?
 
-  private let player = AVQueuePlayer()
+  /// Internal (not private) only so tests can move the queue on.
+  let player = AVQueuePlayer()
   private nonisolated(unsafe) var timeObserver: Any?
   private var loadedPieceIndex: Int?
   /// The piece queued behind the current one (it plays on by itself when the current one ends).
@@ -315,12 +318,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     // Diagnostics (decision 11): a piece that can't be decoded is logged with its error.
     itemObservations[id] = item.publisher(for: \.status)
       .receive(on: DispatchQueue.main)
-      .sink { [weak item] status in
+      .sink { [weak self, weak item] status in
         guard status == .failed else { return }
         let error = item?.error as NSError?
         MainActor.assumeIsolated {
           Self.logger.error(
             "Listen Together: piece \(index, privacy: .public) (\(pathExtension, privacy: .public)) can't be played: \(error?.domain ?? "", privacy: .public) \(error?.code ?? 0, privacy: .public) \(error?.localizedDescription ?? "")")
+          self?.pieceFailed(index: index)
         }
       }
     return item
@@ -350,7 +354,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The queue's current item changed. When it is the queued piece (the previous one played out), it
   /// becomes the loaded piece and the one after it is queued in turn. Changes made by `load` are
   /// already accounted for and do nothing here.
-  private func queueAdvanced() {
+  func queueAdvanced() {
     guard let item = player.currentItem, let index = pieceIndexByItem[ObjectIdentifier(item)],
       index != loadedPieceIndex, index == queuedPieceIndex
     else { return }
@@ -361,10 +365,27 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     enqueueSuccessorIfArrived()
   }
 
-  /// Test seam: the current piece played out and the queue moved to the queued one.
-  func queueAdvancedForTesting() {
-    player.advanceToNextItem()
-    queueAdvanced()
+  /// A piece's file can't be played (AVPlayerItem failed): it no longer counts as arrived, the
+  /// service is told (it loads the piece again and the group waits), and it leaves the queue. If it was
+  /// playing, playback is held here as for any missing piece, instead of "playing" in silence.
+  func pieceFailed(index: Int) {
+    guard timeline.url(forPiece: index) != nil else { return }
+    let position = currentPosition
+    timeline.forget(index: index)
+    onPieceFailed?(index)
+    if index == loadedPieceIndex {
+      let wasPlaying = isPlaying
+      player.pause()
+      isPlaying = false
+      loadedPieceIndex = nil
+      if !load(at: position) { isHeldWhilePlaying = wasPlaying }
+    } else if index == queuedPieceIndex {
+      if let item = player.items().first(where: { pieceIndexByItem[ObjectIdentifier($0)] == index }) {
+        player.remove(item)
+      }
+      queuedPieceIndex = nil
+      forgetItems(keeping: [])
+    }
   }
 
   enum PieceEndDecision: Equatable {

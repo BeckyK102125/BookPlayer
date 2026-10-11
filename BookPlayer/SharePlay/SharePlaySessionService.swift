@@ -20,6 +20,8 @@ enum ListenTogetherState: Equatable {
     case sharerEnded
     /// Listener: the person sharing was gone for `sharerReturnLimit` (addendum 3, decision 9).
     case sharerLeft
+    /// Listener: the person sharing couldn't read the book's files, so the share ended at the start.
+    case sharerCouldNotPrepare
   }
 }
 
@@ -196,14 +198,37 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var pieceScheduler: PieceUploadScheduler?
   /// Sharer: the current back-off wait; woken when the app becomes active or the session ends.
   let retryWaiter = ListenTogetherRetryWaiter()
-  /// Sharer: the idle timer is held off while pieces are left to send; the value it had before.
+  /// Sharer: the idle timer is held off while pieces are left to send. `didDisableIdleTimer` is true
+  /// only when this code switched it off (it was on before), so only then is it switched back.
   var keepsScreenAwake = false
-  var idleTimerBeforeSharing = false
-  /// Listener: when the person sharing was last heard from, and since when they are missing.
+  var didDisableIdleTimer = false
+  /// Sharer: what the send loop needs, kept so a piece can be sent again after the loop finished.
+  var sendContext: (item: PlayableItem, files: [SourceFile], folder: URL)?
+  var isSendLoopRunning = false
+  /// Sharer: real failures per piece (for its back-off); interruptions are not counted.
+  var pieceFailures: [Int: Int] = [:]
+  /// Sharer: state requests are answered at most once per `stateAnswerInterval`; requests in between
+  /// are coalesced into one later answer.
+  var lastStateAnswer: Date?
+  var isStateAnswerPending = false
+  static let stateAnswerInterval: TimeInterval = 2
+  /// Sharer: a heartbeat waits in the outbox (at most one at a time).
+  var isHeartbeatQueued = false
+  /// Listener: when the person sharing was last heard from; whether they are silent (notice only);
+  /// and since when they are missing from the roster (the 60 s grace).
   var lastSharerContact: Date?
+  var isSharerSilent = false
   var sharerMissingSince: Date?
+  /// Listener: the sharer's participant id, from their messages.
+  var sharerParticipantID: UUID?
   /// Listener: the roster has had someone besides this device (so a roster of one means the sharer left).
   var hasSeenOtherParticipants = false
+  /// Listener: failed piece loads are retried after 5, 10, 20, then every 30 s.
+  static let loadRetryDelays: [Duration] = [.seconds(5), .seconds(10), .seconds(20), .seconds(30)]
+  /// Shares that ended for this device (the sharer ended or left, it couldn't be prepared, or this
+  /// device ended it): never offered or joined again in this app session (decision 9 ruling). A new
+  /// invitation has a new id.
+  private(set) var endedShareIDs = Set<UUID>()
   private var appStateObservation: AnyCancellable?
 
   // SharePlay plumbing.
@@ -746,6 +771,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// `announcement` (one sentence in context) instead of the generic "ended". Listener only.
   func leaveForOwnBook(announcement: String) {
     guard role == .listener else { return }
+    if let shareID { endedShareIDs.insert(shareID) }
     tearDown(reason: .normal, announcement: announcement)
   }
 
@@ -763,6 +789,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       return
     }
     guard isInSession else { return }
+    if let shareID { endedShareIDs.insert(shareID) }
     if role == .sharer, let transport {
       tearDown(reason: .normal, leaveTransport: false)
       // The end message gets a short time; the session is left whatever happens, so a stalled
@@ -827,8 +854,16 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     pieceScheduler = nil
     retryWaiter.wake()
     setKeepingScreenAwake(false)
+    sendContext = nil
+    isSendLoopRunning = false
+    pieceFailures = [:]
+    lastStateAnswer = nil
+    isStateAnswerPending = false
+    isHeartbeatQueued = false
     lastSharerContact = nil
+    isSharerSilent = false
     sharerMissingSince = nil
+    sharerParticipantID = nil
     hasSeenOtherParticipants = false
     notice = nil
     localEventsBag.removeAll()
@@ -861,7 +896,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if let shareID { storage.remove(shareID: shareID) }
     announcer.announce(announcement ?? ListenTogetherAnnouncements.ended())
     Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
-    if reason == .sharerEnded || reason == .sharerLeft { endNotice = reason }
+    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare].contains(reason) {
+      endNotice = reason
+      if let shareID { endedShareIDs.insert(shareID) }
+    }
     state = .ended(reason: reason)
     scheduleReturnToIdle()
   }
@@ -878,6 +916,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     /// Our late sharing-sheet share, but something else is now pending or running: leave it, so its
     /// people are not left in a session nobody is sharing into.
     case staleOwnShare
+    /// A share that already ended for this device: left silently, never offered again.
+    case endedShare
     /// Someone else's share: offer it.
     case invitation
     /// Already in a session, preparing a share or offering one: ignore.
@@ -887,6 +927,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// What to do with a session that arrives. Removes a matched cancelled id. Test seam.
   func decision(forIncoming shareID: UUID) -> IncomingSessionDecision {
     if cancelledShareIDs.remove(shareID) != nil { return .cancelledShare }
+    if endedShareIDs.contains(shareID) { return .endedShare }
     if shareID == pendingShareID, pendingItem != nil { return .ownShare }
     if lateShare?.id == shareID {
       return isInSession || isPreparing || pendingInvitation != nil ? .staleOwnShare : .lateOwnShare
@@ -906,7 +947,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// What `received` does with a session, claiming our own share. Test seam (no GroupSession needed).
   func action(forIncoming shareID: UUID) -> IncomingSessionAction {
     switch decision(forIncoming: shareID) {
-    case .cancelledShare:
+    case .cancelledShare, .endedShare:
       return .leave
     case .staleOwnShare:
       lateShare = nil

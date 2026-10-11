@@ -19,6 +19,9 @@ struct PieceTimeline {
 
   mutating func markArrived(index: Int, url: URL) { arrived[index] = url }
 
+  /// The piece's file can't be used (it failed to play): it counts as not arrived again.
+  mutating func forget(index: Int) { arrived[index] = nil }
+
   func url(forPiece index: Int) -> URL? { arrived[index] }
 
   /// Piece boundaries come from float arithmetic, so a piece can end a hair before the next one

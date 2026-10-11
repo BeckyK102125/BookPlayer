@@ -7,11 +7,13 @@ import Foundation
 /// 2. the piece at the group's position;
 /// 3. the pieces after it, in book order, so the next two or three are always ahead of the group;
 /// 4. then the rest: on to the end of the book, then from its start.
-/// A seek far away simply moves the position, so the piece there goes next.
+/// A seek far away simply moves the position, so the piece there goes next. A piece that failed goes
+/// behind every other piece still to send (it is still retried), unless a listener waits for it.
 struct PieceUploadScheduler {
   private let pieces: [PlannedPiece]
   private var sent = Set<Int>()
   private var requested: [Int] = []
+  private var failed = Set<Int>()
 
   init(pieces: [PlannedPiece]) {
     self.pieces = pieces.sorted { $0.bookStart < $1.bookStart }
@@ -21,8 +23,15 @@ struct PieceUploadScheduler {
 
   mutating func markSent(_ index: Int) {
     sent.insert(index)
+    failed.remove(index)
     requested.removeAll { $0 == index }
   }
+
+  /// The piece must be sent again (its attachment is gone from the journal).
+  mutating func markUnsent(_ index: Int) { sent.remove(index) }
+
+  /// The piece failed: it goes behind the others still to send.
+  mutating func markFailed(_ index: Int) { failed.insert(index) }
 
   /// A listener waits for this piece. Ignored when it is already sent or unknown.
   mutating func request(_ index: Int) {
@@ -37,11 +46,8 @@ struct PieceUploadScheduler {
     }
     guard !pieces.isEmpty else { return nil }
     let start = pieces.lastIndex(where: { $0.bookStart <= position + PieceTimeline.seamTolerance }) ?? 0
-    for offset in 0..<pieces.count {
-      let piece = pieces[(start + offset) % pieces.count]
-      if !sent.contains(piece.index) { return piece }
-    }
-    return nil
+    let order = (0..<pieces.count).map { pieces[(start + $0) % pieces.count] }.filter { !sent.contains($0.index) }
+    return order.first { !failed.contains($0.index) } ?? order.first
   }
 }
 

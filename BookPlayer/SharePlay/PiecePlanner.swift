@@ -27,6 +27,9 @@ enum PiecePlanner {
   /// Short chapters are grouped while the piece stays this long or less; a longer chapter (or a book
   /// without chapters) is split into equal parts of about `targetDuration`.
   static let maxDuration: TimeInterval = 15 * 60
+  /// A piece shorter than this (a chapter start just before a file's end, or just after a full group)
+  /// joins a neighbour in the same file when the byte cap allows: near-empty pieces may not export.
+  static let minimumDuration: TimeInterval = 30
 
   /// Every file is cut on its own (file boundaries are always cuts). A file of at most `maxDuration`
   /// and `maxBytes` is sent whole (copied, never re-encoded). Otherwise pieces are cut at chapter
@@ -90,6 +93,7 @@ enum PiecePlanner {
         group = (start, end)
       }
       flush()
+      segments = mergingTinySegments(segments, bytesPerSecond: bytesPerSecond, maxBytes: maxBytes)
 
       for (start, end) in segments {
         result.append(PlannedPiece(
@@ -99,5 +103,42 @@ enum PiecePlanner {
       }
     }
     return result
+  }
+
+  /// Joins each segment shorter than `minimumDuration` to the one before it, or else to the one after
+  /// it, when the joined piece stays within `maxBytes`. Segments are contiguous, so tiling is kept.
+  private static func mergingTinySegments(
+    _ segments: [(TimeInterval, TimeInterval)], bytesPerSecond: Double, maxBytes: Int64
+  ) -> [(TimeInterval, TimeInterval)] {
+    func fits(_ start: TimeInterval, _ end: TimeInterval) -> Bool {
+      (end - start) * bytesPerSecond <= Double(maxBytes)
+    }
+    var merged: [(TimeInterval, TimeInterval)] = []
+    var pendingStart: TimeInterval?   // a tiny segment waiting to join the next one
+    for (segmentStart, end) in segments {
+      var start = segmentStart
+      if let pending = pendingStart {
+        pendingStart = nil
+        if fits(pending, end) {
+          start = pending
+        } else {
+          merged.append((pending, segmentStart))   // too big to join: it stays on its own
+        }
+      }
+      guard end - start < minimumDuration else {
+        merged.append((start, end))
+        continue
+      }
+      if let last = merged.last, fits(last.0, end) {
+        merged[merged.count - 1] = (last.0, end)
+      } else {
+        pendingStart = start
+      }
+    }
+    if let pendingStart, let lastEnd = segments.last?.1 {
+      // Nothing after it to join, and the one before is full: it stays a piece of its own.
+      merged.append((pendingStart, lastEnd))
+    }
+    return merged
   }
 }

@@ -13,8 +13,29 @@ final class FakeTransport: ListenTogetherTransport {
   var failUploads = false
   /// Thrown by the next uploads, one each, before uploads succeed again.
   var uploadErrors: [Error] = []
+  /// Listener: a piece load failed and waits for `retryFailedPieceLoads()`.
+  var hasFailedPieceLoads = false
+  private(set) var loadRetries = 0
+  private(set) var reloadedAttachments: [UUID] = []
+  /// Sharer: attachments the journal no longer holds.
+  var goneAttachments = Set<UUID>()
+  /// While true, sends wait until `releaseSends()`.
+  var holdSends = false
+  private var heldSends: [CheckedContinuation<Void, Never>] = []
   func emit(_ event: TransportEvent) { _ = events; continuation.yield(event) }
-  func send(_ message: ListenTogetherMessage) async throws { sent.append(message) }
+  func send(_ message: ListenTogetherMessage) async throws {
+    if holdSends { await withCheckedContinuation { heldSends.append($0) } }
+    sent.append(message)
+  }
+  func releaseSends() {
+    holdSends = false
+    let waiting = heldSends
+    heldSends = []
+    waiting.forEach { $0.resume() }
+  }
+  func retryFailedPieceLoads() { loadRetries += 1 }
+  func reloadPiece(attachmentID: UUID) { reloadedAttachments.append(attachmentID) }
+  func hasAttachment(_ id: UUID) -> Bool? { !goneAttachments.contains(id) }
   func upload(fileAt url: URL) async throws -> UUID {
     if failUploads { throw URLError(.networkConnectionLost) }
     if !uploadErrors.isEmpty { throw uploadErrors.removeFirst() }

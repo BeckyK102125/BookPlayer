@@ -19,7 +19,7 @@ final class ListenTogetherModelsTests: XCTestCase {
       .pieceUploaded(index: 1, attachmentID: UUID(uuidString: "AAAAAAAA-2222-3333-4444-555555555555")!),
       .action(.paused), .action(.resumed), .action(.skipped(seconds: -30)),
       .action(.movedToChapter(title: "Loomings")), .action(.speedChanged(rate: 1.5)),
-      .sessionEnding, .requestState, .heartbeat, .needPiece(index: 7),
+      .sessionEnding, .requestState, .heartbeat, .needPiece(index: 7), .sharerCouldNotPrepare,
     ]
     for message in messages {
       let data = try JSONEncoder().encode(message)

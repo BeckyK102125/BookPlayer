@@ -832,3 +832,26 @@ captured. Investigation: getting-book-investigation.md (paths 1-5).
   Checker" priority-inversion line from CoreData in an own-copy test, also in an earlier TSan log).
 - Guide: small parts and faster start, sharer keeps BookPlayer open while sending, failures retried and
   never end the session, sharer End ends for listeners, sharer missing -> wait up to a minute.
+
+## 2026-10-11 - listen-together-own-copy - addendum 3 Task A, fix round 1
+Parent de116941. Inputs: reliable-sending-task-A-review.md, reliable-sending-task-A-fix-1.md (rulings).
+- I1: transport keeps failed attachment loads (`hasFailedPieceLoads`, `retryFailedPieceLoads()`,
+  `reloadPiece(attachmentID:)`); the listener retries them on a 5/10/20/30 s timer until teardown. Sharer:
+  `.needPiece` for a sent piece re-sends its pieceUploaded; if `hasAttachment` says it is gone from the
+  journal, the piece is unmarked and re-exported/uploaded, restarting `runSendLoop` if it had finished.
+- I2 (new ruling, replaces "silence while needed -> wait/end"): silence only shows `.waitingForSharer`
+  (no hold, never ends). Only the sharer leaving the roster (by participant id from
+  `TransportEvent.sharerParticipant`, else roster of one) starts the 60 s grace -> `.sharerLeft`.
+- I3: `endedShareIDs` (sharerEnded/sharerLeft/sharerCouldNotPrepare, own End, Leave for own book);
+  `decision(forIncoming:)` -> `.endedShare` -> leave silently.
+- Minor: unplayable piece dropped + reloaded + awaited (`ListenerPlayer.pieceFailed`); failed piece goes
+  behind the others (scheduler `markFailed`, per-piece back-off); idle timer only switched back if we
+  switched it off; state answers max 1 per 2 s, coalesced; planner merges segments < 30 s (byte cap
+  kept); `.sharerCouldNotPrepare` message and EndReason; one heartbeat queued at most; test seam moved
+  to a test extension. Parked: listener position lag one hop after a queue advance; real app system in
+  SharePlaySessionServiceTests.
+- TDD: red = test build failed with the production changes stashed (minimumDuration,
+  sharerCouldNotPrepare...). Green: 21 SharePlay classes 327/0.
+- Full run 1: all 899 tests passed but xcodebuild hung before printing the final line; killed and rerun.
+- Full run 2: "Executed 899 tests, with 0 failures", ** TEST SUCCEEDED **. TSan 21 SharePlay classes:
+  327/0, 0 ThreadSanitizer warnings (the same pre-existing CoreData "Thread Performance Checker" line).

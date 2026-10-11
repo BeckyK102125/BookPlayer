@@ -292,5 +292,47 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertEqual(ready, 2)
     player.stop()
   }
+
+  // MARK: Fix round 1: a piece that can't be played
+
+  func testAFailedLoadedPieceIsForgottenAndAwaited() throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    var needed: [Int] = []
+    var failed: [Int] = []
+    player.onNeedsPiece = { needed.append($0) }
+    player.onPieceFailed = { failed.append($0) }
+    player.pieceArrived(index: 0, url: try makePiece(0))
+    player.pieceArrived(index: 1, url: try makePiece(1))
+    player.applySeek(to: 2)
+    player.pieceFailed(index: 0)
+    XCTAssertEqual(failed, [0])
+    XCTAssertFalse(player.isReady(at: 2))
+    XCTAssertEqual(needed, [0], "the group waits for it again")
+    XCTAssertTrue(player.isWaitingForPiece)
+    player.stop()
+  }
+
+  func testAFailedQueuedPieceLeavesTheQueue() throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    var needed: [Int] = []
+    player.onNeedsPiece = { needed.append($0) }
+    player.pieceArrived(index: 0, url: try makePiece(0))
+    player.pieceArrived(index: 1, url: try makePiece(1))
+    player.applySeek(to: 2)
+    XCTAssertEqual(player.queuedPieceIndex, 1)
+    player.pieceFailed(index: 1)
+    XCTAssertNil(player.queuedPieceIndex)
+    XCTAssertTrue(needed.isEmpty, "not needed yet: piece 0 still plays")
+    XCTAssertTrue(player.isReady(at: 2))
+    player.stop()
+  }
+}
+
+/// Test-only: the current piece played out and the queue moved to the queued one.
+extension ListenerPlayer {
+  func queueAdvancedForTesting() {
+    player.advanceToNextItem()
+    queueAdvanced()
+  }
 }
 

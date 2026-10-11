@@ -8,7 +8,7 @@ Messages with no call, or on a FaceTime call); the others listen to a copy that 
 session only and deleted when it ends; playback stays in sync; everything works with VoiceOver.
 Current goal: addendum 3 (reliable sending, visible messages, spoken errors), after a field test where
 the session ended 0.4 s after Play (most likely a failed piece on the sharer). Task A (engine, no UI) is done
-(87f4a744); Task B (visible messages R41, Leave button, "Speak error messages" setting) is next.
+(87f4a744, fix round 1 in this commit); Task B (visible messages R41, Leave button, "Speak error messages" setting) is next.
 Addendum 2 ("Both have the book") is done on this branch.
 - Spec: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md
 - Addendum 2: docs/superpowers/specs/2026-10-10-shareplay-listen-together-addendum-2.md
@@ -24,8 +24,8 @@ Addendum 2 ("Both have the book") is done on this branch.
 - Tracked on origin: `develop`, `listen-together-messages` (both 9c70dd06), `listen-together-lock-screen`
   (63e9578b), `shareplay-listen-together` (e634f5c7). Becky and Michael are testing develop on devices.
 - `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731), fix rounds
-  (7bf22248, 0b5aacdd), addendum 3 ruling (1598e8d4), Task A code (87f4a744), docs in this commit
-  (parent 87f4a744). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
+  (7bf22248, 0b5aacdd), addendum 3 ruling (1598e8d4), Task A (87f4a744, de116941), Task A fix round 1
+  in this commit (parent de116941). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
   9c70dd06) belongs to another session (TestFlight archive); not touched here.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 - Never committed: BuildConfiguration/Debug.xcconfig (gitignored; holds the signing below).
@@ -58,16 +58,20 @@ Addendum 2 ("Both have the book") is done on this branch.
   path (ListenTogetherAppSystem protocol).
 - Listener: AVQueuePlayer queues the next arrived piece (seamless); stall released after any load/seek/
   play at an arrived piece; .requestState every 5 s until the manifest (sharer re-sends manifest + map).
-- Sharer presence: heartbeat 5 s; listener waits (.waitingForSharer, group suspended) after 15 s silence
-  while the group needs the sharer, or when alone in the roster; back within 60 s resumes, else
-  .sharerLeft. Sharer End -> .sharerEnded. endNotice holds either until Task B shows it.
+- Sharer presence (fix round 1 ruling): heartbeat 5 s; silence > 15 s while the group needs the sharer
+  only shows .waitingForSharer (never ends). The sharer leaving the roster (by participant id) holds
+  the group; back within 60 s resumes, else .sharerLeft. Sharer End -> .sharerEnded; unreadable book ->
+  .sharerCouldNotPrepare; endNotice holds these for Task B. Ended shares are never rejoined.
+- Fix round 1 also: failed piece loads retried on a 5-30 s timer; .needPiece for a sent piece re-sends
+  its map entry (re-upload if gone); unplayable pieces reloaded; failed pieces go behind others; idle
+  timer only reset if we set it; state answers max 1/2 s; tiny pieces merged; one queued heartbeat.
 - Diagnostics (os Logger): export/upload start/end with preset/size/time, failures with domain/code,
   app state, stall begin/end, commands, attachment loads, AVPlayerItem failures.
 - Earlier: addendum 2 own copy (fingerprint, own-copy playback, owners-only mode); see Notes.md.
 
-## Test evidence (2026-10-11, addendum 3 Task A)
-- 21 SharePlay classes (20 + ListenTogetherReliableSendingTests) 308/0; full 880/0 ** TEST SUCCEEDED **
-  (first run); TSan 21 classes 308/0, 0 ThreadSanitizer warnings. (Addendum 2 fix round 2: 265/837.)
+## Test evidence (2026-10-11, addendum 3 Task A fix round 1)
+- 21 SharePlay classes 327/0; full 899/0 ** TEST SUCCEEDED **; TSan 327/0, 0 warnings. (First pass:
+  308/880, TSan 308/0.)
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
 -only-testing:BookPlayerTests test (focused/TSan: `-only-testing:BookPlayerTests/<Class>` per SharePlay
@@ -91,20 +95,17 @@ ended after Play, see addendum 3). Two-device run of Task A NOT done yet. Setup 
 the run: Becky + Michael, two iPhones, talking on Discord, session started from Messages, both locked.
 Task A checks (first): start from Messages with a long single-file m4b and an mp3 book; listener
 plays within seconds; percent moves; no gap at piece joins; sharer switches apps / locks mid-send
-(sending resumes, session never ends); airplane mode on the sharer for 30 s then back; sharer force-quits
-(listeners wait, end after ~75 s); sharer End; capture both devices' Console logs ("Listen Together:").
+(sending resumes, session never ends, listeners may see "waiting for the sharer"); airplane mode on the
+sharer 30 s then back; sharer force-quits (ends 60 s after iOS drops them from the roster: measure);
+re-tap an ended invitation (nothing happens); pause/seek right after a piece join (position right);
+sharer End; capture both devices' Console logs ("Listen Together:").
 Priority checks (new or risky; full wording in Notes.md, fix round 2 entry):
 1. Paused + locked 5+ minutes, then Play from the lock screen, from EACH side (whole-branch I4).
 2. R38/R39: own book during a listener session (question, Leave/Cancel/scrub, focus; locked refusal).
 3. Cold launch from the Messages invitation (W-I5 retries). 4. Sharing sheet open over 2 minutes.
 5. Magic Tap before the book arrives. 6. Join then End at once; End as sharer with no network.
 7. Lock-screen/AirPods commands on main. 8. Toggle while waiting for a piece.
-9. Addendum 2 (own-copy-a11y-guidance.md device checklist): own copy in both modes (Join goes straight
-   to the player, one "Joined. Playing your copy.", no download wording, audio in sync); no copy +
-   owners-only (alert read in full, OK and scrub both decline, sharer hears "Someone couldn't join" once,
-   no "joined"/"left"; does iOS show a SharePlay banner during the decliner's brief join?); End/Leave
-   keeps the library book and its place; file moved between invitation and Join; Settings screen
-   (picker label spoken once, footer, back keeps the choice); Voice Control "Tap Join"/"Tap OK".
+9. Addendum 2: own-copy-a11y-guidance.md device checklist (both modes, decliner, Settings screen).
 Earlier lists still apply (unchanged, see Notes.md and the a11y guidance files): spec checklist (single and
 multi-file book, pause/seek/speed/end from each side, headphone unplug, late join, copy deleted incl.
 after force-quit); escape + row items; Change C lock-screen items; Change B sheet items (measure Send to
@@ -116,14 +117,13 @@ session time; refused presentation leaves presentingViewController nil); contras
 - A piece that fails for good (for example always too large) is retried every 30 s for ever; listeners
   who need it wait. The sharer is told only by the .retryingSend notice (Task B shows it).
 - If the sharer switches books mid-session, listeners keep the old book (R12).
-- If the sharer's app is killed, listeners wait up to 60 s after noticing (15 s silence while playing or
-  waiting, or at once when alone in the roster), then end; while everyone is paused they keep waiting.
+- If the sharer's app is killed, listeners end 60 s after iOS removes the sharer from the roster; if iOS
+  keeps them, listeners only see "waiting for the sharer" (silence never ends a session; open question).
 - Speed changes are saved in the sharer's library for that book.
 - Sleep timer and CarPlay chapter buttons on a listener act on the own book.
 - Own book cannot start from Siri/widget/CarPlay while locked during a listener session (R38/R39
   refuse; spoken when possible; notification only if permission exists, which BookPlayer never asks).
-- Invitations from other people are ignored while your own share's sharing sheet is up or its 20 s wait
-  is running.
+- Invitations are ignored while your own sharing sheet is up or its 20 s wait runs.
 - The `play?showPlayer=true` deep link can open your own player screen during a listener session (its
   Play is not gated).
 - In-app paths that call PlayerManager directly (player screen Play, mini player) are not gated; they are
@@ -144,6 +144,7 @@ session time; refused presentation leaves presentingViewController nil); contras
 4. Change A (streamed-book alert) of addendum 1. 5. Upstream PR decision later.
 
 ## Decisions waiting on Becky
+- A killed sharer that iOS keeps in the roster never ends listeners' sessions (silence ruling). OK?
 - TestFlight: record whether a TestFlight build is wanted (and under which bundle ID) or device installs only.
 - Siri dialog / CarPlay alert for the R39 refusal (not built: would need intent result dialogs and a
   CarPlay alert template)?
