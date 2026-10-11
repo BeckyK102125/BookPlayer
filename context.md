@@ -7,7 +7,7 @@ SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a d
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: build 4, start-position fix (build 3 started at 0:00 and reset Michael's saved place; his
+Current goal: two-device run of TestFlight build 5.22.2 (4) (develop 06498b5b, start-position fix), uploaded 2026-10-11.
 progress is the top priority). Docs: started-over-investigation.md, start-position-brief.md,
 start-position-fix-round-1.md, start-position-report.md. Waiting for review, then TestFlight build 4.
 - Specs/plans: docs/superpowers/. Guide: docs/Listen-Together-Guide.md. Ledger, briefs, reports, rulings:

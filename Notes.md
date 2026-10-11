@@ -1262,3 +1262,9 @@ start-position-a11y-rereview-1.md (I-A, I-B Important; M-a to M-e).
 - Green: 30 SharePlay classes 545/0 (xcodebuild hung after the results); full suite "Executed 1117 tests,
   with 0 failures", ** TEST SUCCEEDED **; TSan on the 30 SharePlay classes 545/0, 0 ThreadSanitizer
   warnings, ** TEST SUCCEEDED **.
+
+## 2026-10-11 — start-position fix merged, pushed, TestFlight build 5.22.2 (4)
+- `develop` fast-forwarded to 06498b5b (start-position fix 017ab284, d891ae79, 06498b5b; final re-review ready) and pushed (Becky approved).
+- TestFlight 5.22.2 (4) archived from 06498b5b (same overrides, CURRENT_PROJECT_VERSION=4), uploaded internal only: "Upload succeeded".
+  Worktree, archive and export deleted.
+- Device test to do: both phones on build 4; note the sharer's place before, verify unchanged after; "Finding the group's place" flow.
