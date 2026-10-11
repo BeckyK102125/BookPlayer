@@ -9,7 +9,7 @@ session only and deleted when it ends; playback stays in sync; everything works 
 Current goal: addendum 3 (reliable sending, visible messages, spoken errors), after a field test where
 the session ended 0.4 s after Play (most likely a failed piece on the sharer). Task A (engine) is done
 (87f4a744 .. 9cedab87). Task B (visible messages R41, Leave/Cancel Sharing, R40 fixes, "Speak error
-messages") is done on top of 9cedab87 (482ba093, 572d267b) plus fix round 1 (this commit), awaiting re-review.
+messages") is done on top of 9cedab87 (482ba093, 572d267b) plus fix rounds 1 (282f27c4) and 2 (this commit), awaiting re-review.
 Addendum 2 ("Both have the book") is done on this branch.
 - Spec: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md
 - Addendum 2: docs/superpowers/specs/2026-10-10-shareplay-listen-together-addendum-2.md
@@ -26,7 +26,7 @@ Addendum 2 ("Both have the book") is done on this branch.
   (63e9578b), `shareplay-listen-together` (e634f5c7). Becky and Michael are testing develop on devices.
 - `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731), fix rounds
   (7bf22248, 0b5aacdd), addendum 3 ruling (1598e8d4), Task A (87f4a744, de116941, d786c79e, 9cedab87),
-  Task B (482ba093, 572d267b), Task B fix round 1 (this commit, parent 572d267b). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
+  Task B (482ba093, 572d267b), fix rounds 282f27c4 and this commit (parent 282f27c4). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
   9c70dd06) belongs to another session (TestFlight archive); not touched here.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 - Never committed: BuildConfiguration/Debug.xcconfig (gitignored; holds the signing below).
@@ -76,8 +76,8 @@ Addendum 2 ("Both have the book") is done on this branch.
   awake, AVQueuePlayer, heartbeat, roster grace -> .sharerLeft, diagnostics. Details in Notes.md.
 
 ## Test evidence (2026-10-11, addendum 3 Task B)
-- Fix round 1: 24 SharePlay classes 392/0 (Messages 48, Speaker 10, Contrast 4); full 964/0
-  ** TEST SUCCEEDED **; TSan 24 classes 392/0, 0 warnings.
+- Fix round 2: 24 SharePlay classes 398/0; full 970/0 ** TEST SUCCEEDED **; TSan 398/0, 0 warnings.
+  (Round 1: 392/0, 964/0.) xcodebuild hung twice after the results; a fresh run printed the final line.
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
 Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests" -only-testing:BookPlayerTests test
 (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`). Session tests use
@@ -135,7 +135,7 @@ still apply; see Notes.md and the a11y guidance files.
 - Audio session deactivation at listener end runs on main (M7, deliberately not moved: see report).
 
 ## Open problems and next steps (in order)
-1. Re-review Task B fix round 1. Device checks: reliable-sending-task-B-report.md, "Fix round 1".
+1. Re-review Task B fix round 2 (stuck cover identity, back-off, picker tint). Device checks: reliable-sending-task-B-report.md, "Fix round 1".
    Parked: sharer End action sheet at the bottom (a11y M9), iOS 26.0 accessory status visibility (M10).
 2. Two-device run of Task A + B (list above); record results here and in Notes.md.
 3. Merge into develop (ask; Becky and Michael test develop).

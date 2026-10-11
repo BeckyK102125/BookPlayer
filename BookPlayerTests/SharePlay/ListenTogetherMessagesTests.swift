@@ -599,6 +599,8 @@ final class ListenTogetherMessagesTests: XCTestCase {
 
   func testAStuckCoverIsTakenAsGoneAfterTwoSeconds() {
     let delivery = makeDelivery()
+    let cover = NSObject()
+    delivery.currentCoverSnapshot = { cover }
     tracker.coverAppeared()
     delivery.deliver(.sharerEnded)
     delivery.deliver(.unavailable)
@@ -608,6 +610,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
     timers.advance(by: .milliseconds(1))
     XCTAssertFalse(tracker.isListenerCoverOnScreen, "never waits for ever (code I2)")
     XCTAssertTrue(delivery.coverWaitTimedOut, "MainCoordinator closes a cover still up after OK")
+    XCTAssertTrue(delivery.stuckCover === cover, "exactly the controller on screen when the watchdog fired")
     let step = MainCoordinator.listenTogetherAlertStep(
       isActive: true, waitsForCover: true, isCoverOnScreen: tracker.isListenerCoverOnScreen, isOtherAlertOnScreen: false)
     XCTAssertEqual(step, .present)
@@ -750,5 +753,89 @@ final class ListenTogetherMessagesTests: XCTestCase {
     service.resumeNeedsCopyNoticeAging()
     timers.advance(by: .seconds(61))
     XCTAssertFalse(service.needsCopyNoticeIsCurrent())
+  }
+
+  // MARK: Fix round 2
+
+  /// N1: the Leave path's watchdog records nothing, and a later normal ending (book player presented, the
+  /// listener cover reported gone) never closes anything.
+  func testALaterNormalEndingNeverClosesTheBookPlayer() {
+    let delivery = makeDelivery()
+    let player = NSObject()
+    delivery.currentCoverSnapshot = { player }
+    tracker.coverAppeared()
+    delivery.afterListenerCoverGone(announce: "You left Listen Together.")
+    timers.advance(by: .seconds(3))
+    XCTAssertNil(delivery.stuckCover, "the Leave path never records a cover")
+    XCTAssertFalse(tracker.isListenerCoverOnScreen, "but the stuck flag is reset")
+    XCTAssertEqual(posted, ["You left Listen Together."], "said once")
+    // Later: a listener ending whose cover leaves normally.
+    tracker.coverAppeared()
+    delivery.deliver(.sharerEnded)
+    tracker.coverDismissed()
+    timers.advance(by: .seconds(3))
+    XCTAssertNil(delivery.takeStuckCover())
+    XCTAssertFalse(
+      MainCoordinator.closesStuckCover(recorded: delivery.stuckCover, presented: player, isBeingDismissed: false),
+      "the book player is never dismissed")
+  }
+
+  func testAStuckCoverIsForgottenByANewSessionOrTeardown() {
+    let delivery = makeDelivery()
+    let cover = NSObject()
+    delivery.currentCoverSnapshot = { cover }
+    tracker.coverAppeared()
+    delivery.deliver(.sharerEnded)
+    timers.advance(by: .seconds(2))
+    XCTAssertNotNil(delivery.stuckCover)
+    delivery.dropPendingAlerts()
+    XCTAssertNil(delivery.stuckCover, "a new invitation or session forgets it")
+  }
+
+  func testANewSessionAndATeardownForgetAStuckCover() async {
+    let service = makeService()
+    let cover = NSObject()
+    service.messages.currentCoverSnapshot = { cover }
+    tracker.coverAppeared()
+    service.messages.deliver(.sharerEnded)
+    timers.advance(by: .seconds(2))
+    XCTAssertNotNil(service.messages.stuckCover)
+    service.startListening(with: FakeTransport(), shareID: UUID())
+    XCTAssertNil(service.messages.stuckCover, "a new session forgets it")
+
+    tracker.coverAppeared()
+    service.messages.deliver(.sharerEnded)
+    timers.advance(by: .seconds(4))
+    XCTAssertNotNil(service.messages.stuckCover)
+    service.end()
+    XCTAssertNil(service.messages.stuckCover, "a teardown forgets it")
+  }
+
+  /// N4: the coordinator closes only the recorded controller, and only while it is still presented.
+  func testClosesStuckCoverDecision() {
+    let cover = NSObject(), player = NSObject()
+    XCTAssertTrue(MainCoordinator.closesStuckCover(recorded: cover, presented: cover, isBeingDismissed: false))
+    XCTAssertFalse(MainCoordinator.closesStuckCover(recorded: cover, presented: player, isBeingDismissed: false))
+    XCTAssertFalse(MainCoordinator.closesStuckCover(recorded: cover, presented: cover, isBeingDismissed: true))
+    XCTAssertFalse(MainCoordinator.closesStuckCover(recorded: nil, presented: player, isBeingDismissed: false))
+    XCTAssertFalse(MainCoordinator.closesStuckCover(recorded: cover, presented: nil, isBeingDismissed: false))
+  }
+
+  /// N2: a cover that leaves normally ends the wait; a second ending soon after starts its own 2 s.
+  func testANormalDismissalResetsTheCoverWait() {
+    let delivery = makeDelivery()
+    tracker.coverAppeared()
+    delivery.deliver(.sharerEnded)
+    timers.advance(by: .milliseconds(1500))
+    tracker.coverDismissed()
+    let first = try! XCTUnwrap(delivery.alerts.next)
+    delivery.alertPresented(first.id)
+    delivery.alertClosed(first.id)
+    tracker.coverAppeared()
+    delivery.deliver(.sharerLeft)
+    timers.advance(by: .milliseconds(600))   // the first watchdog fires at 2.0 s
+    XCTAssertTrue(tracker.isListenerCoverOnScreen, "not forced early by the first wait's start time")
+    timers.advance(by: .milliseconds(1400))  // 2 s after the second ending was queued
+    XCTAssertFalse(tracker.isListenerCoverOnScreen)
   }
 }

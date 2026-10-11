@@ -72,4 +72,13 @@ final class ListenTogetherContrastTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(ListenTogetherContrast.ratio(.white, tint), 3, "thumb: \(variant.name)")
     }
   }
+
+  /// a11y N2: the checkmark of the chosen "When someone doesn't have the book" option is drawn in primary
+  /// on the system background row.
+  func testPickerCheckmarkOnTheSettingsRow() throws {
+    for variant in try variants() {
+      XCTAssertGreaterThanOrEqual(
+        ListenTogetherContrast.ratio(variant.primary, variant.background), 3.0, "checkmark: \(variant.name)")
+    }
+  }
 }

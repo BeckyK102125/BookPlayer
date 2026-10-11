@@ -38,6 +38,9 @@ struct SettingsListenTogetherView: View {
           Text("settings_listen_together_header".localized)
         }
         .pickerStyle(.inline)
+        // a11y N2: the checkmark that shows the chosen option in primary (at least 6.40:1 on this row in
+        // every theme), not the app's link tint (below 3:1 in four variants).
+        .tint(theme.primaryColor)
         // labelsHidden keeps the label as the picker's name; no extra accessibilityLabel (it could be
         // applied to every option row of an inline picker and hide the option names).
         .labelsHidden()

@@ -881,6 +881,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     guard role == .listener else { return }
     if let shareID { endedShareIDs.insert(shareID) }
     tearDown(reason: .left, announces: false)
+    messages.forgetStuckCover()
     messages.afterListenerCoverGone(announce: "listen_together_left_for_own_book".localized)
   }
 
@@ -957,6 +958,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     leaveTransport: Bool = true
   ) {
     guard isInSession else { return }
+    // N1: a cover recorded for an earlier ending is never closed by this one.
+    messages.forgetStuckCover()
     let transport = self.transport
     let shareID = self.shareID
     let wasListener = role == .listener

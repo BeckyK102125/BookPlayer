@@ -963,3 +963,20 @@ Parent 572d267b. Inputs: reliable-sending-task-B-fix-1.md (rulings), -code-revie
   Full: "Executed 964 tests, with 0 failures", ** TEST SUCCEEDED **. TSan 24 classes 392/0, 0
   ThreadSanitizer warnings (same pre-existing CoreData performance-checker line). One SharePlay run hung after
   its results (known xcodebuild hang); killed and rerun.
+
+## 2026-10-11 - listen-together-own-copy - addendum 3 Task B, fix round 2
+Parent 282f27c4. Inputs: reliable-sending-task-B-code-rereview-1.md, -a11y-rereview-1.md.
+- N1: the stuck-cover fallback records the exact controller presented when the cover watchdog fires
+  (`currentCoverSnapshot`, held weakly as `stuckCover`), and only while an ending alert is pending (never on
+  the Leave path). MainCoordinator dismisses it only if it is still that presented controller
+  (`closesStuckCover`, pure). Forgotten by tearDown, Leave, dropPendingAlerts (new invitation/session).
+  The Leave-path watchdog now resets a stuck tracker first (its change runs the action once).
+- N2: a cover that goes away normally clears `coverWaitStartedAt`, so a later wait gets its full 2 s.
+- N3: invitation and needs-copy waits behind a message alert back off 0.5 -> 5 s; closing a message alert
+  retries both at once.
+- a11y N1/N3: guide lines (sharer leaves the app while sending; "for one of these reasons"; ongoing list
+  includes "can't reach the person sharing"). a11y N2: Picker tinted primary (checkmark), contrast test.
+- TDD: red with the fixes reverted: Messages 53 tests, 4 failures; the Leave-path recording test 2
+  failures when recording was unconditional. Green: 24 SharePlay classes 398/0; full "Executed 970 tests,
+  with 0 failures", ** TEST SUCCEEDED ** (two earlier full runs hung after the results and were killed);
+  TSan 398/0, 0 warnings (same pre-existing CoreData performance-checker line).

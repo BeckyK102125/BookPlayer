@@ -269,6 +269,7 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   }
   private var closeActions: [UUID: @MainActor () -> Void] = [:]
   private var coverWaits = Set<AnyCancellable>()
+  private var trackerObservations = Set<AnyCancellable>()
 
   /// After the listener cover has gone: VoiceOver focus first, then the queued sentence, so moving
   /// focus can't cut the sentence off (leave guidance, "After leaving"; a11y M4: 500 ms gap).
@@ -277,9 +278,16 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   /// The longest a message waits for the listener cover to report that it has gone (fix round 1, I2).
   /// Past it the cover is taken as gone; if it is in fact still up, the alert is shown over it.
   static let coverWaitLimit: Duration = .seconds(2)
-  /// True after `coverWaitLimit` passed without the cover reporting its dismissal. MainCoordinator then
-  /// closes a cover that is still up once the alert's OK is chosen. Logged.
-  private(set) var coverWaitTimedOut = false
+  /// The listener cover that was still on screen when the watchdog fired for a pending ending alert,
+  /// held weakly (fix round 2, N1). MainCoordinator closes exactly this controller after OK, and nothing
+  /// else. Recorded only for an alert (not the Leave path) and cleared by a new session, a teardown,
+  /// dropped alerts and Leave, so it can never go stale.
+  private(set) weak var stuckCover: AnyObject?
+  /// True once the watchdog has fired for the current wait. Test seam / log.
+  var coverWaitTimedOut: Bool { stuckCover != nil }
+  /// Returns the controller presented over the main screen right now (MainCoordinator). Nil in tests
+  /// unless set.
+  var currentCoverSnapshot: (@MainActor () -> AnyObject?)?
   /// When the oldest item waiting for the cover was queued (for the check on becoming active).
   private var coverWaitStartedAt: Date?
   /// Test seam.
@@ -297,6 +305,14 @@ final class ListenTogetherMessageDelivery: ObservableObject {
     self.coverTracker = coverTracker
     self.focusRequests = focusRequests
     self.context = context
+    // N2: a cover that goes away normally ends the current wait, so a later wait starts afresh.
+    coverTracker.$isListenerCoverOnScreen
+      .removeDuplicates()
+      .sink { [weak self] onScreen in
+        guard !onScreen else { return }
+        MainActor.assumeIsolated { self?.coverWaitStartedAt = nil }
+      }
+      .store(in: &trackerObservations)
   }
 
   nonisolated static func plan(
@@ -385,14 +401,22 @@ final class ListenTogetherMessageDelivery: ObservableObject {
       now().timeIntervalSince(started) >= Double(Self.coverWaitLimit.components.seconds)
     else { return false }
     SharePlaySessionService.logger.info("Listen Together: the listener cover did not report its dismissal; going on")
-    coverWaitTimedOut = true
-    coverWaitStartedAt = nil
+    // Only an ending alert closes the cover after OK; the Leave path just goes on.
+    if alerts.pending.contains(where: { $0.message.waitsForListenerCover }) {
+      stuckCover = currentCoverSnapshot?()
+    }
     coverTracker.coverDismissed()
     return true
   }
 
-  /// MainCoordinator handled a cover that had not reported its dismissal.
-  func acknowledgeCoverWaitTimeout() { coverWaitTimedOut = false }
+  /// MainCoordinator takes the stuck cover for the ending alert it presents now (once).
+  func takeStuckCover() -> AnyObject? {
+    defer { stuckCover = nil }
+    return stuckCover
+  }
+
+  /// A new session, a teardown, Leave or dropped alerts: no earlier cover may ever be closed later.
+  func forgetStuckCover() { stuckCover = nil }
 
   /// MainCoordinator put the alert on screen: it is spoken now (unless it already was).
   func alertPresented(_ id: UUID) {
@@ -412,6 +436,7 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   func dropPendingAlerts() {
     for item in alerts.pending { closeActions.removeValue(forKey: item.id)?() }
     alerts.dropPending()
+    forgetStuckCover()
   }
 
   /// Leave (guidance): after the listener cover has gone, focus the mini player (when it is on
@@ -449,12 +474,14 @@ final class ListenTogetherMessageDelivery: ObservableObject {
     if coverWaitStartedAt == nil { coverWaitStartedAt = now() }
     schedule(Self.coverWaitLimit) { [weak self] in
       guard let self else { return }
+      // First, so a stuck tracker is reset too (its change runs the action); nothing is recorded for
+      // closing, because no ending alert waits on this path (N1).
+      self.forceCoverGoneIfOverdue()
       if let cancellable, self.coverWaits.contains(cancellable) {
         self.coverWaits.remove(cancellable)
         SharePlaySessionService.logger.info("Listen Together: the listener cover did not report its dismissal (leave)")
         once.run()
       }
-      self.forceCoverGoneIfOverdue()
     }
   }
 
