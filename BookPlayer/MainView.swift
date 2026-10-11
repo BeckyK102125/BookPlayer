@@ -86,13 +86,14 @@ struct MainView: View {
             .animation(.spring(), value: playerState.loadedBookRelativePath != nil)
         }
       }
-      // In compact width (iPhone, iPad split/slide-over) the tab bar is at the bottom, so clear it;
-      // in regular width (iPad full screen) it is at the top, so only add minimal spacing. In edit
-      // mode the tab bar is hidden.
+      // Clear the tab bar, or in edit mode the editing toolbar that takes its place (so the row never
+      // covers Move or Delete); in regular width outside edit mode only minimal spacing.
       .padding(
         .bottom,
         bar.showsRow || bar.showsMiniPlayer
-          ? (hSize == .compact && !listState.isEditing ? tabBarContentHeight + 8 : Spacing.S1) : 0
+          ? MiniPlayerLayout.bottomClearance(
+            isCompact: hSize == .compact, isEditing: listState.isEditing, tabBarContentHeight: tabBarContentHeight)
+          : 0
       )
       .animation(.easeInOut(duration: 0.25), value: bar)
     } accessoryContent: {
@@ -101,10 +102,13 @@ struct MainView: View {
       let bar = bottomBar
       if bar.showsRow && !bar.showsMiniPlayer {
         ListenTogetherStatusRow(service: sharePlayService, isAccessory: true, showPlayer: showPlayer)
+          // The accessory's height is fixed: text stops growing at the largest non-accessibility size
+          // (one row, no clipping) instead of wrapping; VoiceOver still reads the full label and value.
+          .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
       } else if bar.showsMiniPlayer, let relativePath = playerState.loadedBookRelativePath {
         MiniPlayerAccessoryView(
           relativePath: relativePath, showPlayer: showPlayer,
-          listenTogetherValue: bar.showsRow ? sharerAccessoryValue : nil)
+          listenTogetherValue: bar.showsRow ? ListenTogetherRow.sharerAccessoryValue : nil)
       }
     }
     .sheet(item: $listState.activeIntegrationSheet, onDismiss: {
@@ -124,7 +128,9 @@ struct MainView: View {
     }
     .fullScreenCover(isPresented: playerState.isShowingPlayerBinding, onDismiss: {
       listState.coversOnScreen.remove(.player)
-      // A sharer closed the player: land on the Listen Together row, the way back to it.
+      // A sharer closed the player: land on the Listen Together row, the way back to it. On iOS 26.0
+      // exactly there is no row for a sharer (the accessory mini player reads the status instead), so
+      // the request finds no focused element and VoiceOver keeps its default landing, which is fine.
       if case .sharing = sharePlayService.state {
         Task { @MainActor in
           try? await Task.sleep(for: .milliseconds(500))
@@ -188,14 +194,6 @@ struct MainView: View {
       hasLoadedBook: playerState.loadedBookRelativePath != nil,
       isSearchingOrEditing: listState.isSearching || listState.isEditing,
       isKeyboardVisible: keyboardObserver.isKeyboardVisible)
-  }
-
-  /// "Listen Together, sharing, Moby Dick", for the iOS 26.0 accessory mini player.
-  private var sharerAccessoryValue: String? {
-    ListenTogetherRow.value(
-      state: sharePlayService.state, joinedTitle: nil, listener: nil,
-      sharerTitle: playerManager.currentItem?.title
-    ).map { "listen_together_title".localized + ", " + $0 }
   }
 
   func showPlayer() {

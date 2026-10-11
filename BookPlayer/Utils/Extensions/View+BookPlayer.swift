@@ -237,12 +237,38 @@ struct MiniPlayerSizePreferenceKey: PreferenceKey {
   }
 }
 
+/// Where the mini player stack (the Listen Together row and the mini player) sits above the bottom chrome,
+/// and how far list content must be inset to scroll clear of it.
+enum MiniPlayerLayout {
+  /// The bottom chrome is the tab bar in compact width, or the editing toolbar in edit mode (it takes the
+  /// hidden tab bar's place, and it is at the bottom in regular width too). In regular width, outside
+  /// edit mode, the tab bar is at the top, so only minimal spacing is added.
+  static func hasBottomChrome(isCompact: Bool, isEditing: Bool) -> Bool {
+    isCompact || isEditing
+  }
+
+  static func bottomClearance(isCompact: Bool, isEditing: Bool, tabBarContentHeight: CGFloat) -> CGFloat {
+    hasBottomChrome(isCompact: isCompact, isEditing: isEditing) ? tabBarContentHeight + 8 : Spacing.S1
+  }
+
+  /// The stack's measured height includes its clearance; the bottom chrome already insets the content,
+  /// so only the part above the chrome (plus 20 pt) is added.
+  static func contentInset(
+    stackHeight: CGFloat, isCompact: Bool, isEditing: Bool, tabBarContentHeight: CGFloat
+  ) -> CGFloat {
+    let chrome = hasBottomChrome(isCompact: isCompact, isEditing: isEditing) ? tabBarContentHeight : 0
+    let topPadding: CGFloat = 20
+    return stackHeight + topPadding - (stackHeight > chrome ? chrome : 0)
+  }
+}
+
 struct MiniPlayerModifier<Regular: View, Accessory: View>: ViewModifier {
   @ViewBuilder let regular: () -> Regular
   @ViewBuilder let accessory: () -> Accessory
 
   @Environment(\.horizontalSizeClass) var hSize
   @Environment(\.tabBarContentHeight) var tabBarContentHeight
+  @Environment(\.listState) private var listState
   @State private var miniPlayerBottomInset: CGFloat = 80
 
   func body(content: Content) -> some View {
@@ -279,13 +305,10 @@ struct MiniPlayerModifier<Regular: View, Accessory: View>: ViewModifier {
       }
       .onPreferenceChange(MiniPlayerSizePreferenceKey.self) {
         guard $0.height > 0 else { return }
-        let miniPlayerHeight = $0.height
-        let topPadding: CGFloat = 20
-        // In compact width (iPhone, iPad split/slide-over), reduce inset by tab bar
-        // content height since the mini player's own bottom padding already clears it
-        let reduceSize = hSize == .compact ? tabBarContentHeight : 0
-        let reduceTopPadding = miniPlayerHeight > reduceSize ? reduceSize : 0
-        miniPlayerBottomInset = miniPlayerHeight + topPadding - reduceTopPadding
+        // The stack's own bottom clearance (MainView) already clears the tab bar or editing toolbar.
+        miniPlayerBottomInset = MiniPlayerLayout.contentInset(
+          stackHeight: $0.height, isCompact: hSize == .compact, isEditing: listState.isEditing,
+          tabBarContentHeight: tabBarContentHeight)
       }
       .environment(\.miniPlayerBottomInset, miniPlayerBottomInset)
   }

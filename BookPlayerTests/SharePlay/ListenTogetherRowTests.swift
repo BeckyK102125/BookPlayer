@@ -1,6 +1,5 @@
 @testable import BookPlayer
 @testable import BookPlayerKit
-import Combine
 import XCTest
 
 /// R35/R36: escape closes the listener screen while the session continues, and the Listen Together
@@ -65,20 +64,26 @@ final class ListenTogetherRowTests: XCTestCase {
     XCTAssertTrue(P.isListenerScreenRequested(after: .sessionStarted, current: false))
   }
 
-  func testEscapeIsOnlyACloseAndNeverEndsTheSession() {
-    let playerManager = PlayerManagerProtocolMock()
-    playerManager.isPlayingPublisherReturnValue = Just(false).eraseToAnyPublisher()
-    playerManager.currentSpeedPublisherReturnValue = Just(Float(1)).eraseToAnyPublisher()
-    let service = SharePlaySessionService(
-      playerManager: playerManager,
-      storage: ShareStorage(root: FileManager.default.temporaryDirectory.appendingPathComponent("RowTests-\(UUID())")),
-      announcer: ListenTogetherAnnouncer(post: { _ in }))
-    service.setState(listening)
+  func testEscapeOnlyClearsTheRequest() {
     let listState = ListStateManager()
     listState.isListenerScreenRequested = true
+    listState.coversOnScreen = [.listenTogether]
     P.closeListenerScreen(listState: listState)
     XCTAssertFalse(listState.isListenerScreenRequested)
-    XCTAssertEqual(service.state, listening, "escape must not end Listen Together")
+    // Nothing else moves: no focus request, the cover registration is left to onDismiss.
+    XCTAssertEqual(listState.listenTogetherRowFocusRequest, 0)
+    XCTAssertEqual(listState.coversOnScreen, [.listenTogether])
+    // A second escape is still only a close.
+    P.closeListenerScreen(listState: listState)
+    XCTAssertFalse(listState.isListenerScreenRequested)
+  }
+
+  func testOnlyARealStartOfListeningRequestsTheScreen() {
+    // A rebuild fires onChange(initial:) with old == new: an escape must not be undone by it.
+    XCTAssertTrue(P.isSessionStart(wasListening: false, isListening: true))
+    XCTAssertFalse(P.isSessionStart(wasListening: true, isListening: true))
+    XCTAssertFalse(P.isSessionStart(wasListening: true, isListening: false))
+    XCTAssertFalse(P.isSessionStart(wasListening: false, isListening: false))
   }
 
   func testFocusMovesToTheRowOnlyWhenTheUserClosedTheScreenInASession() {
@@ -135,6 +140,37 @@ final class ListenTogetherRowTests: XCTestCase {
     XCTAssertEqual(bar(.idle, searchingOrEditing: true), R.BottomBar(showsRow: false, showsMiniPlayer: false))
   }
 
+  // MARK: Bottom clearance and content inset
+
+  typealias L = MiniPlayerLayout
+
+  func testClearanceClearsTheTabBarOrTheEditingToolbar() {
+    // Compact: the tab bar is at the bottom; in edit mode the editing toolbar takes its place.
+    XCTAssertEqual(L.bottomClearance(isCompact: true, isEditing: false, tabBarContentHeight: 49), 57)
+    XCTAssertEqual(L.bottomClearance(isCompact: true, isEditing: true, tabBarContentHeight: 49), 57)
+    // Regular (iPad full screen): the tab bar is at the top, but the editing toolbar is at the bottom.
+    XCTAssertEqual(L.bottomClearance(isCompact: false, isEditing: false, tabBarContentHeight: 49), Spacing.S1)
+    XCTAssertEqual(L.bottomClearance(isCompact: false, isEditing: true, tabBarContentHeight: 49), 57)
+  }
+
+  func testContentInsetSubtractsOnlyTheChromeTheClearanceCovers() {
+    // The stack's measured height includes the clearance; the bar at the bottom already insets content.
+    XCTAssertEqual(L.contentInset(stackHeight: 120, isCompact: true, isEditing: false, tabBarContentHeight: 49), 91)
+    XCTAssertEqual(L.contentInset(stackHeight: 120, isCompact: true, isEditing: true, tabBarContentHeight: 49), 91)
+    XCTAssertEqual(L.contentInset(stackHeight: 120, isCompact: false, isEditing: true, tabBarContentHeight: 49), 91)
+    XCTAssertEqual(L.contentInset(stackHeight: 70, isCompact: false, isEditing: false, tabBarContentHeight: 49), 90)
+    // Never less than the stack itself above the chrome: content can always scroll clear of the row.
+    for editing in [false, true] {
+      for compact in [false, true] {
+        let clearance = L.bottomClearance(isCompact: compact, isEditing: editing, tabBarContentHeight: 49)
+        let stack = 64 + clearance
+        let inset = L.contentInset(stackHeight: stack, isCompact: compact, isEditing: editing, tabBarContentHeight: 49)
+        let chrome: CGFloat = compact || editing ? 49 : 0
+        XCTAssertGreaterThanOrEqual(inset + chrome, stack, "compact \(compact) editing \(editing)")
+      }
+    }
+  }
+
   // MARK: (c) The row's value
 
   private func value(
@@ -171,6 +207,12 @@ final class ListenTogetherRowTests: XCTestCase {
     XCTAssertEqual(
       value(.listening(participants: 2, downloaded: 0.6), joinedTitle: "Moby Dick"),
       String.localizedStringWithFormat("listen_together_row_value_downloading".localized, 50) + ", Moby Dick")
+  }
+
+  func testSharerAccessoryValueDoesNotRepeatTheTitle() {
+    XCTAssertEqual(
+      R.sharerAccessoryValue,
+      "listen_together_title".localized + ", " + "listen_together_row_value_sharing_untitled".localized)
   }
 
   func testSharerValueSaysSharingWithTheTitle() {

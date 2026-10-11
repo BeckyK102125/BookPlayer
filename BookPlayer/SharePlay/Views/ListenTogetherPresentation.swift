@@ -42,6 +42,12 @@ struct ListenTogetherPresentation: ViewModifier {
     case stateChanged(ListenTogetherState)
   }
 
+  /// Only a real change from not listening to listening is a session start. `onChange(initial:)` also
+  /// fires when the view is rebuilt (old == new); that must not undo an escape.
+  static func isSessionStart(wasListening: Bool, isListening: Bool) -> Bool {
+    !wasListening && isListening
+  }
+
   /// R35: escape closes the listener screen and service state alone never brings it back. The session
   /// ending, or a new invitation, clears the request so nothing stale pops a screen up later; the next
   /// session start sets it again.
@@ -127,10 +133,12 @@ struct ListenTogetherPresentation: ViewModifier {
         ListenTogetherListenerScreen(service: service, onClose: { Self.closeListenerScreen(listState: listState) })
           .onAppear { listState.coversOnScreen.insert(.listenTogether) }
       }
-      .onChange(of: isListening, initial: true) { _, isListening in
+      .onChange(of: isListening, initial: true) { wasListening, isListening in
         guard isListening else { return }
-        listState.isListenerScreenRequested = Self.isListenerScreenRequested(
-          after: .sessionStarted, current: listState.isListenerScreenRequested)
+        if Self.isSessionStart(wasListening: wasListening, isListening: isListening) {
+          listState.isListenerScreenRequested = Self.isListenerScreenRequested(
+            after: .sessionStarted, current: listState.isListenerScreenRequested)
+        }
         // Close what is in the way; the listener screen follows once it has left.
         if playerState.isShowingPlayer { playerState.isShowingPlayer = false }
         if listState.activeIntegrationSheet != nil { listState.activeIntegrationSheet = nil }

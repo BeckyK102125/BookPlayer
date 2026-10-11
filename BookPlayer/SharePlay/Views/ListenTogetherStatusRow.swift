@@ -83,6 +83,12 @@ enum ListenTogetherRow {
     }
   }
 
+  /// iOS 26.0 accessory mini player value for a sharer: "Listen Together, sharing". The mini player's
+  /// label already has the title, so it is not repeated.
+  static var sharerAccessoryValue: String {
+    "listen_together_title".localized + ", " + "listen_together_row_value_sharing_untitled".localized
+  }
+
   static func hint(for role: Role) -> String {
     switch role {
     case .listener: return "listen_together_row_hint_listener".localized
@@ -116,6 +122,8 @@ struct ListenTogetherStatusRow: View {
     self.isAccessory = isAccessory
     self.showPlayer = showPlayer
     _snapshots = State(initialValue: Self.snapshots(of: service))
+    // Seeded now so the first frame already says playing or paused, not "getting the book".
+    _snapshot = State(initialValue: service.listener.map(Self.snapshot(of:)))
   }
 
   var body: some View {
@@ -154,12 +162,12 @@ struct ListenTogetherStatusRow: View {
       VStack(alignment: .leading, spacing: 2) {
         Text("listen_together_title".localized)
           .bpFont(.headline)
-          .foregroundStyle(theme.primaryColor)
+          .foregroundStyle(textStyle)
           .multilineTextAlignment(.leading)
           .fixedSize(horizontal: false, vertical: true)
         Text(value)
           .bpFont(.subheadline)
-          .foregroundStyle(theme.primaryColor)
+          .foregroundStyle(textStyle)
           .multilineTextAlignment(.leading)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -186,6 +194,12 @@ struct ListenTogetherStatusRow: View {
     .padding(.horizontal, isAccessory ? 0 : 12)
   }
 
+  /// In the accessory the text sits on system glass, so it uses the system label colour, which adapts
+  /// to the glass, Reduce Transparency and Increase Contrast. Elsewhere it is on the theme background.
+  private var textStyle: AnyShapeStyle {
+    isAccessory ? AnyShapeStyle(.primary) : AnyShapeStyle(theme.primaryColor)
+  }
+
   private func activate(_ role: ListenTogetherRow.Role) {
     switch role {
     case .listener:
@@ -194,6 +208,11 @@ struct ListenTogetherStatusRow: View {
     case .sharer:
       showPlayer()
     }
+  }
+
+  private static func snapshot(of listener: ListenerPlayer) -> ListenTogetherRow.ListenerSnapshot {
+    ListenTogetherRow.ListenerSnapshot(
+      title: listener.manifest.title, isPlaying: listener.isPlaying, isWaiting: listener.isWaitingForPiece)
   }
 
   /// The listener's playing and waiting state, without observing its twice-a-second time.
@@ -211,7 +230,7 @@ struct ListenTogetherStatusRow: View {
       }
       .switchToLatest()
       .removeDuplicates()
-      .receive(on: DispatchQueue.main)
+      // No receive(on:): both objects are main-actor and publish on main; hopping would delay the value.
       .eraseToAnyPublisher()
   }
 }

@@ -15,7 +15,7 @@ in sync. Everything must work with VoiceOver.
 - Branch `shareplay-listen-together`, started from upstream develop at eb19a92f. NOT pushed anywhere.
 - Branch `listen-together-lock-screen` (Change C of addendum 1), from develop at e634f5c7 (which holds
   the whole Listen Together work plus the guide and addendum 1). Last work: escape goes back + Listen
-  Together status row, R35/R36 (this commit; parent 54399521, guide for R34). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
+  Together status row, R35/R36 (fix round 1, this commit; parent 8b76a6e5). Not pushed. Only worktree. Changes A and B of addendum 1 are NOT on this branch.
 - Never committed (gitignored): BuildConfiguration/Debug.xcconfig. Local copy only.
 - BookPlayer/Player/PlayerManager.swift is untouched (git diff eb19a92f --stat on it prints nothing).
 
@@ -49,18 +49,18 @@ screen), listener screen with a "getting the book" state, needs-FaceTime alert; 
   change-c-report.md. Final fix wave (R31, R32): final-fix-report.md.
 
 ## Test evidence (2026-10-10)
-- Escape + row: ListenTogetherRowTests 19 tests, 0 failures; full suite "Executed 712 tests, with 0 failures" (rerun; first run hit an unrelated CoreData flake).
+- Escape + row: Fix round 1: ListenTogetherRowTests 23 tests; full suite "Executed 716 tests, with 0 failures".
 - Before (Change C fix round 2): 693 tests, 0 failures. Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
   'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
   -only-testing:BookPlayerTests test.
-- Release build (Change C): `-configuration Release -destination 'generic/platform=iOS Simulator' build` OK.
-- SharePlay itself cannot run in the simulator (no FaceTime).
+- SharePlay cannot run in the simulator (no FaceTime). Release build (Change C): `-configuration Release -destination 'generic/platform=iOS Simulator' build` OK.
 
 ## Local environment gotchas
 - This Mac has Xcode 27; upstream CI uses Xcode 26.4. Xcode 27 resolves "iPhone 17" to nothing, so use
   the simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C (iPhone 17, iOS 26.5, machine specific).
 - xcodebuild prints intermediate "Executed N tests" summaries; wait for ** TEST SUCCEEDED/FAILED **. It
   can hang after that (or after "Selected tests failed"): log to a file, poll, then `pkill -x xcodebuild`.
+- Never pass -derivedDataPath (see ~/.claude/CLAUDE.md). "Invalid API Key" lines in test output are expected noise.
 - Project file editing: the project uses classic groups, so new files must be registered. Helper:
   /private/tmp/bp-tools/add_to_xcodeproj.py with /private/tmp/bp-tools/venv/bin/python (pbxproj 4.2.1).
   /private/tmp is swept weekly (Sundays); Notes.md (Task 0 entry) says how to rebuild it. Keep it until

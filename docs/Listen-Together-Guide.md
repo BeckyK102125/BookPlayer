@@ -62,13 +62,15 @@ If you are not on a FaceTime call, BookPlayer tells you to start one first. Noth
 4. Choose **Join** to listen, or **Not Now** to decline.
 5. After you join, you hear "Getting the book" while the first part of the book downloads. This usually takes less than a minute.
 6. Playback starts in sync with everyone else.
-7. To leave the Listen Together screen without ending it, use the two-finger scrub (or the back gesture). You go back to your library and the book keeps playing for everyone. A **Listen Together** row stays just above the tab bar. VoiceOver reads it, for example, as "Listen Together, playing, Moby Dick". Choose it to come back to the player.
+7. To leave the Listen Together screen without ending it, use the two-finger scrub. You go back to your library and the book keeps playing for everyone. A **Listen Together** row stays just above the tab bar. VoiceOver reads it, for example, as "Listen Together, playing, Moby Dick". Choose it to come back to the player.
 
 Your own book is paused when you join. While you listen together your own mini player is hidden, so you cannot start your own book by accident.
 
 ## During the session
 
 Closing the Listen Together screen does not end the session. Use the two-finger scrub to close it and the **Listen Together** row to open it again.
+
+While you listen together, BookPlayer hides your own mini player. If you start your own book, pause it from the lock screen or Control Center.
 
 Anyone can control playback, and it changes for everyone:
 

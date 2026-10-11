@@ -422,3 +422,19 @@ cancel/back.
   "Executed 712 tests, with 0 failures", ** TEST SUCCEEDED ** (693 + 19). No new warnings.
 - Not done: device / VoiceOver checks (guidance section 11). Decision 1 settled by R36 as "always hide"
   (the guidance had recommended showing the own mini player while the own book plays).
+
+## 2026-10-10 - listen-together-lock-screen - escape + row fix round 1
+Parent 8b76a6e5. Code review: the row covered the edit-mode bottom toolbar (Move/Delete) because edit mode
+only got Spacing.S1. New MiniPlayerLayout (View+BookPlayer.swift): bottomClearance = tabBarContentHeight + 8
+whenever there is bottom chrome (compact width, or edit mode in any width, since the editing toolbar takes the
+tab bar's place), else Spacing.S1; contentInset = stack + 20 - chrome height, used by MiniPlayerModifier
+(now reads listState.isEditing), so content scrolls clear in every combination. Minors: row snapshot seeded in
+init and receive(on:) dropped (main-actor publishers); session start only on a real false->true change
+(isSessionStart; onChange(initial:) on a rebuild no longer re-requests the screen after escape); vacuous
+service assertion replaced by testEscapeOnlyClearsTheRequest; comment on the iOS 26.0 sharer focus path.
+A11y review WARN-1/2: iOS 26.0 accessory row capped at .xxxLarge Dynamic Type and uses the system .primary
+colour on glass; TIP-1: accessory value "Listen Together, sharing" (title not repeated). Guide: "(or the back
+gesture)" removed; TIP-2 sentence on pausing your own book from the lock screen added. context.md: the
+-derivedDataPath and "Invalid API Key" notes restored in one line. Tests: ListenTogetherRowTests 23 +
+SharePlayMenuTests: "Executed 38 tests, with 0 failures", ** TEST SUCCEEDED **. Full: "Executed 716 tests,
+with 0 failures", ** TEST SUCCEEDED ** (no restart). No new warnings; no project file changes.
