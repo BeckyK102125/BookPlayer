@@ -1131,3 +1131,4 @@ Parent f4d9cad4. Inputs: transfer-fix-rereview-1.md (ready to merge; 5 new Minor
 - TestFlight 5.22.2 (3) archived from 4f589c33 in a temporary worktree (same overrides as builds 1-2, CURRENT_PROJECT_VERSION=3),
   exported and uploaded (internal only): "Upload succeeded". Worktree, archive and export deleted.
 - Device test to do: both phones on build 3; sharer's phone on a Mac to read "journal upload failed: … rejection=" and transport-mode lines.
+- 2026-10-11 device result (Becky): build 5.22.2 (3) WORKS on a FaceTime call — audio arrives and plays in sync. Not yet known which path (journal Data vs chunk fallback); Messages start, locked phones, End/session end still to test.
