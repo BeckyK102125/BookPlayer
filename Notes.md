@@ -868,3 +868,60 @@ Parent d786c79e. Input: reliable-sending-task-A-rereview-1.md.
 - TDD: red ReliableSending 47 tests, 5 failures (immediate reload x4 asserts, invalidation). Green:
   21 SharePlay classes 330/0; full "Executed 902 tests, with 0 failures", ** TEST SUCCEEDED ** (first
   run); TSan 21 classes 330/0, 0 ThreadSanitizer warnings.
+
+## 2026-10-11 - listen-together-own-copy - addendum 3 Task B (what people see and hear)
+Parent 9cedab87. Code commit 482ba093. Inputs: reliable-sending-task-B-brief.md,
+reliable-sending-a11y-guidance.md, leave-button-a11y-guidance.md, reviewer-common.md (R40, R41).
+- New ListenTogetherMessages.swift: ListenTogetherUserMessage (text, key, kind, speaks, isEnding,
+  waitsForListenerCover), ListenTogetherDeliveryPlan (pure, per message and app state),
+  ListenTogetherAlertQueue (one on screen, FIFO, newest ending replaces pending, no duplicates),
+  ListenTogetherMessageDelivery (owned by the service as `messages`; announcer, speaker, notification
+  only with existing permission, afterListenerCoverGone), ListenTogetherCoverTracker (listener cover
+  onAppear/onDismiss), ListenTogetherFocusRequests (mini player focus; MiniPlayerView and the iOS 26
+  accessory observe it).
+- New ListenTogetherSpeaker.swift: one AVSpeechSynthesizer (usesApplicationAudioSession=false,
+  mixToTelephonyUplink=false), utterance.prefersAssistiveTechnologySettings only, gate = setting on,
+  VoiceOver off, no connected call (CXCallObserver), checked at speak time; same key never queued twice;
+  background task per utterance (ended on finish, cancel, expiry); VoiceOver turning on stops at the next
+  word and clears; Hear a Sample after 0.5 s, even with VoiceOver, a repeat tap restarts.
+- Service: tearDown(reason:announcement:announces:leaveTransport:). Endings by others (sharerEnded,
+  sharerLeft, sharerCouldNotPrepare, prepareFailed) post no announcement, have no banner text, and deliver
+  one alert after everything is cleared (OK acknowledges endNotice). EndReason.sendFailed -> prepareFailed.
+  endUnavailable and "didn't start" deliver alerts. setNotice delivers waitingForSharer / retryingSend once
+  per episode and "The person sharing is back." when the wait clears in session. New published
+  isSharerGraceRunning, isListenerWaitingForPiece (mirrors the player), isPausedByOther, someoneDeclined;
+  statusConditions. leave() for listeners (focus then "You left Listen Together." after the cover).
+  clearEndNotice and showInvitation drop pending alerts.
+- ListenerPlayer.isHeldForSharer + onToggleWhileHeldForSharer (2 s limiter); remote play/pause/toggle
+  return .success silently while held.
+- Views: ListenTogetherStatus.line (priorities, detail line, spoken text, icon), waitingCaption,
+  ListenTogetherSessionAction (Cancel Sharing / End / Leave). Banner: status + optional second line,
+  primary-colour icon, ListenTogetherSessionButton (symbol + text, primary outline), custom action label
+  per state, leave confirmation modifier. ListenTogetherListenerScreen owns "Leave Listen Together?";
+  getting-book draws the button full width under the card; player skips its title focus while the
+  question is up; ListenerWaitingCaption under the transport row; play button value. Invitation Join
+  (.borderedProminent, primary tint, background-colour label, shareplay symbol) and Not Now (xmark,
+  primary outline). Transport icons, Chapters, Speed (+ gauge symbol), position bar/times, author line,
+  getting-book text in primary. Row value "waiting for the person sharing, %@".
+- MainCoordinator: listenTogetherAlertStep (pure), presenter with 0.5 s settle delay after every trigger
+  (new alert, cover gone, alert closed, app active), retry while another Listen Together alert is up;
+  needs-copy presenter waits while a message alert is up. Needs-copy and needs-FaceTime alerts are also
+  spoken (E18, title only).
+- Settings > Playback > Listen Together: "Messages" section, "Speak error messages" toggle (AppStorage
+  listenTogetherSpeakErrors, off), footer, Hear a Sample when on.
+- Strings (Base + 26 lproj, English): 22 keys added or changed (send_failed and waiting_download changed).
+- Deviations: sharerLeft says "The person sharing left. Listen Together ended." (spec decision 9; the a11y
+  guidance wanted the End sentence; controller said spec wins). Listener side of a prepare failure uses
+  "Couldn't prepare the book for sharing. Listen Together ended." Own-copy leave hint/confirmation say the
+  copy stays (new strings). E6b not shown (coordinator doesn't expose it). Silence-only waiting shows no
+  "within a minute" line and doesn't hold Play (Task A ruling: silence never ends).
+- TDD: tests written with the code; red check by disabling the ending mapping and the held-for-sharer gate:
+  ListenTogetherMessagesTests 31 tests, 5 failures (alert order, sharerLeft alert, play while held). Then
+  green. One test expectation fixed (E8 "Someone left/joined" announcements also posted; filtered).
+- Results: 24 SharePlay classes 373/0 (new: Messages 31, Speaker 9, Contrast 3). Full: "Executed 945
+  tests, with 0 failures" (test-without-building) before the commit; full `test` on 482ba093: "Executed 945
+  tests, with 0 failures", ** TEST SUCCEEDED ** (first run, no hang).
+  TSan 24 SharePlay classes: 373/0, 0 ThreadSanitizer warnings (one pre-existing CoreData Thread Performance
+  Checker line in ListenTogetherOwnCopyTests).
+- New files were registered by copying an existing file's four pbxproj entries (build file, file ref,
+  group child, sources phase) with fresh 24-hex ids (script in the session scratchpad).
