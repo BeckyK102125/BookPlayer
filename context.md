@@ -7,8 +7,7 @@ SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a d
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: finish the final whole-branch review fixes on `listen-together-own-copy`, then the two-device
-run, then merge into develop and TestFlight build 2 (needs Becky's approval).
+Current goal: two-device run of TestFlight build 5.22.2 (2) (develop 85c42b29, merged and pushed 2026-10-11).
 - Specs: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md, -addendum-2.md,
   2026-10-11-listen-together-addendum-3-reliable-sending.md. Plan: docs/superpowers/plans/2026-10-10-*.md
 - User guide: docs/Listen-Together-Guide.md
@@ -17,12 +16,13 @@ run, then merge into develop and TestFlight build 2 (needs Becky's approval).
 
 ## Branches and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
-- On origin: `develop` and `listen-together-messages` (9c70dd06), `listen-together-lock-screen` (63e9578b),
-  `shareplay-listen-together` (e634f5c7).
-- `listen-together-own-copy` (this branch, from develop 9c70dd06, NOT pushed): addendum 2 (de1f5731,
+- On origin: `develop` (85c42b29, pushed 2026-10-11), `listen-together-messages` (9c70dd06),
+  `listen-together-lock-screen` (63e9578b), `shareplay-listen-together` (e634f5c7).
+- `develop` (local, this commit on top of 85c42b29) fast-forwarded from `listen-together-own-copy`
+  (local branch, same commits, not pushed): addendum 2 (de1f5731,
   7bf22248, 0b5aacdd), addendum 3 ruling 1598e8d4, Task A (87f4a744, de116941, d786c79e, 9cedab87),
-  Task B (482ba093, 572d267b, 282f27c4, 27d86fd2), final review fixes in this commit (parent 27d86fd2).
-  Clean after commit. Worktree BookPlayer-testflight (detached at 9c70dd06) belongs to another session.
+  Task B (482ba093, 572d267b, 282f27c4, 27d86fd2), final review fixes 85c42b29 (re-review: ready).
+  No extra worktrees (the TestFlight worktree was removed after each upload).
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 
@@ -30,7 +30,8 @@ run, then merge into develop and TestFlight build 2 (needs Becky's approval).
 - Build 1: 5.22.2 (1) from develop 9c70dd06 (Release, Techopolis automatic signing), uploaded; internal
   group "Listen Together" (becnhazel, mikedoise, tayarndt). Its field test failed (ended 0.4 s after Play),
   which led to addendum 3.
-- Build 2 (this branch, after merge into develop): pending Becky's approval. Both test phones must run
+- Build 2: 5.22.2 (2) from develop 85c42b29, uploaded 2026-10-11 (Becky approved); same internal group,
+  automatic distribution. Sentry dSYM upload warning only. Both test phones must run
   the same build: the protocol gained messages (final review M3; a protocol version is a later change).
 - Local device installs: team Techopolis (M9SNPTXA44), bundle ID app.techopolis.BookPlayer-together, local
   Debug.xcconfig only. Pass signing on the command line; revert any pbxproj/Info.plist churn Xcode writes.
@@ -123,14 +124,11 @@ Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.
 - Own copy: other editions/recordings never match; plays at the sharer's file boundaries (±2 s).
 
 ## Open problems and next steps (in order)
-1. Re-review the final review fixes (this commit).
-2. Two-device run (list above); record results here and in Notes.md.
-3. Merge into develop (ask Becky); TestFlight build 2 after her approval.
-4. Parked minors: M3 protocol version, M4 late-join resend, M7 endNotice (unused outside the service), M8
+1. Two-device run on build 2 (list above), Console capture on both phones; record results here and in Notes.md.
+2. Parked minors: M3 protocol version, M4 late-join resend, M7 endNotice (unused outside the service), M8
    two notification-permission checks. Change A (streamed-book alert). Upstream PR decision later.
 
 ## Decisions waiting on Becky
-- TestFlight build 2 from develop after the merge: approve?
 - A killed sharer that iOS keeps in the roster never ends listeners' sessions (silence ruling). OK?
 - After 60 s the listener sees "The person sharing left. Listen Together ended." (spec); one sentence for
   both endings instead?

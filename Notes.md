@@ -1006,3 +1006,12 @@ Parent 27d86fd2. Inputs: final-branch-review-2026-10-11.md, final-fix-round.md (
   test crashed the test process with the old bound. Green: 24 SharePlay classes 406/0; full "Executed 978
   tests, with 0 failures", ** TEST SUCCEEDED **; TSan 406/0, 0 ThreadSanitizer warnings (same pre-existing
   CoreData performance-checker line).
+
+## 2026-10-11 — develop merged, pushed, TestFlight build 2 (develop)
+- Final whole-branch review fixes 85c42b29 re-reviewed: ready to merge. `develop` fast-forwarded from
+  `listen-together-own-copy` to 85c42b29 and pushed to origin (Becky approved).
+- TestFlight: temporary worktree at 85c42b29, Release with Techopolis automatic signing (command-line overrides
+  as for build 1 plus CURRENT_PROJECT_VERSION=2), archive succeeded (5.22.2 (2), app.techopolis.BookPlayer-together),
+  exported with app-store-connect/upload, internal testing only: "Upload succeeded". Warning: Sentry.framework
+  dSYM missing for symbol upload (harmless). Worktree, archive, export and logs deleted.
+- Device log capture from Becky's phone (idevicesyslog over USB) deleted after analysis.
