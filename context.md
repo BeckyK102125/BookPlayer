@@ -22,7 +22,7 @@ b73bd061), not pushed, waiting for review, then a two-device run of build 3.
 - On origin: `develop` (85c42b29, pushed 2026-10-11), `listen-together-messages` (9c70dd06),
   `listen-together-lock-screen` (63e9578b), `shareplay-listen-together` (e634f5c7).
 - `listen-together-transfer-fix` (local, not pushed): 41efa526 transfer fix A + B, readable errors,
-  SharePlay really ends; this commit = fix round 1 (parent 41efa526). Clean after the commit.
+  SharePlay really ends; f4d9cad4 fix round 1; this commit = fix round 2. Clean after the commit.
 - `develop` (b73bd061, docs commit on top of 85c42b29, pushed) fast-forwarded from `listen-together-own-copy`
   (local branch, same commits, not pushed): addendum 2 (de1f5731,
   7bf22248, 0b5aacdd), addendum 3 ruling 1598e8d4, Task A (87f4a744, de116941, d786c79e, 9cedab87),
@@ -65,22 +65,25 @@ b73bd061), not pushed, waiting for review, then a two-device run of build 3.
   4 pieces assembling; listener `journalUnusable` (notSupported or 2 load failures) switches the sharer and
   the listener re-asks its missing pieces with `needPiece`; journal-domain errors count in any app state;
   all mode logic in `ListenTogetherTransferCoordinator` (tested); chunk disk work off the main actor.
+  Round 2: the listener re-asks missing pieces on every announcement after its report; incoming/ emptied
+  at teardown; nothing starts after stop.
   Switch per session after 2 non-interruption journal failures or any `notSupported`; announced to all and
-  to later joiners. Protocol and session service unchanged for B.
+  to later joiners. B added `end()` and `stopPieceTransfers()` to the protocol (defaults; End uses both).
+- Guide (41efa526, round 2): slower fallback, End stops SharePlay, sharer quitting, late joiners.
 - Errors: `ListenTogetherErrorDescription` (type/case, domain, code, underlying) public on failure lines.
 - End: sharer End -> `.sessionEnding`, 0.5 s, `transport.end()` (`GroupSession.end()`), all within 2 s;
   listeners leave; chunk transfers stop first. App terminating (only): sharer ends at once, listener leaves.
 
 ## What is built before this branch (summary; details in Notes.md)
-- Addendum 2: own copy (fingerprint match, plays in place), owners-only mode. Guide updated for this fix.
+- Addendum 2: own copy (fingerprint match, plays in place), owners-only mode.
 - Task A: ~12 min pieces, send-ahead scheduler (.needPiece), retries with back-off, sharer kept awake,
   AVQueuePlayer, state requests, heartbeat, roster grace, diagnostics ("Listen Together:" logs).
 - Task B: one message-delivery path (alerts, status + one announcement, speech), Speak, Leave buttons.
 - Final review fixes (85c42b29): own copy unplayable -> leave with alert, and minors.
 
 ## Test evidence (2026-10-11, transfer fix)
-- First pass red: 69 tests / 23 failures. Round 1: red with fixes reverted 79 tests / 24 failures; green 29 SharePlay classes 481/0; full suite
-  1053/0 (** TEST SUCCEEDED **); TSan 481/0, 0 warnings.
+- Red checks each round (Notes.md). Round 2 green: 29 SharePlay classes 487/0; full suite 1059/0
+  (** TEST SUCCEEDED **, after one known InsertBooksTests crash rerun); TSan 487/0, 0 warnings.
 - Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
   Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests" -only-testing:BookPlayerTests
   test (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`).
@@ -125,15 +128,12 @@ Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.
   in chunk mode only the 3 latest are kept).
 - Chunk fallback: no cloud copy; late joiners get pieces from the sharer's phone (bandwidth per listener);
   messenger throughput is undocumented and unmeasured.
-- A piece that fails for good is retried every 30 s; listeners who need it wait. The sharer sees
-  "Couldn't send part of the book. Trying again." "Waiting for the others to get the book" is not shown.
+- A piece that fails for good is retried every 30 s (sharer sees the retry status); listeners wait.
 - If the sharer switches books mid-session, listeners keep the old book (R12).
 - A killed sharer that iOS keeps in the roster never ends listeners' sessions (they see the silence line).
 - Own book can't start from Siri/widget/CarPlay while locked during a listener session (R38/R39).
-- The notification path is dormant (BookPlayer never asks for permission). The SwiftUI alerts
-  ("Couldn't open sharing", End confirmation) are outside the one-alert-at-a-time gate.
+- Notifications dormant (no permission asked); SwiftUI alerts are outside the one-alert gate.
 - Mixed builds degrade (old listeners on owners-only shares wait at 0 %): update both phones.
-- Late-join resends send one message per piece (M4, parked).
 - New strings are English in every lproj; mark for translation before release.
 - Own copy: other editions/recordings never match; plays at the sharer's file boundaries (±2 s).
 

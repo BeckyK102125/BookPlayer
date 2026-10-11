@@ -1101,3 +1101,27 @@ Parent 41efa526. Inputs: transfer-fix-review.md (3 Critical, 3 Important, 9 Mino
 - TDD red with the round-1 fixes reverted: 5 classes, 79 tests, 24 failures in 14 tests (C3 is a removal:
   its test passes either way). Green: 29 SharePlay classes 481/0; full suite 1053/0.
 - Verification: full suite "Executed 1053 tests, with 0 failures", ** TEST SUCCEEDED **; TSan on 29 SharePlay classes 481/0, 0 ThreadSanitizer warnings.
+
+## 2026-10-11 - listen-together-transfer-fix - fix round 2
+Parent f4d9cad4. Inputs: transfer-fix-rereview-1.md (ready to merge; 5 new Minors).
+- N1: after its own `journalUnusable` report, the listener asks again (`needPiece`) on every explicit
+  chunk-mode announcement while announced pieces are still missing, not once: the sharer's own add-failure
+  switch can announce before it has read the report, and those first `needPiece`s only bring map entries
+  back. "Missing" is per piece index (a piece sent again under a new chunk id counts once it is here or
+  arriving). Tests: the crossing order (report held in transit, the sharer switches through add, then the
+  report arrives -> 4,5,4,5), and a re-exported piece that arrived is not asked for again.
+- N2: the coordinator has a `stopped` flag: `track` starts nothing after `stop()`, and a load failure after
+  stop reports nothing.
+- N3: test with two listeners where only one fails (the other adopts chunks, asks for nothing, keeps the
+  journal).
+- Minor 6: `ShareStorage.removeIncoming()` empties `incoming/` at every teardown (and launch as before).
+- N5: context.md protocol line corrected (B added `end()` and `stopPieceTransfers()`); guide line moved
+  to the transfer-fix section; guide fallback paragraph now says the switch can come from a listener's
+  iPhone too, and that listeners may simply wait a little longer.
+- N4 (sharer accepts chunk frames / implicit mode hints from anyone) not in this round's list; left.
+- TDD red with the round-2 fixes reverted: coordinator + session-end classes 3 failures (incoming, after-stop
+  x2); the crossing test then lacked a count assertion and passed by timing out, so it was tightened to the
+  full message list and failed (1 failure) with the one-shot code. Green: 29 SharePlay classes 487/0.
+- Full run 1: 892 tests, 0 failures but ** TEST FAILED **: InsertBooksTests.testInsertEmptyBooksIntoPlaylist
+  crashed (known CoreData flake, restarted); rerun below.
+- Full run 2: "Executed 1059 tests, with 0 failures", ** TEST SUCCEEDED **. TSan, 29 SharePlay classes: 487/0, 0 ThreadSanitizer warnings.

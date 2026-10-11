@@ -30,6 +30,7 @@ final class ListenTogetherTransferCoordinator: BPLogger {
   private(set) var isUploader = false
   private var receivesPieces = true
   private var tasks: [UUID: Task<Void, Never>] = [:]
+  private var stopped = false
 
   // Journal state, from the transport.
   private var journalIDs = Set<UUID>()
@@ -156,7 +157,7 @@ final class ListenTogetherTransferCoordinator: BPLogger {
   /// Listener (C2): a journal load failed. `notSupported`, or `loadFailureLimit` real failures in a
   /// row, make this phone tell the sharer the journal is unusable here.
   func journalLoadFailed(_ id: UUID, error: Error, appWasActive: Bool) {
-    guard !isUploader, receivesPieces, !resentNeeds else { return }
+    guard !stopped, !isUploader, receivesPieces, !resentNeeds else { return }
     let notSupported = TransportModeSwitch.isNotSupported(error)
     if !TransportModeSwitch.isInterruption(error, appWasActive: appWasActive) { loadFailuresInARow += 1 }
     guard notSupported || loadFailuresInARow >= Self.loadFailureLimit else { return }
@@ -185,6 +186,7 @@ final class ListenTogetherTransferCoordinator: BPLogger {
 
   /// Stops chunk sending and receiving (End, before the share folder is deleted; leave).
   func stop() {
+    stopped = true
     tasks.values.forEach { $0.cancel() }
     tasks = [:]
     channel.stop()
@@ -221,26 +223,45 @@ final class ListenTogetherTransferCoordinator: BPLogger {
       announcedBeforeChunks = []
       for id in waiting where !journalIDs.contains(id) { channel.pieceAnnounced(id) }
     }
-    // C2: the announcement that answers this phone's report: ask again for every journal piece still
-    // missing, in the order they were announced. The sharer reports them gone and sends them as chunks.
-    guard explicit, reportedJournalUnusable, !resentNeeds, modeSwitch.mode == .chunks else { return }
+    // C2: after this phone's report, every announcement from the sharer asks again for every piece still
+    // missing, in the order they were announced (fix round 2, N1: not once, because the sharer's own
+    // switch can announce before it has read the report; asking again is harmless). The sharer reports
+    // journal pieces gone once it has the report, and sends them as chunks.
+    guard explicit, reportedJournalUnusable, modeSwitch.mode == .chunks else { return }
     resentNeeds = true
-    let missing = announced.filter { !receivedIDs.contains($0.id) && !channel.knows($0.id) }
+    let missing = missingIndices()
+    guard !missing.isEmpty else { return }
     Self.logger.info("Listen Together: asking again for \(missing.count, privacy: .public) pieces as chunks")
     track { [weak self] in
-      for piece in missing {
+      for index in missing {
         do {
-          try await self?.sendMessage(.needPiece(index: piece.index))
+          try await self?.sendMessage(.needPiece(index: index))
         } catch {
           Self.logger.error(
-            "Listen Together: could not ask for piece \(piece.index, privacy: .public) again: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
+            "Listen Together: could not ask for piece \(index, privacy: .public) again: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
         }
       }
     }
   }
 
-  /// Runs `work` as a task that `stop()` cancels; it forgets itself when done (Minor 9).
+  /// Announced piece indices with no copy here and none arriving, in announcement order. A piece sent
+  /// again gets a new id: an index counts as here once any of its ids is.
+  private func missingIndices() -> [Int] {
+    var present = Set<Int>()
+    for piece in announced where receivedIDs.contains(piece.id) || channel.knows(piece.id) {
+      present.insert(piece.index)
+    }
+    var result: [Int] = []
+    for piece in announced where !present.contains(piece.index) && !result.contains(piece.index) {
+      result.append(piece.index)
+    }
+    return result
+  }
+
+  /// Runs `work` as a task that `stop()` cancels; it forgets itself when done (Minor 9). Nothing starts
+  /// after `stop()` (fix round 2, N2).
   private func track(_ work: @escaping @MainActor () async -> Void) {
+    guard !stopped else { return }
     let key = UUID()
     tasks[key] = Task { [weak self] in
       await work()

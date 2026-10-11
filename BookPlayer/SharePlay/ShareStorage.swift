@@ -34,6 +34,12 @@ struct ShareStorage {
     }
   }
 
+  /// Journal imports that never reached a share folder (a load that failed after the import ran).
+  /// Emptied at every teardown as well as at launch (fix round 2, Minor 6).
+  func removeIncoming() {
+    try? FileManager.default.removeItem(at: root.appendingPathComponent("incoming", isDirectory: true))
+  }
+
   /// Called at launch: no session can be active then, so anything left over is stale.
   func cleanAll() {
     try? FileManager.default.removeItem(at: root)

@@ -259,4 +259,103 @@ final class ListenTogetherTransferCoordinatorTests: XCTestCase {
     try? await Task.sleep(for: .milliseconds(50))
     XCTAssertEqual(listenerMessages, [.needPiece(index: 1)])
   }
+  // MARK: Fix round 2
+
+  /// N1: the sharer's own switch announces before it has read this listener's report. The needPiece
+  /// sent then only gets map entries back; the announcement that answers the report asks again.
+  func testTheAnswerToTheReportAsksAgainEvenWhenAnEarlierAnnouncementCrossedIt() async throws {
+    heardFromSharer()
+    let first = UUID(), second = UUID()
+    journalResults = [.success(first), .success(second), .failure(FakeJournalErrors.notSupported)]
+    _ = try await sharer.upload(fileAt: try makePiece("a"))
+    _ = try await sharer.upload(fileAt: try makePiece("b"))
+    sharer.journalListChanged([first, second])
+    listener.journalListChanged([first, second])
+    listener.messageReceived(.pieceUploaded(index: 4, attachmentID: first), from: sharerID)
+    listener.messageReceived(.pieceUploaded(index: 5, attachmentID: second), from: sharerID)
+    // The report is held in transit.
+    var held: [Data] = []
+    network.filter = { from, _, data in
+      guard from == self.listenerID, ChunkControl.decode(data) == .journalUnusable else { return data }
+      held.append(data)
+      return nil
+    }
+
+    listener.journalLoadFailed(first, error: FakeJournalErrors.notSupported, appWasActive: true)
+    await waitUntil { !held.isEmpty }
+    // Meanwhile the sharer's own add fails: it switches and announces, not knowing about the report.
+    _ = try await sharer.upload(fileAt: try makePiece("c"))
+    await waitUntil { listenerMessages.count == 2 }
+    XCTAssertEqual(listenerMessages, [.needPiece(index: 4), .needPiece(index: 5)])
+    XCTAssertEqual(sharer.hasAttachment(first), true, "the sharer hasn't read the report yet")
+
+    // The report arrives: journal pieces count as gone, the mode is announced again, and the listener
+    // asks again for what is still missing.
+    network.filter = nil
+    sharer.channel.receive(held[0], from: listenerID)
+    await waitUntil { listenerMessages.count == 4 }
+    XCTAssertEqual(sharer.hasAttachment(first), false)
+    XCTAssertEqual(
+      listenerMessages, [.needPiece(index: 4), .needPiece(index: 5), .needPiece(index: 4), .needPiece(index: 5)])
+  }
+
+  /// N1: a piece sent again under a new id that has arrived is no longer asked for.
+  func testAPieceThatArrivedUnderANewIdIsNotAskedForAgain() async throws {
+    heardFromSharer()
+    let first = UUID()
+    journalResults = [.success(first)]
+    _ = try await sharer.upload(fileAt: try makePiece("a"))
+    sharer.journalListChanged([first])
+    listener.journalListChanged([first])
+    listener.messageReceived(.pieceUploaded(index: 4, attachmentID: first), from: sharerID)
+    listener.journalLoadFailed(first, error: FakeJournalErrors.notSupported, appWasActive: true)
+    await waitUntil { listenerMessages.count == 1 }
+
+    // The re-export arrives as chunks under a new id.
+    let resent = try await sharer.upload(fileAt: try makePiece("a2"))
+    listener.messageReceived(.pieceUploaded(index: 4, attachmentID: resent), from: sharerID)
+    await waitUntil { received[listenerID]?.contains(resent) == true }
+    let before = listenerMessages.count
+    await sharer.channel.announceMode(to: nil)
+    try? await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(listenerMessages.count, before, "index 4 is here: nothing asked for")
+  }
+
+  /// N3: two listeners, only one can't load from the journal. The other keeps its journal pieces and
+  /// asks for nothing.
+  func testOnlyTheListenerWhoseJournalFailsAsksAgain() async throws {
+    let otherID = UUID()
+    var otherMessages: [ListenTogetherMessage] = []
+    let other = makeCoordinator(otherID) { otherMessages.append($0) }
+    defer { other.stop() }
+    heardFromSharer()
+    other.messageReceived(.heartbeat, from: sharerID)
+    let first = UUID()
+    journalResults = [.success(first)]
+    _ = try await sharer.upload(fileAt: try makePiece("a"))
+    for coordinator in [sharer!, listener!, other] { coordinator.journalListChanged([first]) }
+    for coordinator in [listener!, other] {
+      coordinator.messageReceived(.pieceUploaded(index: 0, attachmentID: first), from: sharerID)
+    }
+    other.journalPieceLoaded(first)
+
+    listener.journalLoadFailed(first, error: FakeJournalErrors.notSupported, appWasActive: true)
+    await waitUntil { listenerMessages.count == 1 && other.mode == .chunks }
+
+    XCTAssertEqual(listenerMessages, [.needPiece(index: 0)])
+    XCTAssertEqual(other.mode, .chunks, "the other listener follows the mode")
+    XCTAssertEqual(otherMessages, [], "and asks for nothing")
+    XCTAssertFalse(other.hasAbandonedJournal)
+    XCTAssertTrue(listener.hasAbandonedJournal)
+  }
+
+  /// N2: nothing starts after stop() (a load cancelled by leaving reports nothing).
+  func testNothingIsSentAfterStop() async throws {
+    heardFromSharer()
+    listener.stop()
+    listener.journalLoadFailed(UUID(), error: FakeJournalErrors.notSupported, appWasActive: true)
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertTrue(network.controls(from: listenerID).isEmpty)
+    XCTAssertFalse(listener.reportedJournalUnusable)
+  }
 }

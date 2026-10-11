@@ -76,7 +76,7 @@ People listening do not need their own copy of the book, unless the person shari
 
 If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives. While it tries again, the status line on your player says "Couldn't send part of the book. Trying again." until the part has been sent, and the Listen Together row above the tab bar says "couldn't send part of the book, trying again". VoiceOver says it once each time this starts.
 
-If SharePlay doesn't accept the parts of the book the usual way, BookPlayer switches by itself to a slower way of sending them, for the rest of that session. Before it switches you may see "Couldn't send part of the book. Trying again." once. Nothing else changes on screen, but listeners may wait longer for each part to arrive (the percentage still goes up with every part).
+If SharePlay doesn't accept the parts of the book the usual way, on your iPhone or on a listener's, BookPlayer switches by itself to a slower way of sending them, for the rest of that session. Before it switches you may see "Couldn't send part of the book. Trying again." once, or listeners may wait a little longer for the book. Nothing else changes on screen, but listeners may wait longer for each part to arrive (the percentage still goes up with every part).
 
 If BookPlayer can't read the book's files at all, nothing can be sent. A message says "Couldn't prepare the book for sharing. Listen Together ended." Choose OK. Listeners see "The person sharing couldn't prepare the book. Listen Together ended."
 

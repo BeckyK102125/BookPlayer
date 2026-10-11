@@ -139,6 +139,19 @@ final class ListenTogetherSessionEndTests: XCTestCase {
     XCTAssertFalse(transport.left)
   }
 
+  /// Fix round 2 (Minor 6): a teardown also empties incoming/ (journal imports whose load failed).
+  func testTeardownEmptiesTheIncomingFolder() throws {
+    let service = makeService(), transport = FakeTransport()
+    service.startListening(with: transport, shareID: UUID())
+    let incoming = root.appendingPathComponent("incoming", isDirectory: true)
+    try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: true)
+    try Data([1]).write(to: incoming.appendingPathComponent("ABC"))
+
+    service.leave()
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: incoming.path))
+  }
+
   func testTerminatingOutsideASessionDoesNothing() {
     let service = makeService()
     center.post(name: UIApplication.willTerminateNotification, object: nil)

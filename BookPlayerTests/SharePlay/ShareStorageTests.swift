@@ -34,6 +34,18 @@ final class ShareStorageTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: folderB.path))
   }
 
+  /// Fix round 2 (Minor 6): journal imports left in incoming/ go at every teardown, not only at launch.
+  func testRemoveIncomingEmptiesOnlyTheIncomingFolder() throws {
+    let storage = ShareStorage(root: root)
+    let incoming = root.appendingPathComponent("incoming", isDirectory: true)
+    try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: true)
+    try Data([1]).write(to: incoming.appendingPathComponent("ABC"))
+    let share = try storage.folder(for: UUID(), role: .listener)
+    storage.removeIncoming()
+    XCTAssertFalse(FileManager.default.fileExists(atPath: incoming.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: share.path))
+  }
+
   func testCleanAllRemovesEverything() throws {
     let storage = ShareStorage(root: root)
     try Data([1]).write(to: try storage.folder(for: UUID(), role: .sharer).appendingPathComponent("x"))

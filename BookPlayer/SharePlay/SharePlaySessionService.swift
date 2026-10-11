@@ -1078,6 +1078,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     self.shareID = nil
     if leaveTransport { transport?.leave() }
     if let shareID { storage.remove(shareID: shareID) }
+    storage.removeIncoming()
     let message = ListenTogetherUserMessage.ending(for: reason, wasListener: wasListener)
     if announces, message == nil { announcer.announce(announcement ?? ListenTogetherAnnouncements.ended()) }
     Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
