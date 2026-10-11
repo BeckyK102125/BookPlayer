@@ -478,3 +478,36 @@ finished.
   close); whether `result` resolves if the app is backgrounded or the player closes under the sheet (if it
   never resolves the share stays pending and Listen Together stays hidden until relaunch); B2.7 (timeout
   on return to foreground) not implemented separately.
+
+## 2026-10-10 - listen-together-messages - Change B fix round 1 (R37)
+Parent f2ad757b. From the code review (I1, I2) and change-b-a11y-review.md (I-1..I-4, M-1..M-5).
+- R37 timing: after a send, wait up to 20 s (was 3 s) for our session. On timeout the share is RELEASED,
+  not cancelled: pending cleared, .idle, "Listen Together didn't start. Try again." (new key). It is kept
+  as `lateShare` (most recent only): if its session still arrives while nothing is pending, running or
+  offered, decision `.lateOwnShare` starts it as our share and announces "Listen Together started." (new
+  key). If something else is going on, `.staleOwnShare`: the session is left (its people would otherwise
+  wait in a session nobody shares into). Only an explicit `.cancelled` result (or End) adds to
+  cancelledShareIDs; a Cancel reported after a release moves the late share to cancelledShareIDs.
+- Stuck sheet (B2.7): new outcome `.abandoned`. MainCoordinator's ListenTogetherSharingSheetWatch races
+  `controller.result` with a 1 s poll (sheet off screen on two checks in a row) and a willEnterForeground
+  check (1 s after return). GroupActivitySharingController is not open, so no subclass; I did not take
+  over its presentationController delegate either, so Apple's own handling stays as it is. The service
+  also schedules a 120 s watchdog when the sheet opens. Abandoned/watchdog release the share like the
+  timeout (Listen Together and invitations work again).
+- I-4: result announcements go through announceSheetResult, which re-checks at 0.7 s that this is still
+  the latest sheet share and nothing is pending or running.
+- `received` now runs through `action(forIncoming:)` (leave / ignore / offer / share(item, late:)), a
+  test seam without a GroupSession; claimOwnShare is private again.
+- Guide: Magic Tap "should play and pause", Discord hedge in all three places (I-3); "Two ways to start"
+  bullets carry the Magic Tap line (M-2); "sharing screen from Apple", "cannot start Listen Together"
+  (M-3); Share step 4 split into three steps, FaceTime confirmation mentioned, "You may hear Preparing"
+  (M-4); 20 s wait explained. M-5: comment where .needsFaceTime is set; translation noted in context.md.
+  M-1: device check only (no focus code added).
+- Tests: ListenTogetherSharingSheetTests now 17 (ManualScheduler keeps an absolute clock). New: first-share
+  note Share opens the sheet; own session after explicit Cancel is left; session at 19 s claimed; at 25 s
+  after the timeout claimed when idle; late session left while another share is pending; announcement
+  dropped when a new share starts; never-returning sheet released by the watchdog (then a late Cancel
+  marks it cancelled); abandoned outcome. No separate RED run was captured this round (code and tests
+  written together). The first run crashed in the test scheduler (unowned capture of a scheduler nobody
+  retained); I fixed the test helper. Focused: "Executed 17 tests, with 0 failures", ** TEST SUCCEEDED **.
+  Full: "Executed 733 tests, with 0 failures", ** TEST SUCCEEDED ** (716 + 17). No new warnings.

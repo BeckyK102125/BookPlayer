@@ -31,20 +31,20 @@ If a book cannot be shared, the Listen Together option does not appear in that b
 
 ## Two ways to start
 
-- **From Messages (no call needed).** If you are not on a FaceTime call, choosing Listen Together opens Apple's sharing sheet. Choose the people, then send the invitation in Messages. You can talk on another app, such as Discord, while you listen. Discord cannot carry SharePlay itself, but it can run alongside a session started from Messages.
-- **On a FaceTime call.** If you are already on a FaceTime call, the invitation goes to everyone on the call. You can also choose FaceTime in the sharing sheet.
+- **From Messages (no call needed).** If you are not on a FaceTime call, choosing Listen Together opens the sharing screen from Apple. Choose the people, then send the invitation in Messages. Discord cannot start Listen Together, but you can talk on Discord while it plays. Magic Tap: should play and pause; on a Discord call, use the Play or Pause button until this is confirmed.
+- **On a FaceTime call.** If you are already on a FaceTime call, the invitation goes to everyone on the call. You can also choose FaceTime on the sharing screen. Magic Tap: ends the call. Do not use it.
 
 ## Important for VoiceOver users: Magic Tap on a FaceTime call
 
 **If your Listen Together session is on a FaceTime call, do not use Magic Tap.** During a FaceTime call, Magic Tap (two-finger double tap) ends the call, and Listen Together ends with it. iPhone handles this before BookPlayer can, so BookPlayer cannot change it. Use the **Play** or **Pause** button on the screen instead.
 
-If you are not on a FaceTime call, for example you started from Messages, Magic Tap plays and pauses the shared book. To check, ask yourself: am I on a FaceTime call right now? A Discord voice channel is not a FaceTime call. Whether Discord itself reacts to Magic Tap is still being checked, so on a Discord call use the Play or Pause button until that is confirmed.
+If you are not on a FaceTime call, for example you started from Messages, Magic Tap should play and pause the shared book. To check, ask yourself: am I on a FaceTime call right now? A Discord voice channel is not a FaceTime call. Whether Discord itself reacts to Magic Tap is still being checked, so on a Discord call use the Play or Pause button until that is confirmed.
 
 ## What you need
 
 - iPhone with iOS 18 or later, for everyone taking part.
 - BookPlayer with Listen Together, for everyone taking part.
-- Either Messages (or a contact you can reach through Apple's sharing sheet), or a FaceTime call with the people you want to listen with.
+- Either Messages (or another way to reach people on the sharing screen from Apple), or a FaceTime call with the people you want to listen with.
 
 People listening do not need their own copy of the book.
 
@@ -53,12 +53,16 @@ People listening do not need their own copy of the book.
 1. Open BookPlayer and open the book you want to share.
 2. In the player, choose **More**, then **Listen Together**.
 3. The first time you share on this iPhone, a note says "People who join can only listen. They do not get a copy of the book. What they download is deleted when the session ends." Choose **Share** to continue. Choose **Cancel**, or use the two-finger scrub, to stop without sharing; the note then appears again next time. After you choose Share, the note is not shown again on that iPhone.
-4. If you are not on a FaceTime call, Apple's sharing sheet opens. Choose the people, then send the invitation in Messages. To stop without sharing, choose **Cancel** in the sheet or use the two-finger scrub; VoiceOver then says "Listen Together was not started". If you are on a FaceTime call, there is no sheet: the invitation goes to everyone on the call.
-5. BookPlayer prepares the book. You hear "Preparing" while this happens.
-6. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing". If you close the player, a **Listen Together** row stays above the tab bar. Choose it to return to the player.
-7. Wait until someone has joined and you hear the book playing before you lock the phone.
+4. If you are not on a FaceTime call, the sharing screen from Apple opens. Choose the people and send the invitation in Messages.
+5. To stop, choose **Cancel** on the sharing screen or use the two-finger scrub. VoiceOver says "Listen Together was not started".
+6. If you are on a FaceTime call, no sharing screen opens. iPhone asks you to confirm sharing with everyone on the call.
+7. BookPlayer prepares the book. You may hear "Preparing" while this happens.
+8. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing". If you close the player, a **Listen Together** row stays above the tab bar. Choose it to return to the player.
+9. Wait until someone has joined and you hear the book playing before you lock the phone.
 
-If the sharing sheet cannot be opened, BookPlayer says "Couldn't open sharing" and suggests starting a FaceTime call instead.
+If the sharing screen cannot be opened, BookPlayer says "Couldn't open sharing" and suggests starting a FaceTime call instead.
+
+After you send the invitation, BookPlayer waits up to 20 seconds for Listen Together to start. If it has not started by then, VoiceOver says "Listen Together didn't start. Try again." and Listen Together is back in the More menu. If it starts a little later anyway, VoiceOver says "Listen Together started".
 
 ## Join a book someone is sharing
 
@@ -81,7 +85,7 @@ While you listen together, BookPlayer hides your own mini player. If you start y
 
 Anyone can control playback, and it changes for everyone:
 
-- Play and pause, with the Play or Pause button on the screen. On a FaceTime call, do not use Magic Tap. Otherwise Magic Tap plays and pauses.
+- Play and pause, with the Play or Pause button on the screen. On a FaceTime call, do not use Magic Tap. If you are not on a FaceTime call, Magic Tap should play and pause. On a Discord call, use the Play or Pause button until this is confirmed.
 - Skip back or forward 30 seconds.
 - Move through the book with the position control. Swipe up or down to move 30 seconds.
 - Choose a chapter.
@@ -106,7 +110,7 @@ While you are listening to someone else's book, the lock screen, Control Center,
 - **Skip forward** and **Skip back** move 30 seconds. VoiceOver reads them as 30 second skips, whatever your own skip setting is.
 - **Next** and **Previous** (for example an AirPods double or triple press) also move 30 seconds forward or back. They do not change chapters.
 - The **position control** moves through the whole book. The time VoiceOver reads is the time in the whole book, so it can be several hours.
-- **Magic Tap** plays and pauses the shared book when you are not on a FaceTime call. On a FaceTime call it ends the call: see "Magic Tap on a FaceTime call". Before the book has arrived, Magic Tap says "Not available yet".
+- **Magic Tap** should play and pause the shared book when you are not on a FaceTime call; on a Discord call, use the Play or Pause button until this is confirmed. On a FaceTime call it ends the call: see "Magic Tap on a FaceTime call". Before the book has arrived, Magic Tap says "Not available yet".
 
 With the screen locked, you may not hear spoken messages about what other people did. This is still being checked. The sound and the lock screen show what happened.
 
@@ -134,9 +138,9 @@ The listeners' copy of the book is temporary. It is deleted when the session end
 ## Known limitations
 
 - **Streamed books cannot be shared.** Download them first. See "Before you start".
-- Discord and other calling apps cannot carry SharePlay themselves. Start from Messages and talk on Discord alongside it.
+- Discord and other calling apps cannot start Listen Together. Start from Messages and talk on Discord while it plays.
 - On a FaceTime call, Magic Tap ends the call instead of pausing. See "Magic Tap on a FaceTime call".
-- After you send the invitation from the sharing sheet, BookPlayer waits a few seconds for the session to start. If it does not, you hear "Listen Together was not started"; choose Listen Together again.
+- After you send the invitation, BookPlayer waits up to 20 seconds for Listen Together to start (see "Share a book"). With the screen locked, you may not hear whether it started.
 - The sleep timer controls your own book, not the shared one.
 - CarPlay: during a listener session the standard Now Playing play, pause and skip buttons reach the shared book, but CarPlay's chapter buttons still control your own book. Connecting CarPlay may switch the lock screen to your own book.
 - If the person sharing leaves the call but the call continues, listeners may keep waiting. Ending the session or the call stops it for everyone.

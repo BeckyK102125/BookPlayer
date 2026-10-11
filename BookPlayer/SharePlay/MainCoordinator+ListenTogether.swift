@@ -133,22 +133,89 @@ extension MainCoordinator: ListenTogetherSharingSheetPresenting {
     do {
       controller = try GroupActivitySharingController(activity)
     } catch {
-      SharePlaySessionService.logger.error("Listen Together: could not create the sharing sheet: \(error.localizedDescription)")
+      SharePlaySessionService.logger.error(
+        "Listen Together: could not create the sharing sheet: \(error.localizedDescription)")
       return .unavailable
     }
     top.present(controller, animated: true)
     // UIKit refused the presentation (something else is being presented): use the fallback alert.
+    // VERIFY on device that a refused presentation leaves `presentingViewController` nil.
     guard controller.presentingViewController != nil else { return .unavailable }
-    let result = await controller.result
+    let outcome = await ListenTogetherSharingSheetWatch.outcome(of: controller)
     // The sheet normally closes itself; make sure it is gone before anything is announced.
     if controller.presentingViewController != nil, !controller.isBeingDismissed {
       controller.dismiss(animated: true)
     }
-    switch result {
-    case .success: return .sent
-    case .cancelled: return .cancelled
-    @unknown default: return .cancelled
+    return outcome
+  }
+}
+
+/// Waits for the sharing sheet's `result`, but does not wait forever: if the sheet has left the screen
+/// (checked every second, and again when the app comes back to the foreground) without reporting a
+/// result, the outcome is `.abandoned`, so the pending share is released (B2.7, R37).
+@MainActor
+final class ListenTogetherSharingSheetWatch {
+  private var continuation: CheckedContinuation<ListenTogetherSharingSheetOutcome, Never>?
+  private var foregroundObserver: NSObjectProtocol?
+  private var tasks: [Task<Void, Never>] = []
+
+  private init() {}
+
+  static func outcome(of controller: GroupActivitySharingController) async -> ListenTogetherSharingSheetOutcome {
+    let watch = ListenTogetherSharingSheetWatch()
+    let outcome = await withCheckedContinuation { continuation in
+      watch.start(controller, continuation: continuation)
     }
+    // The tasks hold the watch weakly; keep it alive until it has finished.
+    withExtendedLifetime(watch) {}
+    return outcome
+  }
+
+  private func start(
+    _ controller: GroupActivitySharingController,
+    continuation: CheckedContinuation<ListenTogetherSharingSheetOutcome, Never>
+  ) {
+    self.continuation = continuation
+    tasks.append(Task { [weak self] in
+      let result = await controller.result
+      self?.finish(result == .success ? .sent : .cancelled)
+    })
+    tasks.append(Task { [weak self, weak controller] in
+      var goneChecks = 0
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(1))
+        guard let self, self.continuation != nil else { return }
+        // Two checks in a row, so a result that arrives just after the sheet closes still wins.
+        goneChecks = Self.isGone(controller) ? goneChecks + 1 : 0
+        if goneChecks >= 2 { self.finish(.abandoned) }
+      }
+    })
+    foregroundObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+    ) { [weak self, weak controller] _ in
+      MainActor.assumeIsolated {
+        // Give UIKit a moment to restore the screen, then check once.
+        self?.tasks.append(Task { [weak self, weak controller] in
+          try? await Task.sleep(for: .seconds(1))
+          if Self.isGone(controller) { self?.finish(.abandoned) }
+        })
+      }
+    }
+  }
+
+  private static func isGone(_ controller: UIViewController?) -> Bool {
+    guard let controller else { return true }
+    return controller.presentingViewController == nil && !controller.isBeingPresented
+  }
+
+  private func finish(_ outcome: ListenTogetherSharingSheetOutcome) {
+    guard let continuation else { return }
+    self.continuation = nil
+    if let foregroundObserver { NotificationCenter.default.removeObserver(foregroundObserver) }
+    foregroundObserver = nil
+    tasks.forEach { $0.cancel() }
+    tasks = []
+    continuation.resume(returning: outcome)
   }
 }
 

@@ -14,29 +14,30 @@ in sync. Everything must work with VoiceOver.
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork). upstream = github.com/TortugaPower/BookPlayer.
 - Branch `shareplay-listen-together`, started from upstream develop at eb19a92f. NOT pushed anywhere.
 - Branch `listen-together-messages` (Change B of addendum 1), from develop at 63e9578b (which holds Change
-  C, escape + row R35/R36). Last work: Change B, start from Messages (this commit). Not pushed. Only
+  C, escape + row R35/R36). Last work: Change B fix round 1, R37 (this commit; parent f2ad757b). Not pushed. Only
   worktree, clean after commit. Change A (streamed-book alert) is NOT done yet.
 - Never committed (gitignored): BuildConfiguration/Debug.xcconfig. Local copy only.
 - BookPlayer/Player/PlayerManager.swift is untouched (git diff eb19a92f --stat on it prints nothing).
 
 ## What is built
 Everything lives in BookPlayer/SharePlay/ (views in SharePlay/Views/), tests in BookPlayerTests/SharePlay/.
-Group Activities entitlement and NSSupportsGroupActivities; manifest, messages and GroupActivity; per-share
-temporary storage (cleaned at end and at launch); piece planner and splitter (no re-encoding, under 90 MB);
-piece timeline; sharer playback target over PlayerManagerProtocol; listener AVPlayer over the pieces;
-coordinator bridge (AVDelegatingPlaybackCoordinator); session service state machine and announcements;
-UI: More-menu item, banner with End, invitation sheet (presented by MainCoordinator from the topmost
-screen), listener screen with a "getting the book" state, needs-FaceTime alert; Magic Tap to the listener.
+Entitlement; manifest, messages, GroupActivity; per-share temp storage (cleaned at end and launch); piece
+planner and splitter (no re-encoding); sharer target over PlayerManagerProtocol; listener AVPlayer; coordinator
+bridge; session service state machine and announcements; More-menu item, banner with End, invitation sheet
+(topmost screen), listener screen, sharing sheet (Change B), fallback alert; Magic Tap to the listener.
 
 ## Most recent work: Change B, start from Messages (2026-10-10)
 - Not on a FaceTime call: Apple's GroupActivitySharingController opens (from MainCoordinator's topmost
   screen, after 600 ms) instead of the FaceTime alert. Pure SharePlaySessionService.startRoute decides
   activate / sharingSheet / needsFaceTime (fallback only when the sheet can't be created or shown).
 - Sheet up: share pending, no banner, nothing announced. Cancel: cancelled at once, "Listen Together was
-  not started." 0.7 s later. Sent: "Preparing <title> to share" at 0.7 s if the session is not here yet;
-  no session by 3 s = cancel. Seams: isEligibleForGroupSession, schedule, sharingSheetPresenter.
-- Invitation strings no longer say FaceTime; fallback alert "Couldn't open sharing"; guide "Two ways to
-  start", Magic Tap warning only for FaceTime. Report: change-b-report.md (sdd folder).
+  not started." 0.7 s later. Sent: "Preparing <title> to share" at 0.7 s if no session yet; no session by
+  20 s (R37) = released, "Listen Together didn't start. Try again.", but a later session is still started
+  if the device is idle ("Listen Together started"); left if another share is pending or running.
+- Stuck sheet (B2.7): presenter returns .abandoned if the sheet leaves the screen (1 s polls, foreground
+  check) without a result; 120 s watchdog in the service. Both release the share (not cancelled).
+- Result announcements keyed to the share ID. Invitation strings drop FaceTime; fallback "Couldn't open
+  sharing"; guide "Two ways to start", Magic Tap hedged. Report: change-b-report.md (sdd folder).
 
 ## Earlier work
 - Escape goes back + Listen Together row (R35, R36): escape-row-report.md.
@@ -45,7 +46,7 @@ screen), listener screen with a "getting the book" state, needs-FaceTime alert; 
   change-c-report.md. Final fix wave (R31, R32): final-fix-report.md.
 
 ## Test evidence (2026-10-10)
-- Change B: ListenTogetherSharingSheetTests 11 tests; full suite "Executed 727 tests, with 0 failures".
+- Change B fix 1: ListenTogetherSharingSheetTests 17 tests; full suite "Executed 733 tests, with 0 failures".
 - Before (escape + row fix round 1): 716 tests, 0 failures. Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
   'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"
   -only-testing:BookPlayerTests test.
@@ -104,19 +105,19 @@ Change C (addendum-a11y-guidance.md C and G), listener phone locked, VoiceOver o
   lock-screen Play and AirPods then control the own book.
 - FaceTime-based session: the guide's Magic Tap warning matches what happens.
 Change B (addendum-a11y-guidance.md B and G), VoiceOver on:
-- Start from Messages with no call: sheet read in full (people, Messages, FaceTime, Cancel); "Preparing"
-  heard after it closes; focus back on More. Does the sheet close itself, and when does `result` arrive?
+- Start from Messages with no call: sheet read in full; "Preparing" heard after it closes; focus back on
+  More (after Cancel too). Does the sheet close itself? MEASURE seconds from Send to the session arriving
+  (decides whether 20 s is right). Two-finger scrub on the sheet must give .cancelled ("not started").
+- VERIFY: a refused presentation leaves presentingViewController nil (fallback alert shown, not silence).
 - Listener opens the Messages invitation: BookPlayer opens, "Listen Together invitation: ..." spoken.
 - Discord voice + Messages session, both phones locked (see Change C items); Magic Tap in a Discord call.
-- Cancel the sheet (button and Z): "Listen Together was not started"; More offers Listen Together again.
-  Also: background the app or close the player while the sheet is up (pending share must not get stuck).
+- Cancel the sheet (button and Z): "not started"; More offers it again. Background the app, lock, or close the player while the sheet is up: within ~2 s of return Listen
+  Together is back in More (or after 120 s at worst). Are the result announcements heard when locked?
 - First-share note read in full, Share starts sharing, Cancel and Z do not; the 15 s refresh does not re-read the scrubber.
 - A11y residuals: Magic Tap before the book arrives gives no audio; after the getting-book swap focus
   lands on the player heading once.
-Also from the a11y guidance (task-10-a11y-guidance.md section 7): the spoken percent changes only at
-0/25/50/75; the position slider moves 30 s per swipe, the other side hears "skipped" once; Chapters sheet
-focus; Z gesture now CLOSES the listener screen (R35; escape-row-a11y-guidance.md section 11 checklist); the largest Dynamic Type in portrait and landscape;
-Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Keyboard Access.
+Also task-10-a11y-guidance.md section 7 (percent steps, 30 s slider, Chapters focus, Z closes the listener
+screen, largest Dynamic Type, Reduce Motion, Voice Control, Switch Control, Full Keyboard Access).
 
 ## Known limitations
 - Streamed books (AudiobookShelf, Jellyfin, cloud) and video cannot be shared. They are hidden or refused.
@@ -124,14 +125,13 @@ Reduce Motion; Voice Control ("Tap Join", "Tap End"); Switch Control and Full Ke
 - End asks for confirmation (except while preparing). Becky to decide if it stays.
 - If the sharer switches to a different book mid-session, listeners keep the old book (R12).
 - A failed piece load is retried only when new pieces arrive (the very last piece may not retry).
-- If the sharer's app is killed while the FaceTime call continues, listeners are not stopped; they wait
-  (review item I5, R32). Ending the call does end it.
-- Speed changes from anyone are applied to the sharer's own player, so the sharer's library saves that
-  speed for the book. A listener's own library speed is not affected.
+- If the sharer's app is killed while the FaceTime call continues, listeners wait (I5, R32).
+- Speed changes from anyone are saved in the sharer's library for that book (not the listener's).
 - Sleep timer and CarPlay chapter buttons on a listener act on the own book, not the shared one.
 - Change C: Pause pressed while the group waits for a piece does nothing (the listener is already not
   playing); a Discord or Siri interruption pauses the shared book for everyone (ListenerPlayer reports it).
 - The listener's speed picker shows no checkmark when the sharer uses a speed that is not one of its presets.
+- New Change B strings are English in every lproj; mark them for translation before release.
 - Other deferred minor items are listed in the ledger (progress.md) under each task.
 
 ## Open problems and next steps (in order)

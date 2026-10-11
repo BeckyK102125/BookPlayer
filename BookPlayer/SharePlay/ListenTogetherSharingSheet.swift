@@ -18,6 +18,8 @@ enum ListenTogetherSharingSheetOutcome: Equatable {
   case cancelled
   /// The controller could not be created or presented.
   case unavailable
+  /// The sheet left the screen (or the app came back with it gone) without reporting a result.
+  case abandoned
 }
 
 /// Shows Apple's sharing sheet for a Listen Together activity. MainCoordinator presents it from the

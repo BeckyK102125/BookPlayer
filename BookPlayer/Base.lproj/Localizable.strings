@@ -533,6 +533,8 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_unavailable" = "Listen Together isn't available right now.";
 "listen_together_invitation_message_no_author" = "Listen to %@ together.";
 "listen_together_cancelled_announcement" = "Listen Together was not started.";
+"listen_together_didnt_start_announcement" = "Listen Together didn't start. Try again.";
+"listen_together_started_late_announcement" = "Listen Together started.";
 "listen_together_join_hint" = "Pauses your current book and starts listening together.";
 "listen_together_end_hint_sharer" = "Ends Listen Together for everyone.";
 "listen_together_end_hint_listener" = "Leaves Listen Together and deletes your copy of the book.";
