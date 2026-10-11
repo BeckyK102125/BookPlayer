@@ -50,7 +50,7 @@ People listening do not need their own copy of the book.
 3. In the player, choose **More**, then **Listen Together**.
 4. The first time you share on this iPhone, a note says "People who join can only listen. They do not get a copy of the book. What they download is deleted when the session ends." Choose **Share** to continue. Choose **Cancel**, or use the two-finger scrub, to stop without sharing; the note then appears again next time. After you choose Share, the note is not shown again on that iPhone.
 5. BookPlayer prepares the book and invites everyone on the call. You hear "Preparing" while this happens.
-6. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing".
+6. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing". If you close the player, a **Listen Together** row stays above the tab bar. Choose it to return to the player.
 
 If you are not on a FaceTime call, BookPlayer tells you to start one first. Nothing else happens.
 
@@ -62,10 +62,13 @@ If you are not on a FaceTime call, BookPlayer tells you to start one first. Noth
 4. Choose **Join** to listen, or **Not Now** to decline.
 5. After you join, you hear "Getting the book" while the first part of the book downloads. This usually takes less than a minute.
 6. Playback starts in sync with everyone else.
+7. To leave the Listen Together screen without ending it, use the two-finger scrub (or the back gesture). You go back to your library and the book keeps playing for everyone. A **Listen Together** row stays just above the tab bar. VoiceOver reads it, for example, as "Listen Together, playing, Moby Dick". Choose it to come back to the player.
 
-Your own book is paused when you join.
+Your own book is paused when you join. While you listen together your own mini player is hidden, so you cannot start your own book by accident.
 
 ## During the session
+
+Closing the Listen Together screen does not end the session. Use the two-finger scrub to close it and the **Listen Together** row to open it again.
 
 Anyone can control playback, and it changes for everyone:
 
@@ -110,7 +113,8 @@ When the session ends, the lock screen, Control Center and AirPods control your 
 
 ## End the session
 
-- Choose **End Listen Together** in the status line. BookPlayer asks you to confirm.
+- Choose **End Listen Together** in the status line on the player. BookPlayer asks you to confirm. The two-finger scrub never ends Listen Together: it only closes the screen.
+- The Listen Together row only opens the player; it cannot end the session.
 - Ending the FaceTime call also ends the session.
 - VoiceOver says "Listen Together ended".
 

@@ -553,3 +553,11 @@
 "listen_together_first_share_message" = "They do not get a copy of the book. What they download is deleted when the session ends.";
 "listen_together_not_available_now" = "Not available yet";
 "listen_together_share_button" = "Share";
+"listen_together_row_hint_listener" = "Opens the Listen Together player.";
+"listen_together_row_hint_sharer" = "Opens the player, where you can end Listen Together.";
+"listen_together_row_value_playing" = "playing, %@";
+"listen_together_row_value_paused" = "paused, %@";
+"listen_together_row_value_sharing" = "sharing, %@";
+"listen_together_row_value_sharing_untitled" = "sharing";
+"listen_together_row_value_waiting" = "waiting for the book, %@";
+"listen_together_row_value_downloading" = "getting the book, %d percent";

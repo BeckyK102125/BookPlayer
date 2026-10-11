@@ -383,3 +383,42 @@ Tests: ListenTogetherFirstShareNoteTests renamed testShareStartsSharingAndSavesT
 testCancelSharesNothingSavesNothingAndShowsAgain (+ a late Share after Cancel does nothing). Focused
 (note + SharePlayMenuTests): 17 tests, 0 failures, ** TEST SUCCEEDED **. Full: "Executed 693 tests, with
 0 failures", ** TEST SUCCEEDED **. 49 listen_together_* keys in all 26 Localizable.strings.
+
+## 2026-10-10 - listen-together-lock-screen - escape goes back + Listen Together row (R35, R36)
+Parent 54399521. Guidance: .superpowers/sdd/2026-10-10-shareplay-listen-together/escape-row-a11y-guidance.md
+(supersedes "escape is ignored on the listener screen"). Rulings: R35 escape on the listener screen and on
+"Getting the book" closes to the library, the session continues; R36 a listener's own mini player is hidden
+and the row takes its slot, the sharer gets the row above their mini player. Becky's rule: escape is always
+cancel/back.
+- User intent: ListStateManager.isListenerScreenRequested. ListenTogetherPresentation gains pure functions:
+  showsListenerScreen(state:hasListener:isCovered:isRequested:) (false when not requested; covered logic
+  unchanged), isListenerScreenRequested(after: .sessionStarted/.opened/.closedByUser/.stateChanged)
+  (stateChanged to anything but .listening clears it: end, idle, new invitation), closeListenerScreen
+  (listState:) (no service parameter, so escape cannot end, pause or start anything), and
+  focusesRowAfterListenerScreenCloses. The cover binding setter now clears the request (system dismissal).
+  Escape on ListenerPlayerView and ListenerGettingBookView calls onClose (no announcement, no pause).
+- ListenTogetherStatusRow (new, SharePlay/Views): one Button; label listen_together_title; value from
+  ListenTogetherRow.value (playing/paused/waiting + title, "getting the book, N percent" in 25 percent steps
+  plus the joined title when known, "sharing, title" or "sharing"); hint per role; id listenTogether.row;
+  no End and no custom actions; bpFont headline/subheadline, no line limit, AX sizes stack vertically
+  without the icon, min height 56, theme background + secondary outline (banner treatment), width capped
+  at 600. Listener snapshot (isPlaying, isWaitingForPiece) via Combine so the row does not observe the
+  twice-a-second time. Focus: ListStateManager.listenTogetherRowFocusRequest, bumped 500 ms after the
+  listener cover closes by the user, or after the sharer closes the player while sharing.
+- MainView: ListenTogetherRow.bottomBar decides row / mini player; VStack(spacing 8) row above the mini
+  player, one bottom clearance (moved out of MiniPlayerView; Spacing.S1 in edit mode). Row hides only for
+  the keyboard. iOS 26.0 accessory: listener = row (isAccessory style), sharer = MiniPlayerAccessoryView with
+  accessibilityValue "Listen Together, sharing, title". Environment listenTogetherRowIsShown makes
+  MiniPlayerSafeAreaInsetModifier keep the inset when only the row shows (no own book loaded).
+- 8 keys (listen_together_row_hint_listener/_sharer, _value_playing/_paused/_sharing/_sharing_untitled/
+  _waiting/_downloading) in all 26 Localizable.strings. _sharing_untitled added because the guidance says
+  to drop an empty sharer title.
+- Guide: section 8 wording (join step 7, mini player hidden, during the session, share step 6, end section).
+- Tests: ListenTogetherRowTests (19, new) + SharePlayMenuTests updated for isRequested. RED: build failed
+  (ListenTogetherRow / isRequested missing). GREEN: "Executed 19 tests, with 0 failures", ** TEST
+  SUCCEEDED **. Full: first run crashed in unrelated InsertBooksTests.testInsertMultipleBooksIntoPlaylist
+  (EXC_BAD_ACCESS in CoreData _PFFastMOCObjectWillChange from LibraryService.createFolder; pre-existing
+  threading flake, like the RegisterExistingProcessedItemsTests one) -> 570 executed, TEST FAILED. Rerun:
+  "Executed 712 tests, with 0 failures", ** TEST SUCCEEDED ** (693 + 19). No new warnings.
+- Not done: device / VoiceOver checks (guidance section 11). Decision 1 settled by R36 as "always hide"
+  (the guidance had recommended showing the own mini player while the own book plays).

@@ -12,6 +12,9 @@ import SwiftUI
 struct MiniPlayerAccessoryView: View {
   let relativePath: String
   let showPlayer: () -> Void
+  /// iOS 26.0 has one accessory slot, so a sharer's Listen Together status is read here instead of
+  /// in a separate row ("Listen Together, sharing, Moby Dick").
+  var listenTogetherValue: String?
 
   @State private var isPlaying: Bool = false
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -62,6 +65,7 @@ struct MiniPlayerAccessoryView: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel(voiceOverLabel)
+        .accessibilityValue(listenTogetherValue ?? "")
         Button {
           UIImpactFeedbackGenerator(style: .medium).impactOccurred()
           playerManager.rewind()

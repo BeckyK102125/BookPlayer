@@ -144,13 +144,14 @@ extension View {
 struct MiniPlayerSafeAreaInsetModifier: ViewModifier {
   @Environment(\.playerState) var playerState
   @Environment(\.miniPlayerBottomInset) private var miniPlayerBottomInset
+  @Environment(\.listenTogetherRowIsShown) private var listenTogetherRowIsShown
   @StateObject private var keyboardObserver = KeyboardObserver()
 
   private var spacerHeight: CGFloat {
     // When keyboard is visible, let iOS handle the safe area adjustment
     guard !keyboardObserver.isKeyboardVisible else { return 0 }
 
-    return playerState.loadedBookRelativePath != nil ? miniPlayerBottomInset : Spacing.M
+    return playerState.loadedBookRelativePath != nil || listenTogetherRowIsShown ? miniPlayerBottomInset : Spacing.M
   }
 
   func body(content: Content) -> some View {

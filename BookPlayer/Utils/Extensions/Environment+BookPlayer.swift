@@ -37,4 +37,7 @@ extension EnvironmentValues {
   @Entry var miniPlayerBottomInset: CGFloat = 80
   /// Actual tab bar content height read from UIKit (excludes device safe area)
   @Entry var tabBarContentHeight: CGFloat = 49
+  /// Whether the Listen Together row is above the tab bar (it needs the same inset as the mini player,
+  /// also when no book of the user's own is loaded)
+  @Entry var listenTogetherRowIsShown = false
 }

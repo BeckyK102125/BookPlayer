@@ -10,7 +10,8 @@ enum ListenerFocus: Hashable {
 /// The listener's player during Listen Together, shown as a full-screen cover from MainView while
 /// `SharePlaySessionService.listener` exists. VoiceOver order: title (heading, first focus), author,
 /// chapter, status, End, position, skip back, play/pause, skip forward, chapters, speed.
-/// Two-finger Z does nothing here: ending is only through the labelled End button.
+/// Two-finger Z closes the screen only (R35): the session keeps playing and the Listen Together row
+/// brings it back. Ending is only through the labelled End button.
 struct ListenerPlayerView: View {
   let service: SharePlaySessionService
   /// Not observed here: its time ticks twice a second, so only the small subviews observe it.
@@ -18,6 +19,8 @@ struct ListenerPlayerView: View {
   /// How long to wait before moving focus to the title: long for a fresh cover, short when this view
   /// replaces the "getting the book" screen inside a cover that is already up.
   var initialFocusDelay: Duration = .milliseconds(600)
+  /// Escape: closes the screen only; never ends, pauses or starts anything.
+  var onClose: () -> Void = {}
 
   @StateObject private var theme = ThemeViewModel()
   @AccessibilityFocusState private var focus: ListenerFocus?
@@ -40,8 +43,9 @@ struct ListenerPlayerView: View {
     .background(theme.systemBackgroundColor.ignoresSafeArea())
     .environmentObject(theme)
     .accessibilityAction(.magicTap) { listener.userTogglePlay() }
-    // Escape is ignored on purpose: ending deletes the listener's copy, too much for a reflex gesture.
-    .accessibilityAction(.escape) {}
+    // Escape closes the screen only (R35). Ending deletes the listener's copy, so it stays on the
+    // labelled End button and its confirmation; escape never reaches it.
+    .accessibilityAction(.escape) { onClose() }
     .task {
       // Wait for the cover to finish presenting; an earlier request is often lost.
       try? await Task.sleep(for: initialFocusDelay)

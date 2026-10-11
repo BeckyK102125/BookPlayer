@@ -43,6 +43,15 @@ final class ListStateManager {
   /// leaving, so the import's placement prompt waits for this to be empty.
   var coversOnScreen = Set<Cover>()
 
+  /// Listen Together (R35): whether the user wants the listener screen up. Set when a listener session
+  /// starts and when the Listen Together row is chosen; cleared by escape, by a system dismissal and when
+  /// the session ends or a new invitation arrives. Without it the screen, derived from the session state,
+  /// would come straight back after escape.
+  var isListenerScreenRequested = false
+
+  /// Bumped to ask the Listen Together row to take VoiceOver focus (after the user closed a cover).
+  var listenTogetherRowFocusRequest = 0
+
   func reloadAll(padding: Int = 0) {
     payloads[.all] = padding
     globalToken += 1

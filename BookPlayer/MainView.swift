@@ -23,6 +23,7 @@ struct MainView: View {
   @Environment(\.audiobookshelfService) private var audiobookshelfService
   @Environment(\.playbackService) private var playbackService
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.horizontalSizeClass) private var hSize
 
   @State private var tabBarContentHeight: CGFloat = 49
 
@@ -71,18 +72,39 @@ struct MainView: View {
 
     }
     .miniPlayer {
-      if !listState.isSearching && !listState.isEditing && !keyboardObserver.isKeyboardVisible,
-        let relativePath = playerState.loadedBookRelativePath
-      {
-        MiniPlayerView(relativePath: relativePath, showPlayer: showPlayer)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-          .animation(.spring(), value: playerState.loadedBookRelativePath != nil)
+      // R36: the Listen Together row sits in the mini player's slot, above the mini player when both
+      // show; a listener's own mini player is hidden. One bottom clearance for the whole stack.
+      let bar = bottomBar
+      VStack(spacing: 8) {
+        if bar.showsRow {
+          ListenTogetherStatusRow(service: sharePlayService, showPlayer: showPlayer)
+            .transition(.opacity)
+        }
+        if bar.showsMiniPlayer, let relativePath = playerState.loadedBookRelativePath {
+          MiniPlayerView(relativePath: relativePath, showPlayer: showPlayer)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(.spring(), value: playerState.loadedBookRelativePath != nil)
+        }
       }
+      // In compact width (iPhone, iPad split/slide-over) the tab bar is at the bottom, so clear it;
+      // in regular width (iPad full screen) it is at the top, so only add minimal spacing. In edit
+      // mode the tab bar is hidden.
+      .padding(
+        .bottom,
+        bar.showsRow || bar.showsMiniPlayer
+          ? (hSize == .compact && !listState.isEditing ? tabBarContentHeight + 8 : Spacing.S1) : 0
+      )
+      .animation(.easeInOut(duration: 0.25), value: bar)
     } accessoryContent: {
-      if !listState.isSearching && !listState.isEditing && !keyboardObserver.isKeyboardVisible,
-        let relativePath = playerState.loadedBookRelativePath
-      {
-        MiniPlayerAccessoryView(relativePath: relativePath, showPlayer: showPlayer)
+      // iOS 26.0 has a single accessory slot: a listener gets the row there; a sharer keeps the mini
+      // player, which reads the sharing status as its value.
+      let bar = bottomBar
+      if bar.showsRow && !bar.showsMiniPlayer {
+        ListenTogetherStatusRow(service: sharePlayService, isAccessory: true, showPlayer: showPlayer)
+      } else if bar.showsMiniPlayer, let relativePath = playerState.loadedBookRelativePath {
+        MiniPlayerAccessoryView(
+          relativePath: relativePath, showPlayer: showPlayer,
+          listenTogetherValue: bar.showsRow ? sharerAccessoryValue : nil)
       }
     }
     .sheet(item: $listState.activeIntegrationSheet, onDismiss: {
@@ -102,6 +124,13 @@ struct MainView: View {
     }
     .fullScreenCover(isPresented: playerState.isShowingPlayerBinding, onDismiss: {
       listState.coversOnScreen.remove(.player)
+      // A sharer closed the player: land on the Listen Together row, the way back to it.
+      if case .sharing = sharePlayService.state {
+        Task { @MainActor in
+          try? await Task.sleep(for: .milliseconds(500))
+          listState.listenTogetherRowFocusRequest += 1
+        }
+      }
     }) {
       PlayerView {
         PlayerViewModel(
@@ -127,6 +156,7 @@ struct MainView: View {
       }
     }
     .environment(\.tabBarContentHeight, tabBarContentHeight)
+    .environment(\.listenTogetherRowIsShown, bottomBar.showsRow)
     .environmentObject(theme)
     .environment(\.listState, listState)
     .tint(theme.linkColor)
@@ -151,6 +181,23 @@ struct MainView: View {
     }
   }
   
+  private var bottomBar: ListenTogetherRow.BottomBar {
+    ListenTogetherRow.bottomBar(
+      state: sharePlayService.state,
+      hasListener: sharePlayService.listener != nil,
+      hasLoadedBook: playerState.loadedBookRelativePath != nil,
+      isSearchingOrEditing: listState.isSearching || listState.isEditing,
+      isKeyboardVisible: keyboardObserver.isKeyboardVisible)
+  }
+
+  /// "Listen Together, sharing, Moby Dick", for the iOS 26.0 accessory mini player.
+  private var sharerAccessoryValue: String? {
+    ListenTogetherRow.value(
+      state: sharePlayService.state, joinedTitle: nil, listener: nil,
+      sharerTitle: playerManager.currentItem?.title
+    ).map { "listen_together_title".localized + ", " + $0 }
+  }
+
   func showPlayer() {
     playerState.isShowingPlayer = true
   }

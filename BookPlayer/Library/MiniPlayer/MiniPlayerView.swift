@@ -15,8 +15,6 @@ struct MiniPlayerView: View {
 
   @State private var isPlaying: Bool = false
 
-  @Environment(\.horizontalSizeClass) private var hSize
-  @Environment(\.tabBarContentHeight) private var tabBarContentHeight
   @EnvironmentObject private var theme: ThemeViewModel
   @EnvironmentObject private var playerManager: PlayerManager
 
@@ -97,10 +95,8 @@ struct MiniPlayerView: View {
       }
     }
     .padding(.horizontal, 12)
-    // In compact width (iPhone, iPad split/slide-over) the tab bar is at the bottom,
-    // so add padding to clear it; in regular width (iPad full screen) the tab bar
-    // is at the top, so only add minimal spacing
-    .padding(.bottom, hSize == .compact ? tabBarContentHeight + 8 : Spacing.S1)
+    // The clearance above the tab bar is added once by MainView, around the mini player and the
+    // Listen Together row stacked above it.
     .onReceive(
       playerManager.isPlayingPublisher()
         .receive(on: DispatchQueue.main)
