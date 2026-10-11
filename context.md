@@ -8,7 +8,7 @@ Messages with no call, or on a FaceTime call); the others listen to a copy that 
 session only and deleted when it ends; playback stays in sync; everything works with VoiceOver.
 Current goal: addendum 3 (reliable sending, visible messages, spoken errors), after a field test where
 the session ended 0.4 s after Play (most likely a failed piece on the sharer). Task A (engine, no UI) is done
-(87f4a744, fix round 1 in this commit); Task B (visible messages R41, Leave button, "Speak error messages" setting) is next.
+(87f4a744, fix rounds d786c79e and this commit); Task B (visible messages R41, Leave button, "Speak error messages" setting) is next.
 Addendum 2 ("Both have the book") is done on this branch.
 - Spec: docs/superpowers/specs/2026-10-10-shareplay-listen-together-design.md
 - Addendum 2: docs/superpowers/specs/2026-10-10-shareplay-listen-together-addendum-2.md
@@ -24,8 +24,8 @@ Addendum 2 ("Both have the book") is done on this branch.
 - Tracked on origin: `develop`, `listen-together-messages` (both 9c70dd06), `listen-together-lock-screen`
   (63e9578b), `shareplay-listen-together` (e634f5c7). Becky and Michael are testing develop on devices.
 - `listen-together-own-copy` (this branch, from develop at 9c70dd06): addendum 2 (de1f5731), fix rounds
-  (7bf22248, 0b5aacdd), addendum 3 ruling (1598e8d4), Task A (87f4a744, de116941), Task A fix round 1
-  in this commit (parent de116941). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
+  (7bf22248, 0b5aacdd), addendum 3 ruling (1598e8d4), Task A (87f4a744, de116941, d786c79e), fix round 2
+  in this commit (parent d786c79e). NOT pushed. Clean after commit. Worktree BookPlayer-testflight (detached at
   9c70dd06) belongs to another session (TestFlight archive); not touched here.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 - Never committed: BuildConfiguration/Debug.xcconfig (gitignored; holds the signing below).
@@ -70,7 +70,7 @@ Addendum 2 ("Both have the book") is done on this branch.
 - Earlier: addendum 2 own copy (fingerprint, own-copy playback, owners-only mode); see Notes.md.
 
 ## Test evidence (2026-10-11, addendum 3 Task A fix round 1)
-- 21 SharePlay classes 327/0; full 899/0 ** TEST SUCCEEDED **; TSan 327/0, 0 warnings. (First pass:
+- Fix round 2: 21 SharePlay classes 330/0; full 902/0 ** TEST SUCCEEDED **; TSan 330/0. (First pass:
   308/880, TSan 308/0.)
 Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination
 'platform=iOS Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests"

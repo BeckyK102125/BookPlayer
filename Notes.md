@@ -855,3 +855,16 @@ Parent de116941. Inputs: reliable-sending-task-A-review.md, reliable-sending-tas
 - Full run 1: all 899 tests passed but xcodebuild hung before printing the final line; killed and rerun.
 - Full run 2: "Executed 899 tests, with 0 failures", ** TEST SUCCEEDED **. TSan 21 SharePlay classes:
   327/0, 0 ThreadSanitizer warnings (the same pre-existing CoreData "Thread Performance Checker" line).
+
+## 2026-10-11 - listen-together-own-copy - addendum 3 Task A, fix round 2
+Parent d786c79e. Input: reliable-sending-task-A-rereview-1.md.
+- I-A: an unplayable piece is reloaded on the 5/10/20/30 s schedule, counted per piece
+  (`pieceDecodeFailures`), via scheduleSessionTimer guarded by the transport; teardown stops it.
+  Before: reloaded at once, a tight loop for a file that never plays.
+- Transport retry/reload Tasks now go into `tasks`, so `leave()` cancels them.
+- endedShareIDs also on `.sendFailed` and on invalidation of a known share (`.unavailable` has no share).
+- Guide: "can't be used to join again until BookPlayer is restarted".
+- New test: a sharer rejoining with a new participant id (passed in red: pins existing behaviour).
+- TDD: red ReliableSending 47 tests, 5 failures (immediate reload x4 asserts, invalidation). Green:
+  21 SharePlay classes 330/0; full "Executed 902 tests, with 0 failures", ** TEST SUCCEEDED ** (first
+  run); TSan 21 classes 330/0, 0 ThreadSanitizer warnings.

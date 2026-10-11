@@ -418,11 +418,21 @@ extension SharePlaySessionService {
   /// loaded again (the player then waits for it, which asks the sharer too).
   private func listenerPieceFailed(_ index: Int) {
     placedPieces.remove(index)
-    Self.logger.error("Listen Together: piece \(index, privacy: .public) dropped, loading it again")
-    if let attachmentID = pieceIndexByAttachment.first(where: { $0.value == index })?.key {
-      transport?.reloadPiece(attachmentID: attachmentID)
-    }
     updateListeningState()
+    // Fix round 2 (I-A): loaded again on the 5/10/20/30 s schedule, counted per piece, so a file that
+    // never plays is not re-read in a tight loop. Teardown stops a pending reload.
+    let failures = (pieceDecodeFailures[index] ?? 0) + 1
+    pieceDecodeFailures[index] = failures
+    let delay = Self.loadRetryDelays[min(failures - 1, Self.loadRetryDelays.count - 1)]
+    Self.logger.error(
+      "Listen Together: piece \(index, privacy: .public) dropped (failure \(failures, privacy: .public)), loading it again in \(String(describing: delay), privacy: .public)")
+    guard let transport, let attachmentID = pieceIndexByAttachment.first(where: { $0.value == index })?.key
+    else { return }
+    scheduleSessionTimer(delay) { [weak self] in
+      guard let self, self.transport === transport, self.role == .listener, !self.placedPieces.contains(index)
+      else { return }
+      transport.reloadPiece(attachmentID: attachmentID)
+    }
   }
 
   private func listenerPositionReady() {
@@ -536,6 +546,8 @@ extension SharePlaySessionService {
       tearDown(reason: role == .listener ? .sharerEnded : .normal)
     case .invalidated:
       Self.logger.info("Listen Together: the group session was invalidated")
+      // An invalidated session can't be joined again (fix round 2).
+      if let shareID { rememberEndedShare(shareID) }
       tearDown(reason: .normal)
     case .participantsChanged(let count, let ids):
       Self.logger.info("Listen Together: participants \(ids.isEmpty ? count : ids.count, privacy: .public)")

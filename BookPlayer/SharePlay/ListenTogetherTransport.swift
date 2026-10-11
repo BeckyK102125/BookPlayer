@@ -160,16 +160,17 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     guard !retrying.isEmpty else { return }
     // Seen again, so a journal list change meanwhile doesn't load the same piece twice.
     retrying.forEach { seenAttachments.insert($0.id) }
-    Task { [weak self] in
+    // Tracked, so `leave()` cancels it with the rest.
+    tasks.append(Task { [weak self] in
       for attachment in retrying { await self?.load(attachment) }
-    }
+    })
   }
 
   func reloadPiece(attachmentID: UUID) {
     guard let attachment = knownAttachments[attachmentID] else { return }
     failedAttachments.remove(attachmentID)
     seenAttachments.insert(attachmentID)
-    Task { [weak self] in await self?.load(attachment) }
+    tasks.append(Task { [weak self] in await self?.load(attachment) })
   }
 
   func hasAttachment(_ id: UUID) -> Bool? {

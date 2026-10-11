@@ -166,7 +166,7 @@ If the person sharing leaves Listen Together (they are no longer in the session,
 
 If the person sharing is still in the session but their iPhone has gone quiet (for example they switched to another app or locked the phone while the book was still being sent), listeners may be told they are waiting for the person sharing. This never ends Listen Together: it carries on as soon as the person sharing comes back to BookPlayer.
 
-After Listen Together has ended, the same invitation can't be used to join again. The person sharing can start Listen Together again with a new invitation.
+After Listen Together has ended, the same invitation can't be used to join again until BookPlayer is restarted. The person sharing can start Listen Together again with a new invitation.
 
 ## What happens to the shared book
 

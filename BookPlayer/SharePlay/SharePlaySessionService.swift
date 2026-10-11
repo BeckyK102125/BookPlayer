@@ -229,6 +229,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// device ended it): never offered or joined again in this app session (decision 9 ruling). A new
   /// invitation has a new id.
   private(set) var endedShareIDs = Set<UUID>()
+  func rememberEndedShare(_ id: UUID) { endedShareIDs.insert(id) }
+  /// Listener: how often each received piece failed to play (its reload backs off).
+  var pieceDecodeFailures: [Int: Int] = [:]
   private var appStateObservation: AnyCancellable?
 
   // SharePlay plumbing.
@@ -857,6 +860,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     sendContext = nil
     isSendLoopRunning = false
     pieceFailures = [:]
+    pieceDecodeFailures = [:]
     lastStateAnswer = nil
     isStateAnswerPending = false
     isHeartbeatQueued = false
@@ -896,9 +900,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if let shareID { storage.remove(shareID: shareID) }
     announcer.announce(announcement ?? ListenTogetherAnnouncements.ended())
     Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
-    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare].contains(reason) {
-      endNotice = reason
-      if let shareID { endedShareIDs.insert(shareID) }
+    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare].contains(reason) { endNotice = reason }
+    // Never offered or joined again in this app session. `.unavailable` has no share (it ends before
+    // one starts), and an own End or Leave records it before tearing down.
+    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .sendFailed].contains(reason), let shareID {
+      endedShareIDs.insert(shareID)
     }
     state = .ended(reason: reason)
     scheduleReturnToIdle()

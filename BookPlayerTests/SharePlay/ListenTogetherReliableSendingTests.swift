@@ -733,6 +733,8 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     listener.applySeek(to: 1)
     listener.pieceFailed(index: 0)
     XCTAssertFalse(listener.isReady(at: 1))
+    XCTAssertEqual(transport.reloadedAttachments, [], "not at once (fix round 2)")
+    advance(seconds: 5)
     XCTAssertEqual(transport.reloadedAttachments, [attachment])
     await waitUntil { transport.sent.contains(.needPiece(index: 0)) }
     XCTAssertTrue(transport.sent.contains(.needPiece(index: 0)))
@@ -833,5 +835,71 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     transport.releaseSends()
     try? await Task.sleep(for: .milliseconds(100))
     XCTAssertEqual(count(transport) { $0 == .heartbeat }, 1)
+  }
+
+  // MARK: Fix round 2
+
+  /// I-A: a piece that keeps failing to play is loaded again on the 5/10/20/30 s schedule, never in a
+  /// tight loop.
+  func testAPieceThatKeepsFailingIsReloadedWithBackoff() async throws {
+    let (service, transport, _) = try await startListeningWithManifest()
+    let attachment = UUID()
+    transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
+    transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
+    await waitUntil { service.listener?.isReady(at: 1) == true }
+    let listener = try XCTUnwrap(service.listener)
+    listener.applySeek(to: 1)
+
+    listener.pieceFailed(index: 0)
+    XCTAssertEqual(transport.reloadedAttachments.count, 0)
+    advance(seconds: 5)
+    XCTAssertEqual(transport.reloadedAttachments.count, 1)
+
+    // It arrives again and fails again: the next reload waits 10 s.
+    transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0-2")))
+    await waitUntil { listener.isReady(at: 1) }
+    listener.pieceFailed(index: 0)
+    advance(seconds: 5)
+    XCTAssertEqual(transport.reloadedAttachments.count, 1, "backing off")
+    advance(seconds: 5)
+    XCTAssertEqual(transport.reloadedAttachments.count, 2)
+
+    // Teardown cancels a pending reload.
+    transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0-3")))
+    await waitUntil { listener.isReady(at: 1) }
+    listener.pieceFailed(index: 0)
+    service.end()
+    advance(seconds: 60)
+    XCTAssertEqual(transport.reloadedAttachments.count, 2)
+  }
+
+  /// Minor 3: an invalidated or failed share is not offered again either.
+  func testAnInvalidatedShareIsNotOfferedAgain() async throws {
+    let (service, transport, id) = try await startListeningWithManifest()
+    transport.emit(.invalidated)
+    await waitUntil { !service.isInSession }
+    XCTAssertEqual(service.decision(forIncoming: id), .endedShare)
+  }
+
+  /// Minor 4: a sharer who rejoins with a new participant id is recognised from their next message,
+  /// and tracked by the new id afterwards.
+  func testASharerRejoiningWithANewParticipantIDResumesTheGroup() async throws {
+    let (service, transport, _) = try await startListeningAndPlaying()
+    let (me, _) = await joinRosterWithSharer(transport)
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.notice == .waitingForSharer }
+    let rejoined = UUID()
+    transport.emit(.participantsChanged(count: 2, ids: [me, rejoined]))
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(service.notice, .waitingForSharer, "an unknown id is not the sharer yet")
+    transport.emit(.sharerParticipant(id: rejoined))
+    transport.emit(.message(.heartbeat))
+    await waitUntil { service.notice == nil }
+    XCTAssertNil(service.notice)
+    XCTAssertEqual(control.openSuspensions, 0)
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.notice == .waitingForSharer }
+    XCTAssertEqual(service.notice, .waitingForSharer, "the new id is followed")
+    XCTAssertEqual(control.openSuspensions, 1)
   }
 }
