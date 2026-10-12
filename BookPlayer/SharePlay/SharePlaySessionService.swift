@@ -100,6 +100,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   @Published private(set) var isListenerJoining = false
   /// Listener: still finding the place after `joiningSlowDelay`: the status also says what to do.
   @Published private(set) var isListenerJoiningSlow = false
+  /// Build 5: the group paused because listeners left (both roles), until someone plays. Shown as a
+  /// status, the sharer's caption under Play and the row value; announced once per pause episode.
+  @Published private(set) var pauseCause: ListenTogetherPauseCause?
 
   /// What the status line needs besides the state.
   var statusConditions: ListenTogetherStatusConditions {
@@ -109,7 +112,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       isPausedByOther: isPausedByOther,
       someoneDeclined: someoneDeclined,
       isJoiningGroup: isListenerJoining,
-      isJoiningSlow: isListenerJoiningSlow)
+      isJoiningSlow: isListenerJoiningSlow,
+      pauseCause: pauseCause)
   }
 
   /// Every alert, announcement and spoken message goes through here (guidance A.2).
@@ -160,6 +164,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   weak var sharingSheetPresenter: ListenTogetherSharingSheetPresenting?
   /// Whether this device is on a FaceTime call that can carry SharePlay. Test seam.
   var isEligibleForGroupSession: @MainActor () -> Bool
+  /// Asks the system whether to activate (FaceTime route). Test seam.
+  var prepareActivation: @MainActor (ListenTogetherActivity) async -> GroupActivityActivationResult = {
+    await $0.prepareForActivation()
+  }
+  /// Activates the activity (FaceTime route). Test seam, so an activation failure needs no call.
+  var activateActivity: @MainActor (ListenTogetherActivity) async throws -> Void = {
+    _ = try await $0.activate()
+  }
   /// Runs `action` after `delay`. Test seam, so the sharing sheet's waits need no real clock.
   var schedule: @MainActor (Duration, @escaping @MainActor () -> Void) -> Void = { delay, action in
     Task { @MainActor in
@@ -182,6 +194,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// After the end message is out, the session is ended this much later (within the time limit), so
   /// listeners handle "ended by the person sharing" before their session is invalidated.
   static let endAfterMessageDelay: Duration = .milliseconds(500)
+  /// A listener's Leave: `.listenerLeaving` gets this long to go out before the session is left, so the
+  /// sharer can tell a Leave from a lost connection (build 5).
+  static let leavingMessageTimeout: Duration = .seconds(1)
+  /// The sharer keeps a listener's `.listenerLeaving` this long, waiting for the roster to drop them.
+  static let leavingNoteLifetime: TimeInterval = 10
+  /// A remaining listener holds "Someone left Listen Together" this long: if the sharer's
+  /// `.groupPaused` arrives meanwhile, only the pause sentence is said (a11y guidance 1.7).
+  static let listenerLeftHold: Duration = .seconds(2)
   /// Owners-only shares: someone new in the roster is counted and announced only after this long, and
   /// only if they are still there and did not decline (no copy), so a decliner is never heard as
   /// "Someone joined" and "Someone left". Covers the decliner's 3 s wait for the join plus the send.
@@ -308,6 +328,20 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var ownCopyFiles: [Int: SourceFile] = [:]
   /// Sharer: `.needPiece` requests that arrived before the send order existed (final review M5).
   var pendingPieceRequests = Set<Int>()
+  /// Build 5. Sharer: listeners who said they are leaving (`.listenerLeaving`), by participant id, and
+  /// those whose message had no id, kept `leavingNoteLifetime` for the roster drop that follows.
+  var leavingNotes: [UUID: Date] = [:]
+  var anonymousLeavingNotes: [Date] = []
+  /// Sharer: the automatic pause's own `.paused` event is not sent as `.action(.paused)` (the
+  /// `.groupPaused` message replaces it); only until this time, so a later real pause is never lost.
+  var suppressPausedActionUntil: Date?
+  /// Sharer: the pause message could not be posted as a notification while away; it is announced on
+  /// the return if the pause is still in effect.
+  var announcesPauseWhenActive = false
+  /// Listener: "Someone left Listen Together" waiting for the hold (bumped to drop it).
+  var leftHoldGeneration = 0
+  /// Listener: when the sharer's `.groupPaused` last arrived (a roster drop right after it is covered).
+  var lastGroupPausedAt: Date?
   /// An own file that fails this many times makes this phone leave.
   static let ownCopyFailureLimit = 3
   private var appStateObservation: AnyCancellable?
@@ -406,6 +440,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
   func setListenerJoining(_ value: Bool) { if isListenerJoining != value { isListenerJoining = value } }
   func setListenerJoiningSlow(_ value: Bool) { if isListenerJoiningSlow != value { isListenerJoiningSlow = value } }
+  func setPauseCause(_ value: ListenTogetherPauseCause?) { if pauseCause != value { pauseCause = value } }
 
   /// "Couldn't send part of the book. Trying again." is said once per episode (guidance A.2, C5), until
   /// every piece is sent again.
@@ -542,19 +577,29 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let activity = await makeActivity(shareID: shareID, item: item)
     guard pendingShareID == shareID else { return }
 
-    let result = await activity.prepareForActivation()
+    let result = await prepareActivation(activity)
     // `end()` while the system sheet was up cancels the share.
     guard pendingShareID == shareID else { return }
     switch result {
     case .activationPreferred:
       do {
-        _ = try await activity.activate()
+        try await activateActivity(activity)
         // The session arrives through `startObservingSessions()`.
       } catch {
-        Self.logger.error("Listen Together: could not start SharePlay: \(error.localizedDescription)")
+        let nsError = error as NSError
+        Self.logger.error(
+          "Listen Together: could not start SharePlay on the call: \(ListenTogetherErrorDescription.describe(error), privacy: .public) domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)")
         guard pendingShareID == shareID else { return }
         clearPendingShare()
-        endUnavailable()
+        // B2 (build 5): a call that is still ringing or a stale SharePlay conversation makes the device
+        // look eligible while activation fails. Apple's sharing sheet still works then.
+        if let presenter = sharingSheetPresenter, presenter.canPresentSharingSheet {
+          Self.logger.info("Listen Together: activation failed; offering the sharing sheet instead")
+          state = .idle
+          await shareWithSheet(item, presenter: presenter)
+        } else {
+          endUnavailable()
+        }
       }
     case .activationDisabled:
       clearPendingShare()
@@ -613,9 +658,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       state = .needsFaceTime
     case .cancelled:
       cancelSheetShare(shareID)
-    case .abandoned:
-      releaseSheetShare(shareID)
-    case .sent:
+    case .abandoned, .sent:
+      // B1 (build 5): a sheet that left the screen without reporting may still have sent (the system's
+      // result or our session can be slow). It is treated like a send: "didn't start" only if no session
+      // arrived within `sheetSessionTimeout`.
+      if outcome == .abandoned { Self.logger.info("Listen Together: the sharing sheet closed without a result; waiting for the session") }
       schedule(Self.sheetAnnouncementDelay) { [weak self] in self?.sheetPreparingMoment(shareID) }
       schedule(Self.sheetSessionTimeout) { [weak self] in self?.releaseSheetShare(shareID) }
     }
@@ -963,7 +1010,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func leaveForOwnBook(announcement: String) {
     guard role == .listener else { return }
     if let shareID { endedShareIDs.insert(shareID) }
-    tearDown(reason: .left, announcement: announcement)
+    let transport = self.transport
+    tearDown(reason: .left, announcement: announcement, leaveTransport: false)
+    if let transport { leaveTellingTheSharer(transport) }
   }
 
   /// "Leave Listen Together" (listener, leave guidance): this device leaves and deletes its temporary
@@ -972,9 +1021,32 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func leave() {
     guard role == .listener else { return }
     if let shareID { endedShareIDs.insert(shareID) }
-    tearDown(reason: .left, announces: false)
+    let transport = self.transport
+    tearDown(reason: .left, announces: false, leaveTransport: false)
+    if let transport { leaveTellingTheSharer(transport) }
     messages.forgetStuckCover()
     messages.afterListenerCoverGone(announce: "listen_together_left_for_own_book".localized)
+  }
+
+  /// Build 5: a listener's deliberate Leave first tells the others (`.listenerLeaving`, at most
+  /// `leavingMessageTimeout`), so the sharer pauses with "Someone left" rather than "lost their
+  /// connection"; then the session is left. A background task covers the wait; its expiry leaves at once.
+  func leaveTellingTheSharer(_ transport: ListenTogetherTransport) {
+    let leaveOnce = ListenTogetherOnce { transport.leave() }
+    let background = ListenTogetherBackgroundTask(
+      system: appSystem, name: "Listen Together leave", onExpire: { leaveOnce.run() })
+    Task {
+      await Self.withTimeLimit(Self.leavingMessageTimeout) {
+        do {
+          try await transport.send(.listenerLeaving)
+        } catch {
+          Self.logger.error(
+            "Listen Together: could not send the leaving message: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
+        }
+      }
+      leaveOnce.run()
+      background.end()
+    }
   }
 
   /// Ends Listen Together for this device. The sharer also tells everyone else it is over.
@@ -996,24 +1068,39 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       // Chunk sends stop before teardown deletes the share's files (fix round 1, Minor 1).
       transport.stopPieceTransfers()
       tearDown(reason: .normal, leaveTransport: false)
-      // The end message gets a short time; then SharePlay is ended for everyone (transfer fix, item
-      // 4) whatever happens, so a stalled messenger can't keep a session the UI already says has ended.
-      // A short pause after the message lets it be handled before listeners see the session end.
-      Task {
-        await Self.withTimeLimit(Self.endMessageTimeout) {
-          do {
-            try await transport.send(.sessionEnding)
-            try? await Task.sleep(for: Self.endAfterMessageDelay)
-          } catch {
-            Self.logger.error(
-              "Listen Together: could not send the end message: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
-          }
-        }
-        Self.logger.info("Listen Together: ending the group session for everyone")
-        transport.end()
-      }
+      endForEveryone(transport)
+    } else if let transport {
+      tearDown(reason: .normal, leaveTransport: false)
+      leaveTellingTheSharer(transport)
     } else {
       tearDown(reason: .normal)
+    }
+  }
+
+  /// The sharer's End: the end message gets a short time; then SharePlay is ended for everyone
+  /// (transfer fix, item 4) whatever happens, so a stalled messenger can't keep a session the UI already
+  /// says has ended. A short pause after the message lets it be handled before listeners see the
+  /// session end. A3 (build 5): a background task covers the whole sequence, so going home or locking
+  /// right after End can't suspend the app before `end()`; if its time runs out, `end()` runs at once.
+  private func endForEveryone(_ transport: ListenTogetherTransport) {
+    let endOnce = ListenTogetherOnce {
+      Self.logger.info("Listen Together: ending the group session for everyone")
+      transport.end()
+    }
+    let background = ListenTogetherBackgroundTask(
+      system: appSystem, name: "Listen Together end", onExpire: { endOnce.run() })
+    Task {
+      await Self.withTimeLimit(Self.endMessageTimeout) {
+        do {
+          try await transport.send(.sessionEnding)
+          try? await Task.sleep(for: Self.endAfterMessageDelay)
+        } catch {
+          Self.logger.error(
+            "Listen Together: could not send the end message: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
+        }
+      }
+      endOnce.run()
+      background.end()
     }
   }
 
@@ -1105,6 +1192,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     isListenerPlaying = false
     isPausedByOther = false
     someoneDeclined = false
+    pauseCause = nil
+    leavingNotes = [:]
+    anonymousLeavingNotes = []
+    suppressPausedActionUntil = nil
+    announcesPauseWhenActive = false
+    leftHoldGeneration += 1
+    lastGroupPausedAt = nil
     localEventsBag.removeAll()
     bridge?.invalidate()
     bridge = nil
@@ -1192,6 +1286,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   }
 
   enum IncomingSessionAction {
+    /// One of our own shares we no longer want (cancelled, or a stale late share): ended for everyone,
+    /// so invitees are not left alone in it (A4, build 5).
+    case end
     case leave
     case ignore
     case offer
@@ -1202,11 +1299,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// What `received` does with a session, claiming our own share. Test seam (no GroupSession needed).
   func action(forIncoming shareID: UUID) -> IncomingSessionAction {
     switch decision(forIncoming: shareID) {
-    case .cancelledShare, .endedShare:
+    case .cancelledShare:
+      return .end
+    case .endedShare:
       return .leave
     case .staleOwnShare:
       lateShare = nil
-      return .leave
+      return .end
     case .busy:
       return .ignore
     case .invitation:
@@ -1226,6 +1325,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let item: PlayableItem
     let late: Bool
     switch action(forIncoming: shareID) {
+    case .end:
+      Self.logger.info("Listen Together: our own cancelled or stale share arrived; ending it for everyone")
+      session.end()
+      return
     case .leave:
       session.leave()
       return

@@ -109,7 +109,11 @@ struct PlayerView: View {
 
         Spacer()
 
-        PlayControlsRowView(isPlaying: viewModel.isPlaying)
+        if let sharePlayService = viewModel.sharePlayService {
+          ListenTogetherPlayControls(service: sharePlayService, isPlaying: viewModel.isPlaying)
+        } else {
+          PlayControlsRowView(isPlaying: viewModel.isPlaying)
+        }
 
         Spacer()
       }

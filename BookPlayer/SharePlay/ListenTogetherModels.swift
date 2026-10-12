@@ -44,6 +44,19 @@ struct SharedBookManifest: Codable, Equatable {
   }
 }
 
+/// Why the group paused when listeners left (build 5, a11y guidance 1.2). `count` is how many counted
+/// listeners one roster update dropped; `lostConnection` is true only when none of them said they were
+/// leaving (`.listenerLeaving`), so "lost their connection" is never claimed without evidence.
+struct ListenTogetherPauseCause: Codable, Equatable, Hashable {
+  let count: Int
+  let lostConnection: Bool
+
+  init(count: Int, lostConnection: Bool) {
+    self.count = max(count, 1)
+    self.lostConnection = lostConnection
+  }
+}
+
 enum RemoteAction: Codable, Equatable {
   case paused
   case resumed
@@ -74,6 +87,12 @@ enum ListenTogetherMessage: Codable, Equatable {
   /// Listener -> sharer (start-position fix round 1, C1): this listener received its first group time
   /// and is at `at`. Only this confirms that a joiner is in step with the person sharing.
   case inStep(at: TimeInterval)
+  /// Listener -> everyone (build 5): this listener chose Leave and is about to leave. The sharer tells
+  /// a deliberate Leave from a lost connection with it. Carries nothing about the person.
+  case listenerLeaving
+  /// Sharer -> listeners (build 5): the group paused because someone left. Sent instead of
+  /// `.action(.paused)` for that pause, so everyone reads the same sentence once.
+  case groupPaused(ListenTogetherPauseCause)
 
   /// The kind of message, for logs (never its contents).
   var kind: String {
@@ -88,6 +107,8 @@ enum ListenTogetherMessage: Codable, Equatable {
     case .needPiece: return "needPiece"
     case .sharerCouldNotPrepare: return "sharerCouldNotPrepare"
     case .inStep: return "inStep"
+    case .listenerLeaving: return "listenerLeaving"
+    case .groupPaused: return "groupPaused"
     }
   }
 }

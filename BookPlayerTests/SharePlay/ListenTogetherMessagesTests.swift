@@ -385,6 +385,8 @@ final class ListenTogetherMessagesTests: XCTestCase {
     posted = []
     service.leave()
     XCTAssertFalse(service.isInSession)
+    // Build 5: the leaving message goes out first, then the session is left.
+    await waitUntil { transport.left }
     XCTAssertTrue(transport.left)
     XCTAssertEqual(posted, [], "nothing while the cover is still up")
     XCTAssertNil(service.messages.alerts.next, "the person's own action: no alert")
@@ -557,7 +559,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertTrue(listening.confirms, "asks once")
     XCTAssertEqual(
       ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: false),
-      "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone.")
+      "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone. SharePlay stays on until you close it in Control Center.")
 
     XCTAssertNil(ListenTogetherSessionAction.action(for: .ended(reason: .normal)))
     XCTAssertNil(ListenTogetherSessionAction.action(for: .idle))

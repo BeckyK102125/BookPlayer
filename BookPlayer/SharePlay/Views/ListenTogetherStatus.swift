@@ -18,6 +18,8 @@ struct ListenTogetherStatusConditions: Equatable {
   var isJoiningGroup = false
   /// Listener: still finding the place after a while: the line also says what to do.
   var isJoiningSlow = false
+  /// Build 5: the group paused because listeners left, until someone plays (both roles).
+  var pauseCause: ListenTogetherPauseCause?
 }
 
 /// One status line in the banner: a first line, an optional second line, what VoiceOver reads and the
@@ -27,12 +29,14 @@ struct ListenTogetherStatusLine: Equatable {
     case shareplay
     case hourglass
     case warning
+    case paused
 
     var systemName: String {
       switch self {
       case .shareplay: return "shareplay"
       case .hourglass: return "hourglass"
       case .warning: return "exclamationmark.triangle"
+      case .paused: return "pause.circle"
       }
     }
   }
@@ -82,10 +86,11 @@ enum ListenTogetherStatus {
     return visibleText(for: state)
   }
 
-  /// The full status line (guidance A.1, C). Priorities: listener, the person sharing out of the session
-  /// (the grace), then waiting for a piece, then the person sharing quiet, then paused by another
-  /// listener; sharer, retrying a piece, then paused by another listener. "Someone couldn't join" is a
-  /// second line under the sharer's status.
+  /// The full status line (guidance A.1, C; build 5 1.4). Priorities: listener, the person sharing out
+  /// of the session (the grace), then paused because someone left, then waiting for a piece, then the
+  /// person sharing quiet, then paused by another listener; sharer, paused because someone left, then
+  /// retrying a piece, then paused by another listener. "Someone couldn't join" is a second line under
+  /// the sharer's status.
   static func line(
     for state: ListenTogetherState, conditions: ListenTogetherStatusConditions = .init()
   ) -> ListenTogetherStatusLine? {
@@ -97,6 +102,10 @@ enum ListenTogetherStatus {
         let text = "listen_together_waiting_for_sharer".localized
         let detail = "listen_together_waiting_for_sharer_detail".localized
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, detail), icon: .hourglass)
+      }
+      if let cause = conditions.pauseCause {
+        let text = cause.text
+        return ListenTogetherStatusLine(text: text, detail: base, spoken: joined(text, baseSpoken), icon: .paused)
       }
       if conditions.isWaitingForPiece {
         let text = "listen_together_waiting_download".localized
@@ -129,6 +138,11 @@ enum ListenTogetherStatus {
       }
     case .sharing:
       let declined = conditions.someoneDeclined ? "listen_together_declined_no_copy".localized : nil
+      if let cause = conditions.pauseCause {
+        let text = cause.text
+        let detail = declined ?? base
+        return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, detail), icon: .paused)
+      }
       if conditions.notice == .retryingSend {
         let text = "listen_together_send_failed".localized
         return ListenTogetherStatusLine(text: text, detail: declined, spoken: joined(text, declined), icon: .warning)
@@ -153,6 +167,16 @@ enum ListenTogetherStatus {
     if conditions.isWaitingForPiece { return "listen_together_waiting_download".localized }
     if conditions.isJoiningGroup { return "listen_together_finding_place".localized }
     return nil
+  }
+
+  /// Build 5 (1.4): the sharer's reason under the play controls (Zoom) and the play button's value:
+  /// the P-sentence while the group is paused because someone left. Nil otherwise, and for listeners
+  /// (their Play works; the banner and row carry it).
+  static func sharerPauseCaption(
+    for state: ListenTogetherState, conditions: ListenTogetherStatusConditions
+  ) -> String? {
+    guard case .sharing = state else { return nil }
+    return conditions.pauseCause?.text
   }
 
   /// The session button's hint; nil when there is nothing to end, leave or cancel (or no hint is

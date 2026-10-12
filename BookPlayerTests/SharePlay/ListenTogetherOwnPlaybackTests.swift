@@ -139,7 +139,7 @@ final class ListenTogetherOwnPlaybackTests: XCTestCase {
   }
 
   /// I-2: Leave ends the listener session with one announcement in context, not the generic "ended".
-  func testLeaveForOwnBookEndsTheListenerSessionWithOneAnnouncement() {
+  func testLeaveForOwnBookEndsTheListenerSessionWithOneAnnouncement() async {
     var posted: [String] = []
     let service = SharePlaySessionService(
       playerManager: PlayerManagerProtocolMock(),
@@ -151,6 +151,9 @@ final class ListenTogetherOwnPlaybackTests: XCTestCase {
     service.leaveForOwnBook(announcement: "You left Listen Together. Playing T.")
 
     XCTAssertFalse(service.isInSession)
+    // Build 5: `.listenerLeaving` goes out first (at most 1 s), then the session is left.
+    let deadline = Date().addingTimeInterval(3)
+    while !transport.left, Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
     XCTAssertTrue(transport.left)
     XCTAssertEqual(posted, ["You left Listen Together. Playing T."])
   }

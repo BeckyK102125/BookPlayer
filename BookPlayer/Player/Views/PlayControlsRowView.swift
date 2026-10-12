@@ -13,6 +13,8 @@ struct PlayControlsRowView: View {
   @AppStorage(Constants.UserDefaults.rewindInterval) var rewindInterval: TimeInterval = 30
   @AppStorage(Constants.UserDefaults.forwardInterval) var forwardInterval: TimeInterval = 30
   var isPlaying: Bool
+  /// Listen Together (build 5): why the group paused, read as the play button's value (sharer only).
+  var playValue: String? = nil
   @EnvironmentObject private var theme: ThemeViewModel
   @EnvironmentObject private var playerManager: PlayerManager
   
@@ -55,6 +57,7 @@ struct PlayControlsRowView: View {
         playerManager.playPause()
       }
         .accessibilityLabel(isPlaying ? "pause_title".localized : "play_title".localized)
+        .accessibilityValue(playValue ?? "")
         .accessibilityIdentifier("player.playPause")
       Spacer()
       Spacer()

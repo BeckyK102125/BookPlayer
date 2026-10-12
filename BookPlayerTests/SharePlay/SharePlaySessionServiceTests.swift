@@ -49,6 +49,9 @@ final class FakeTransport: ListenTogetherTransport {
   func leave() { left = true; calls.append("leave"); _ = events; continuation.finish() }
   func end() { ended = true; calls.append("end"); _ = events; continuation.finish() }
   func stopPieceTransfers() { calls.append("stopPieceTransfers") }
+  /// Build 5 (B3): what `waitUntilReadyToSend()` does; nil means ready at once.
+  var readyToSend: (@MainActor () async -> Bool)?
+  func waitUntilReadyToSend() async -> Bool { await readyToSend?() ?? true }
 }
 
 @MainActor
@@ -263,7 +266,7 @@ final class SharePlaySessionServiceTests: XCTestCase {
 
   /// Join and End in the same main-actor turn: the session is set up synchronously, so End finds it
   /// and leaves it (it used to be lost in the gap before an async setup ran).
-  func testListenerSetupIsSynchronousSoAnImmediateEndLeaves() {
+  func testListenerSetupIsSynchronousSoAnImmediateEndLeaves() async {
     let service = makeService(), transport = FakeTransport(), id = UUID()
     XCTAssertTrue(service.startListening(with: transport, shareID: id))
     XCTAssertTrue(service.isListenerSession)
@@ -271,9 +274,12 @@ final class SharePlaySessionServiceTests: XCTestCase {
 
     service.end()
 
-    XCTAssertTrue(transport.left)
     XCTAssertFalse(service.isInSession)
     XCTAssertEqual(service.state, .ended(reason: .normal))
+    // Build 5: `.listenerLeaving` goes out first (at most 1 s), then the session is left.
+    let deadline = Date().addingTimeInterval(3)
+    while !transport.left, Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+    XCTAssertTrue(transport.left)
   }
 
   /// A second share arriving right after the join is not offered on top of the session.
@@ -284,7 +290,7 @@ final class SharePlaySessionServiceTests: XCTestCase {
   }
 
   /// Setting up a second session while one runs changes nothing (the caller then leaves its transport).
-  func testSecondSetupWhileInASessionIsRefused() throws {
+  func testSecondSetupWhileInASessionIsRefused() async throws {
     let service = makeService(), first = FakeTransport(), second = FakeTransport()
     let id = UUID()
     XCTAssertTrue(service.startListening(with: first, shareID: id))
@@ -292,6 +298,8 @@ final class SharePlaySessionServiceTests: XCTestCase {
     XCTAssertFalse(service.startSharingSession(with: second, item: try makeSharedItem(), shareID: UUID()))
     XCTAssertEqual(service.state, .listening(participants: 1, downloaded: 0))
     service.end()
+    let deadline = Date().addingTimeInterval(3)
+    while !first.left, Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
     XCTAssertTrue(first.left)
   }
 

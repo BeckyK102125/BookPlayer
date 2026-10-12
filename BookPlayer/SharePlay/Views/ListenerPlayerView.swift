@@ -154,3 +154,28 @@ struct ListenerWaitingCaption: View {
     }
   }
 }
+
+/// The player's controls while sharing (build 5, a11y guidance 1.4): when the group paused because
+/// someone left, the reason sits directly under the play controls for Zoom (hidden from VoiceOver) and is
+/// the play button's value, so landing on Play says why. Nothing changes otherwise.
+struct ListenTogetherPlayControls: View {
+  @ObservedObject var service: SharePlaySessionService
+  let isPlaying: Bool
+  @EnvironmentObject private var theme: ThemeViewModel
+
+  var body: some View {
+    let caption = ListenTogetherStatus.sharerPauseCaption(for: service.state, conditions: service.statusConditions)
+    VStack(spacing: 8) {
+      PlayControlsRowView(isPlaying: isPlaying, playValue: caption)
+      if let caption {
+        Text(caption)
+          .bpFont(.subheadline)
+          .foregroundStyle(theme.primaryColor)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity)
+          .accessibilityHidden(true)
+      }
+    }
+  }
+}

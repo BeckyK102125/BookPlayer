@@ -1,5 +1,6 @@
 @testable import BookPlayer
 @testable import BookPlayerKit
+import Combine
 import XCTest
 
 /// Change B: starting Listen Together from Messages through Apple's sharing sheet when there is no
@@ -67,6 +68,11 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
 
   private func isLeave(_ action: SharePlaySessionService.IncomingSessionAction) -> Bool {
     if case .leave = action { return true }
+    return false
+  }
+
+  private func isEnd(_ action: SharePlaySessionService.IncomingSessionAction) -> Bool {
+    if case .end = action { return true }
     return false
   }
 
@@ -162,8 +168,8 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertEqual(posted, [cancelledText], "said once; the watchdog does nothing afterwards")
   }
 
-  /// Our own session arriving after an explicit Cancel is left (what `received` does with it).
-  func testOwnSessionAfterExplicitCancelIsLeft() async throws {
+  /// Our own session arriving after an explicit Cancel is ended for everyone (A4, build 5).
+  func testOwnSessionAfterExplicitCancelIsEnded() async throws {
     let presenter = FakeSharingSheetPresenter(outcome: .cancelled)
     let scheduler = ManualScheduler()
     let service = makeService(presenter: presenter, scheduler: scheduler)
@@ -171,7 +177,7 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     let shareID = try XCTUnwrap(presenter.presented.first?.shareID)
     scheduler.advance(by: .seconds(25))
 
-    XCTAssertTrue(isLeave(service.action(forIncoming: shareID)))
+    XCTAssertTrue(isEnd(service.action(forIncoming: shareID)))
     XCTAssertEqual(service.state, .idle)
     XCTAssertTrue(isShare(service.action(forIncoming: UUID()), late: false) == false)
   }
@@ -233,7 +239,7 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertNotEqual(oldID, newID)
 
     scheduler.advance(to: .seconds(25))
-    XCTAssertTrue(isLeave(service.action(forIncoming: oldID)))
+    XCTAssertTrue(isEnd(service.action(forIncoming: oldID)))
     XCTAssertTrue(service.isPreparing, "the new share is untouched")
     XCTAssertTrue(isShare(service.action(forIncoming: newID), late: false))
   }
@@ -264,7 +270,7 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
 
     scheduler.runAll()
     XCTAssertEqual(posted, [preparingText])
-    XCTAssertTrue(isLeave(service.action(forIncoming: shareID)), "End cancels the share")
+    XCTAssertTrue(isEnd(service.action(forIncoming: shareID)), "End cancels the share (A4: ended for everyone)")
   }
 
   /// A new share started after an old one was ended is not touched by the old timers.
@@ -321,25 +327,107 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertEqual(posted, [])
     XCTAssertEqual(service.messages.alerts.next?.message, .didntStart)
 
-    // The sheet finally reports Cancel: its session must not start later.
+    // The sheet finally reports Cancel: its session must not start later (A4: it is ended).
     presenter.release(.cancelled)
     await task.value
-    XCTAssertTrue(isLeave(service.action(forIncoming: shareID)))
+    XCTAssertTrue(isEnd(service.action(forIncoming: shareID)))
   }
 
-  /// The presenter saw the sheet leave the screen without a result: released straight away.
-  func testAbandonedSheetReleasesTheShare() async throws {
+  /// B1 (build 5): the sheet left the screen without a result, but may have sent. It is treated like a
+  /// send: no "didn't start" while the session can still arrive, and the session starts as ours.
+  func testAbandonedSheetWaitsForTheSessionBeforeSayingItDidntStart() async throws {
     let presenter = FakeSharingSheetPresenter(outcome: .abandoned)
     let scheduler = ManualScheduler()
     let service = makeService(presenter: presenter, scheduler: scheduler)
     await service.startSharing(makeItem())
     let shareID = try XCTUnwrap(presenter.presented.first?.shareID)
-    XCTAssertFalse(service.isPreparing)
-    XCTAssertEqual(service.state, .idle)
-    scheduler.advance(by: .milliseconds(700))
-    XCTAssertEqual(posted, [])
+    XCTAssertTrue(service.isPreparing, "still waiting for the session")
+
+    scheduler.advance(to: .seconds(5))
+    XCTAssertNil(service.messages.alerts.next, "no error while the session can still arrive")
+    XCTAssertTrue(isShare(service.action(forIncoming: shareID), late: false), "the session starts, not late")
+
+    scheduler.advance(to: .seconds(25))
+    XCTAssertNil(service.messages.alerts.next, "never 'didn't start' after it started")
+    XCTAssertFalse(posted.contains(didntStartText))
+  }
+
+  /// B1: with no session after the wait, it says it didn't start, like a send.
+  func testAbandonedSheetSaysItDidntStartAfterTheWait() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .abandoned)
+    let scheduler = ManualScheduler()
+    let service = makeService(presenter: presenter, scheduler: scheduler)
+    await service.startSharing(makeItem())
+    let shareID = try XCTUnwrap(presenter.presented.first?.shareID)
+
+    scheduler.advance(to: .seconds(19))
+    XCTAssertNil(service.messages.alerts.next)
+    scheduler.advance(to: .seconds(21))
     XCTAssertEqual(service.messages.alerts.next?.message, .didntStart)
     XCTAssertTrue(isShare(service.action(forIncoming: shareID), late: true), "a late session still starts")
+  }
+
+  /// 3.1: a late start drops a "didn't start" that is still waiting to be shown.
+  func testALateStartDropsAPendingDidntStart() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    let scheduler = ManualScheduler()
+    let service = makeService(presenter: presenter, scheduler: scheduler)
+    let shareID = try await startSentShare(service, presenter)
+    scheduler.advance(to: .seconds(21))
+    XCTAssertEqual(service.messages.alerts.next?.message, .didntStart)
+
+    guard case .share(let item, late: true) = service.action(forIncoming: shareID) else {
+      return XCTFail("the late session starts")
+    }
+    let playerManager = try XCTUnwrap(service.playerManager as? PlayerManagerProtocolMock)
+    playerManager.isPlayingPublisherReturnValue = Just(false).eraseToAnyPublisher()
+    playerManager.currentSpeedPublisherReturnValue = Just(Float(1)).eraseToAnyPublisher()
+    playerManager.underlyingIsPlaying = false
+    playerManager.underlyingCurrentSpeed = 1
+    service.startSharingSession(with: FakeTransport(), item: item, shareID: shareID)
+
+    XCTAssertNil(service.messages.alerts.next, "dropped from the queue")
+    service.end()
+  }
+
+  /// B2 (build 5): eligible (a ringing or stale call) but activation fails: Apple's sharing sheet is
+  /// offered instead of "isn't available".
+  func testActivateFailureFallsBackToTheSharingSheet() async {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    let service = makeService(presenter: presenter, scheduler: ManualScheduler())
+    service.isEligibleForGroupSession = { true }
+    service.prepareActivation = { _ in .activationPreferred }
+    service.activateActivity = { _ in throw NSError(domain: "com.apple.GroupActivities", code: 2) }
+
+    await service.startSharing(makeItem())
+
+    XCTAssertEqual(presenter.presented.count, 1)
+    XCTAssertNil(service.messages.alerts.next, "no 'isn't available' alert")
+    XCTAssertTrue(service.isPreparing, "the sheet share is pending")
+    XCTAssertNotEqual(service.state, .ended(reason: .unavailable))
+  }
+
+  /// B2: without a sheet to fall back to, the activation failure still says it isn't available.
+  func testActivateFailureWithoutASheetIsUnavailable() async {
+    let service = makeService(presenter: nil, scheduler: ManualScheduler())
+    service.isEligibleForGroupSession = { true }
+    service.prepareActivation = { _ in .activationPreferred }
+    service.activateActivity = { _ in throw NSError(domain: "x", code: 1) }
+
+    await service.startSharing(makeItem())
+
+    XCTAssertEqual(service.messages.alerts.next?.message, .unavailable)
+  }
+
+  /// A4 (build 5): a stale late share of our own is ended for everyone, not just left.
+  func testStaleLateOwnShareIsEnded() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    let scheduler = ManualScheduler()
+    let service = makeService(presenter: presenter, scheduler: scheduler)
+    let first = try await startSentShare(service, presenter)
+    scheduler.advance(to: .seconds(21))          // first released (late share)
+    _ = service.beginPreparing(makeItem())       // something else is pending now
+    guard case .end = service.action(forIncoming: first) else { return XCTFail("stale own share is ended") }
   }
 
   // MARK: Fix wave 2
@@ -403,7 +491,7 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     let second = try await startSentShare(service, presenter)
     scheduler.advance(to: .seconds(42))          // second released, replaces the first
 
-    XCTAssertTrue(isLeave(service.action(forIncoming: first)), "the replaced share is left")
+    XCTAssertTrue(isEnd(service.action(forIncoming: first)), "the replaced share is ended (A4)")
     XCTAssertTrue(isShare(service.action(forIncoming: second), late: true))
   }
 

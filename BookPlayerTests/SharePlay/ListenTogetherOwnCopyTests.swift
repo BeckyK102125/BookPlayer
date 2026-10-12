@@ -240,7 +240,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertNil(service.messages.alerts.next)
   }
 
-  func testAGoneOwnFileLeavesWithOneAlert() throws {
+  func testAGoneOwnFileLeavesWithOneAlert() async throws {
     let timers = ManualScheduler(), control = RecordingCoordinatorControl()
     let (service, transport, listener, url) = try startOwnCopySession(timers: timers, control: control)
     listener.applyPlay(at: 1, rate: 1)
@@ -250,7 +250,10 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     timers.advance(by: .seconds(5))
     XCTAssertFalse(service.isInSession, "this phone leaves, so the group is not held")
     XCTAssertEqual(service.state, .ended(reason: .ownCopyFailed))
+    // Build 5: this phone says it is leaving first, then leaves.
+    await waitUntil { transport.left }
     XCTAssertTrue(transport.left)
+    XCTAssertEqual(transport.sent.last, .listenerLeaving)
     XCTAssertEqual(control.openSuspensions, 0, "no stall is left behind")
     XCTAssertEqual(service.messages.alerts.next?.message, .ownCopyUnplayable)
     XCTAssertEqual(

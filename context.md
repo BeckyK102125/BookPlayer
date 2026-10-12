@@ -1,26 +1,23 @@
 # context.md - current snapshot
 
-Date: 2026-10-11
+Date: 2026-10-12
 
 ## Goal
 SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a downloaded audiobook (from
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal (resume 2026-10-12): build 5 — pause the sharer when any listener leaves/disconnects (Becky ruling), fix the sharer's early 'didn't start' error (session-end-investigation.md B1-B3), background task around sharer End (A3), end() own cancelled shares (A4), post-end 'close SharePlay in Control Center' guidance. Build 4 works on device (start position + journal transfer). A11y guidance: build5-a11y-guidance.md (in progress at end of 2026-10-11).
-progress is the top priority). Docs: started-over-investigation.md, start-position-brief.md,
-start-position-fix-round-1.md, start-position-report.md. Waiting for review, then TestFlight build 4.
+Current goal: build 5 on `listen-together-build5` (implemented 2026-10-12, waiting for review): the whole
+group pauses when a listener leaves or drops; sharer start errors B1-B3; End background task (A3); own
+cancelled shares ended (A4); state logs (A6); "SharePlay stays on until you close it in Control Center".
 - Specs/plans: docs/superpowers/. Guide: docs/Listen-Together-Guide.md. Ledger, briefs, reports, rulings:
-  .superpowers/sdd/2026-10-10-shareplay-listen-together/ (progress.md).
+  .superpowers/sdd/2026-10-10-shareplay-listen-together/ (progress.md, build5-brief.md, build5-report.md).
 
 ## Branches and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
-- On origin: `develop` (85c42b29, pushed 2026-10-11), `listen-together-messages` (9c70dd06),
-  `listen-together-lock-screen` (63e9578b), `shareplay-listen-together` (e634f5c7).
-- `listen-together-start-position` (local, not pushed; from 77c3037c): 017ab284 fix A-D; this commit =
-  fix round 1 (d891ae79); this commit = fix round 2. Clean after the commit.
-- `develop` at 77c3037c (notes commits on top of 4f589c33 = transfer fix, build 3; earlier history
-  (addenda 2-3, Tasks A-B, final review) in Notes.md). No extra worktrees.
+- `develop` at f55d7e75 (start-position fix 06498b5b = TestFlight 5.22.2 (4), plus notes commits).
+- `listen-together-build5` (local, not pushed; from f55d7e75): this commit = build 5. Clean after the
+  commit except the untracked `review.md` (external Codex review; leave it, never commit it).
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 
@@ -42,49 +39,44 @@ start-position-fix-round-1.md, start-position-report.md. Waiting for review, the
 - Addendum 3: piece failures and silence never end a session; only the sharer leaving the roster starts
   the 60 s grace; after the sharer ends/leaves, one message, then no Listen Together UI for that book.
 
-## Start-position fix (this branch, build 4; 017ab284 + fix round 1)
-- A: `bridge.start(session:)` connects (`coordinateWithSession`), then `transitionToItem`; runs once.
-- B: sharer asserts its place (`coordinateSeek`, + rate if the shared book plays) after the transition and
-  on every join; place = `groupPosition(for:)`. Never asserts while another book is loaded
-  (`canAssertPlace`); with no book loaded only until first confirmed.
-- C (+ round 1 I2): listener gate `hasGroupTiming` opens only on a play/seek command (not a pause). Until
-  then Play/Pause/skips/speed/position/chapters do nothing (in the player: "Finding the group's place",
-  at most every 3 s, no tap haptic; lock screen/AirPods/Control Center: silent `.success`). Visible:
-  status line, caption under the controls, Play value, row "finding the group's place, <title>"; times
-  "--:--", no bar, no chapter, no lock-screen length or time; a position swipe says nothing. After every
-  play/seek command: `.inStep(at:)` to the sharer (at once, then at most one per 2 s, latest time).
-  "Ready. Play works now." once if a press was refused and the group is paused (also after the own-copy
-  "Joined. Playing your copy.", which waits for the place).
-- Round 1 fallback (listener, session clock, stopped by teardown): 3 s `reapplyCurrentItemState`; from 5 s
-  `.requestState` every 5 s, every 15 s after the 12 s line (own copy too); 12 s second status line "If
-  this doesn't change, choose Leave Listen Together and join again.", said once when it is the visible
-  status (not under the grace or waiting lines). Sharer on `.requestState`: `requestReassert()`.
-- D (+ round 1 C1/I1): confirmation only from listeners: `TransportEvent.inStep(at:from:)` (participant
-  id). Every join re-arms (`rearm()`, protected place = current); established when every awaited joiner
-  (ids, or a count) reported in step at the place; joiners who leave or decline stop counting. Coordinator
-  commands (incl. the echo) and reports after confirmation never count. Tolerance `max(2, 1.5*rate) + rate`
-  playing (+2 s*rate for inStep). `requestReassert()`: one per 3 s, a refused one pending to the end of
-  the limit (cancelled by stop/confirm), current place. No `jumpTo` before confirmation; another book is
-  never jumped or played. Restore backstop at `stop()`: unconfirmed, no local seek since arming, shared
-  book loaded and > 2 s before the protected place.
-- Strings (Base + all lproj, English): `listen_together_finding_place`, `_finding_place_slow`,
-  `_row_value_finding_place`, `_ready`, `_time_unknown`; `listen_together_joining` removed.
-- Mixed builds: a build-3 listener never sends `inStep` (sharer protected all session); build-3 decoding.
+## Build 5 (this branch; details in Notes.md 2026-10-12)
+- A listener's Leave (and Leave to play own book, listener End, own copy unplayable) sends `.listenerLeaving`
+  (max 1 s, in a background task), then leaves. The sharer, if the shared book plays, pauses everyone:
+  P1-P4 ("Paused. Someone left Listen Together." / "...lost their connection..." / "%d people ...") as a
+  status (icon pause.circle), caption under Play + Play's value, row "paused, someone left, <title>", one
+  announcement, Speak; away: notification only (existing permission), else announced on return if still
+  paused. Listeners get `.groupPaused` (same sentence, no Speak); their "Someone left" waits 2 s for it.
+  Any play clears it silently. Already paused: "Someone left" only. The sharer leaving stays the 60 s grace.
+- B1 abandoned sheet waits 20 s like a send; B2 activate() failure opens the sharing sheet; B3 no export or
+  upload until joined with someone else (`ListenTogetherSendGate`), retries silent while alone; alone text
+  "Listen Together, sharing, waiting for people to join". A3 End in a background task (expiry ends at once).
+  A4 own cancelled/stale shares `end()`. A6 state logs around end/leave.
+
+## Start-position fix (build 4, on develop; full detail in Notes.md 2026-10-11)
+- The group starts at the sharer's saved place; the sharer's place is protected until each joiner reports
+  `.inStep`; listeners do nothing until the group's place is known ("Finding the group's place", 12 s line).
 
 ## Built before this branch (on develop; details in Notes.md)
 - Addendum 2 own copy + owners-only; Task A pieces/scheduler/retries/heartbeat/grace; Task B one message
   path, Speak, Leave; final review fixes; transfer fix (build 3): pieces as `Data` with a chunked messenger
   fallback, readable error logs, End really ends SharePlay.
 
-## Test evidence (2026-10-11, start-position fix round 2)
-- ListenTogetherStartPositionTests 57 tests. Round-2 red (old behaviour patched back): 11 failed. Green:
-  SharePlay 545/0; full suite 1117/0 (** TEST SUCCEEDED **); TSan 545/0, 0 warnings (** TEST SUCCEEDED **).
+## Test evidence (2026-10-12, build 5)
+- Red (old behaviour patched back into the source, new tests kept): 28 tests failed across
+  ListenTogetherBuild5EndTests, ListenTogetherGroupPauseTests, ListenTogetherSharingSheetTests,
+  ListenTogetherReliableSendingTests. Restored; green below.
+- SharePlay classes (32): 590 tests, 0 failures (xcodebuild hung after the results and was killed).
+- Full suite: "Executed 1162 tests, with 0 failures", ** TEST SUCCEEDED ** (after making InsertBooksTests'
+  async tests @MainActor: before that, 4/4 branch runs crashed there in CoreData, develop 2/2 passed).
+- TSan on the 32 SharePlay classes: 590 tests, 0 failures, 0 ThreadSanitizer warnings (no final ** line:
+  xcodebuild hung after the results and was killed).
 - Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
-  Simulator,id=98A8CF98-8142-4710-AD5E-5419F782752C' -testPlan "Unit Tests" -only-testing:BookPlayerTests
+  Simulator,id=1525DDCB-A5AB-4EDE-B9F2-CAEDC19EEDB1' -testPlan "Unit Tests" -only-testing:BookPlayerTests
   test (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`).
+  The usual iPhone 17 simulator (98A8CF98-...) hung installing the app on 2026-10-12 and was shut down.
 
 ## Local environment gotchas
-- Xcode 27 here, CI uses 26.4. Simulator by id 98A8CF98-8142-4710-AD5E-5419F782752C.
+- Xcode 27 here, CI uses 26.4. Simulator by id (98A8CF98-... wedged on 2026-10-12; 1525DDCB-... used).
 - Wait for the FINAL ** TEST SUCCEEDED/FAILED **; xcodebuild often hangs after the results: log to a file,
   poll, kill your own xcodebuild, rerun if the final line is needed. Never pass -derivedDataPath.
   "Invalid API Key" lines are noise.
@@ -94,15 +86,18 @@ start-position-fix-round-1.md, start-position-report.md. Waiting for review, the
 ## Device and assistive-technology checks (two-device run, both phones on the same build)
 Setup: Becky (VoiceOver) + Michael (Zoom, VoiceOver off), two iPhones, Discord, start from Messages.
 Capture both Console logs filtered on "Listen Together:".
-S. Build 4 first: Michael paused at ~2:13:00 starts from Messages; Becky joins. She hears 2:13:00; his
-   library still shows it. Sharer log: "asserting the sharer's place", "a listener is in step at the
-   sharer's place", "every listener is at the sharer's place", no "group time ... ignored" followed by a
-   jump; listener: "the group's timing is known (7980...)". Repeat: Becky presses Play at once ("Finding
-   the group's place" seen, said once, nothing moves, then "Ready. Play works now."); book not open on
-   Michael's phone; FaceTime; End before anyone joined; a late third joiner; join at 2x/3x playing (count
-   "reasserting" lines); own copy (line only after the place); force a long wait (12 s line, Leave
-   reachable, row text); position reads the waiting text, "--:--", no chapter, no lock-screen time;
-   lock screen/AirPods/Control Center silent; Zoom 3x, largest text, light/dark, Increase Contrast.
+B5. Build 5 first: (a) Becky VoiceOver, phone locked, on Discord; Michael shares; a third phone or Becky
+   leaves: book pauses for everyone, notification read (with permission), Play on the lock screen resumes
+   everyone. (b) Michael Zoom 3x, player open: caption under Play explains it. (c) Turn a listener's Wi-Fi
+   off: "lost their connection" wording. (d) Does `CXCallObserver` report Discord calls (Speak only)? (e)
+   After End and after Leave, which phones keep the SharePlay pill; exact Control Center names on iOS 18 and
+   26 (fill the guide's "Close SharePlay completely"; add `listen_together_close_shareplay_hint` to
+   listeners' ending alerts only if their pill stays). (f) Share from Messages before anyone joins: no
+   "didn't start", no "Couldn't send part"; logs "pieces wait until the session is joined". (g) Sharer End
+   then Home at once: log "ending the group session" within 2.5 s and "after end ... invalidated". (h)
+   FaceTime ringing: sheet opens instead of "isn't available". (i) Order of events when the sharer's own
+   connection drops and returns (no second P-announcement).
+S. Build 4 checks (start position) remain as listed in Notes.md 2026-10-11.
 0. Build 3 checks still open: which path carried the pieces (journal `uploaded piece` or `transport mode
    chunks`, rate at least 32 KB/s); SharePlay indicator gone after End.
 1. Start with a long single-file m4b and an mp3 book: listener plays within seconds; percent moves; no gap
@@ -137,14 +132,16 @@ Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.
 - Own copy: other editions/recordings never match; plays at the sharer's file boundaries (±2 s).
 
 ## Open problems and next steps (in order)
-1. Review of the start-position branch; merge to develop; TestFlight build 4 (Becky approves upload).
-2. Two-device run on build 4 (item S first, then the list above); record results here and in Notes.md.
-3. If "Finding the group's place" ever reaches the 12 s line on devices, read which fallback stage (if
-   any) brought the place (reapply at 3 s, requestState from 5 s) in the listener's log.
-4. Parked minors: M3 protocol version, M4 late-join resend, M7 endNotice (unused outside the service), M8
-   two notification-permission checks. Change A (streamed-book alert). Upstream PR decision later.
+1. Review of build 5 (code + a11y); fix rounds; merge to develop; TestFlight 5.22.2 (5) (Becky approves upload).
+2. Two-device run on build 5 (item B5 first); record results here and in Notes.md.
+3. Fill the guide's Control Center steps from the device check; decide the listener hint string.
+4. Parked minors: M3 protocol version, M4 late-join resend, M7 endNotice, M8 two notification-permission
+   checks; skip `leave()` on an already invalidated session (investigation tidy-up). Change A. Upstream PR later.
 
 ## Decisions waiting on Becky
+- A5: a sharer who swipes BookPlayer away leaves the activity open until iOS times it out (no reliable fix);
+  end after a grace when backgrounded alone? Not built.
+- Pause for everyone on each departure (built, per ruling) vs only when the last listener leaves.
 - A killed sharer that iOS keeps in the roster never ends listeners' sessions (silence ruling). OK?
 - After 60 s: "The person sharing left. Listen Together ended." (spec); one sentence for both endings?
 - Siri dialog / CarPlay alert for the R39 refusal (not built)?

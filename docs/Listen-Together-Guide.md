@@ -69,13 +69,14 @@ People listening do not need their own copy of the book, unless the person shari
 5. To stop, choose **Cancel** on the sharing screen or use the two-finger scrub. VoiceOver says "Listen Together was not started".
 6. If you are on a FaceTime call, no sharing screen opens. iPhone asks you to confirm sharing with everyone on the call.
 7. BookPlayer prepares the book. You may hear "Preparing" while this happens.
-8. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing". If you close the player, a **Listen Together** row stays above the tab bar. Choose it to return to the player.
+8. A status line appears near the top of the player. With VoiceOver it reads, for example, "Listen Together, 2 people, sharing". Until someone joins it says "Listen Together, sharing, waiting for people to join", and the Listen Together row says "sharing, waiting for people to join". Nothing is announced for this: it is the normal wait. If you close the player, a **Listen Together** row stays above the tab bar. Choose it to return to the player.
 9. When the session has started after the sharing screen, VoiceOver says "Listen Together started".
 10. Listen Together starts where you are in the book: your saved place, also if the book isn't open in the player. Your place is never moved back by someone joining. Each time someone joins, BookPlayer keeps you where you are until that person's iPhone reports that it has reached your place, and brings them to you if it hasn't. If the session ends before then, your saved place is kept. (People on an older BookPlayer build never report it, so your place stays protected for the whole session; their skips then may be undone.)
 11. Wait until someone has joined and you hear the book playing before you lock the phone.
-12. While the book is still being sent, your iPhone does not lock by itself if BookPlayer is on screen. Keep BookPlayer open while the book is sent if you can: it is sent in small parts, starting where you are listening. If you switch to another app or lock the phone, the sending can pause; listeners who are waiting for the book keep waiting and see "Waiting for the book"; others may see "Can't reach the person sharing. The book keeps playing.". Listen Together does not end because of it, and the sending carries on when you come back to BookPlayer.
+12. BookPlayer starts sending the book only once someone has joined.
+13. While the book is still being sent, your iPhone does not lock by itself if BookPlayer is on screen. Keep BookPlayer open while the book is sent if you can: it is sent in small parts, starting where you are listening. If you switch to another app or lock the phone, the sending can pause; listeners who are waiting for the book keep waiting and see "Waiting for the book"; others may see "Can't reach the person sharing. The book keeps playing.". Listen Together does not end because of it, and the sending carries on when you come back to BookPlayer.
 
-If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives. While it tries again, the status line on your player says "Couldn't send part of the book. Trying again." until the part has been sent, and the Listen Together row above the tab bar says "couldn't send part of the book, trying again". VoiceOver says it once each time this starts.
+If a part of the book can't be sent (for example the network drops), BookPlayer tries again by itself, a little later each time, and again as soon as you return to BookPlayer. Listen Together does not end because of it; listeners who need that part wait until it arrives. While nobody has joined yet, it tries again quietly and shows nothing. Once someone has joined, while it tries again, the status line on your player says "Couldn't send part of the book. Trying again." until the part has been sent, and the Listen Together row above the tab bar says "couldn't send part of the book, trying again". VoiceOver says it once each time this starts.
 
 If SharePlay doesn't accept the parts of the book the usual way, on your iPhone or on a listener's, BookPlayer switches by itself to a slower way of sending them, for the rest of that session. Before it switches you may see "Couldn't send part of the book. Trying again." once, or listeners may wait a little longer for the book. Nothing else changes on screen, but listeners may wait longer for each part to arrive (the percentage still goes up with every part).
 
@@ -89,7 +90,9 @@ If the sharing screen cannot be opened, BookPlayer says "Couldn't open sharing" 
 
 If you chose "Only people who have the book can join", and someone does not have it, you hear "Someone couldn't join because they don't have the book." (once, even if several people couldn't join within a few seconds). The same sentence also stays on screen under the status line until the number of people changes or Listen Together ends. They hear that they need their own copy. You do not see who. In this mode "Someone joined" is said a few seconds after someone joins, so that people who can't join are never announced as joining.
 
-After you send the invitation, BookPlayer waits up to 20 seconds for Listen Together to start. If it has not started by then, a message says "Listen Together didn't start. Try again." Choose OK. Listen Together is back in the More menu. If it starts a little later anyway, VoiceOver says "Listen Together started".
+After you send the invitation, BookPlayer waits up to 20 seconds for Listen Together to start. This is also the case if the sharing screen closes without saying whether it sent (for example you switched to Messages). If it has not started by then, a message says "Listen Together didn't start. Try again." Choose OK. Listen Together is back in the More menu. If it starts a little later anyway, VoiceOver says "Listen Together started".
+
+If you are on a FaceTime call that is still ringing, or iPhone still shows an earlier SharePlay conversation, starting on the call can fail. BookPlayer then opens the sharing screen from Apple instead, so you can send the invitation in Messages.
 
 If Listen Together isn't available at all, a message says "Listen Together isn't available right now." Choose OK.
 
@@ -149,6 +152,19 @@ If you don't have the book: if a listener's next part of the book has not finish
 
 When someone else pauses, the status line says "Paused by another listener" until someone plays again.
 
+### When someone leaves
+
+If someone leaves Listen Together while the book is playing, the book pauses for everyone, so nobody misses anything. This happens when a listener chooses Leave, and when a listener's iPhone loses its connection.
+
+- The status line says "Paused. Someone left Listen Together." (or "Paused. Someone lost their connection to Listen Together." when their iPhone dropped out; with more people, for example "Paused. 2 people left Listen Together."). Under it, the usual status still shows how many people are left.
+- If you are sharing, the same sentence also appears just under the Play button, and the Play button reads it as its value. The Listen Together row says, for example, "paused, someone left, Moby Dick".
+- VoiceOver says the sentence once on each iPhone. You do not also hear "Someone left Listen Together" or "Another listener paused" for it.
+- Anyone can carry on: press Play (on the screen, the lock screen, Control Center or AirPods). It plays for everyone and the message goes away.
+- If the book was already paused, nothing more happens: VoiceOver says "Someone left Listen Together".
+- If the person sharing leaves, this does not apply: everyone waits for them as described in "End the session".
+
+If you are sharing and BookPlayer is in the background or the phone is locked (for example while you talk on Discord), you hear the book stop. If you have allowed notifications for BookPlayer, a notification says "Paused. Someone left Listen Together.", and VoiceOver reads it on the lock screen. Allowing notifications for BookPlayer is what makes this audible on the lock screen; BookPlayer never asks for that permission. Without notifications, VoiceOver says it when you return to BookPlayer, if the book is still paused. You can press Play on the lock screen or your AirPods to carry on for everyone without unlocking.
+
 ## With the screen locked
 
 While you are listening to someone else's book, the lock screen, Control Center, AirPods and headset buttons control the shared book, and the book changes for everyone:
@@ -171,8 +187,8 @@ When the session ends, the lock screen, Control Center and AirPods control your 
 
 ## End the session
 
-- **If you are sharing:** choose **End Listen Together** in the status line on the player. BookPlayer asks you to confirm. It ends for everyone, and SharePlay stops on every iPhone. VoiceOver says "Listen Together ended".
-- **If you are listening:** choose **Leave Listen Together** (in the status line on the player, or under the status on "Getting the book"). BookPlayer asks "Leave Listen Together?": "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone." Choose **Leave**, or **Cancel** (the two-finger scrub is Cancel). After Leave the Listen Together screen closes, VoiceOver moves to your own mini player if it is shown, and says "You left Listen Together." The others keep listening. If you listened with your own copy, the question says your copy stays in your library.
+- **If you are sharing:** choose **End Listen Together** in the status line on the player. BookPlayer asks "End Listen Together?": "It ends for everyone. SharePlay stays on until you close it in Control Center." Choose **End**, or **Cancel** (the two-finger scrub is Cancel). Listen Together ends for everyone and VoiceOver says "Listen Together ended". SharePlay itself stays on in iOS until you close it: see "Close SharePlay completely".
+- **If you are listening:** choose **Leave Listen Together** (in the status line on the player, or under the status on "Getting the book"). BookPlayer asks "Leave Listen Together?": "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone. SharePlay stays on until you close it in Control Center." Choose **Leave**, or **Cancel** (the two-finger scrub is Cancel). After Leave the Listen Together screen closes, VoiceOver moves to your own mini player if it is shown, and says "You left Listen Together." The others keep listening. If you listened with your own copy, the question says your copy stays in your library.
 - The two-finger scrub never ends or leaves Listen Together: it only closes the screen.
 - The Listen Together row only opens the player; it cannot end the session.
 - If the session is on a FaceTime call, ending the call ends the session.
@@ -185,6 +201,16 @@ If the person sharing leaves Listen Together in another way (they are no longer 
 
 If the person sharing is still in the session but their iPhone has gone quiet (for example they switched to another app or locked the phone while the book was still being sent), listeners may see "Can't reach the person sharing. The book keeps playing." Nothing is announced or spoken for this, because the book goes on. This never ends Listen Together.
 
+### Close SharePlay completely
+
+After you end or leave Listen Together, iOS keeps SharePlay open in your call or Messages conversation (you may see it at the top of the screen or in the Dynamic Island). BookPlayer can't close it. To close it:
+
+1. Open Control Center. With VoiceOver: [to be checked on iOS 18 and iOS 26: select the status bar, then swipe down with three fingers].
+2. At the top, choose [to be checked: the name VoiceOver reads, for example "SharePlay" or the call's name].
+3. Choose [to be checked: for example "End SharePlay"]. If iOS asks, choose [to be checked: "End Only for Me"] to close it only on your iPhone.
+
+Ending the FaceTime call also closes it.
+
 If BookPlayer is in the background when Listen Together ends for one of these reasons and you have allowed notifications, a notification says why. With VoiceOver off, the same message also appears in BookPlayer when you return to it. With the phone locked or VoiceOver on, the notification is the one message. Without notification permission (BookPlayer never asks for it), the message appears when you next open BookPlayer, unless a new invitation or session comes first. If only Control Center, Siri or a call banner is over BookPlayer, the message appears as soon as it closes.
 
 ## Messages you can see and hear
@@ -192,7 +218,7 @@ If BookPlayer is in the background when Listen Together ends for one of these re
 Every problem and every ending caused by someone else is shown on screen as well as spoken, so you don't need VoiceOver to know what happened:
 
 - Endings and failures appear as a message in the middle of the screen, with OK. It stays until you close it.
-- Ongoing things (finding the group's place, getting the book, waiting for the book, waiting for the person sharing, can't reach the person sharing, trying to send part of the book again, paused by another listener) appear in the status line next to the controls, and stay until they change.
+- Ongoing things (finding the group's place, getting the book, waiting for the book, waiting for the person sharing, can't reach the person sharing, trying to send part of the book again, paused because someone left, paused by another listener) appear in the status line next to the controls, and stay until they change.
 - With VoiceOver, each message is read once.
 
 **Speak error messages.** In **Settings, Playback, Listen Together**, under "Messages", turn on **Speak error messages** to have BookPlayer read Listen Together problems aloud, for example when the person sharing ends Listen Together. It is off by default. It uses the voice and speed set in **Settings, Accessibility, Spoken Content**. It stays quiet while VoiceOver is on, because VoiceOver already reads these messages, and it never speaks during a phone or FaceTime call. It also works with the screen locked; the book keeps playing while the sentence is read. When it is on, **Hear a Sample** reads a short sentence so you can check the voice and volume.

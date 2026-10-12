@@ -1275,3 +1275,69 @@ start-position-a11y-rereview-1.md (I-A, I-B Important; M-a to M-e).
   Open: sharer's immediate error when sharing before a listener joins (suspect "didn't start" B1 in
   session-end-investigation.md), Messages Send button report (needs a capture on the sharer's phone), pause the sharer
   when a listener disconnects (Becky request), sharer End background-task gap (A3).
+
+## 2026-10-12 — build 5 (branch listen-together-build5, from develop f55d7e75)
+Brief: .superpowers/sdd/2026-10-10-shareplay-listen-together/build5-brief.md (with build5-a11y-guidance.md and
+session-end-investigation.md). Becky's rulings: the WHOLE group pauses when a listener leaves (Leave or drop),
+via the sharer, as a status (not an alert); SharePlay-stays-on sentence in End and both Leave confirmations.
+- Listener-leave pause. New messages `.listenerLeaving` (listener -> all, before `leave()`) and
+  `.groupPaused(ListenTogetherPauseCause)` (sharer -> listeners, instead of `.action(.paused)` for that pause);
+  new `TransportEvent.listenerLeaving(id:)` (the messenger loop gives the sender id).
+  - Listener Leave / Leave to play own book / listener End / own copy unplayable: teardown at once, then
+    `leaveTellingTheSharer`: send `.listenerLeaving` (max 1 s, `withTimeLimit`), then `transport.leave()`,
+    inside a background task whose expiry leaves at once (ListenTogetherOnce). App terminate still leaves at once.
+  - Sharer: leaving notes per id (10 s) or anonymous. Counted listeners (`confirmedParticipantIDs`; decliners and
+    unconfirmed owners-only joiners never count) leaving while the shared book plays (`isPlayingForGroup`) and no
+    pause episode running -> `pauseGroup`: `pauseCause`, `.groupPaused` via the outbox, `playerManager.pause()`,
+    the player's own `.paused` event is not sent as an action (suppressed for 2 s only), one
+    `.pausedBecauseSomeoneLeft(cause, isSharer: true)` (status kind: announce + Speak; away: notification only
+    (`notifiesWhenAway`), without permission the announcement waits for the return if still paused). Otherwise E8
+    as before. P2/P4 (lost connection) only with ids and no note; count-only rosters use P1/P3.
+  - Listeners: `.groupPaused` sets the same cause (status, one announcement, no Speak, no "Paused by another
+    listener"); E8 "Someone left" is held 2 s (`schedule`) and dropped by `.groupPaused` (or skipped within 2 s
+    after one). The sharer leaving the roster on a listener is never E8 (grace only), ids or count.
+  - Cleared silently by any play: own `.played`, received `.action(.resumed)`; by teardown. Joins, skips do not.
+  - UI: status first line P-sentence (icon `pause.circle`), second line base (sharer: declined line if present);
+    priorities sharer P > retry > paused by other; listener grace > P > waiting for piece. Sharer caption under
+    the play controls (`ListenTogetherPlayControls` in ListenerPlayerView.swift, used by PlayerView) and Play's
+    value (`PlayControlsRowView.playValue`). Row R1/R2 both roles (sharer over retrying; listener under grace).
+- B1: `.abandoned` sheet = `.sent` (preparing at 0.7 s, "didn't start" only after 20 s without a session).
+  A late start already drops a pending "didn't start" (`clearEndNotice` -> `dropPendingAlerts`); test added.
+- B2: `prepareActivation` / `activateActivity` seams; activate() throwing logs domain/code publicly and opens the
+  sharing sheet when it can be presented, else "isn't available" as before. `.activationDisabled` unchanged.
+- B3: `ListenTogetherTransport.waitUntilReadyToSend()` (default true); `GroupSessionTransport` uses
+  `ListenTogetherSendGate` (joined + someone other than the local participant; closes again when alone; stop and
+  task cancellation release waiters with false). The send loop waits before choosing/exporting each piece (the
+  idle timer is still held off). Failures while `participantCount <= 1` are retried silently; the first join with
+  failures pending starts a retry episode; the count dropping to 1 ends one silently. Status/row alone text.
+- A3: sharer End runs in a "Listen Together end" background task; expiry calls `transport.end()` at once
+  (ListenTogetherOnce, never twice). A4: own cancelled / stale late shares -> `IncomingSessionAction.end` ->
+  `session.end()`; someone else's ended share is still left. A6: `GroupSessionTransport.end()/leave()` log the
+  state before, every state for 5 s after, and the state at 1 s (domain/code only for invalidations).
+- Not done (noted): skipping `leave()` on an already invalidated session (investigation "tidy up"; not in the
+  brief, and `leave()` also stops the transport's loops). `listen_together_close_shareplay_hint` not added: it
+  waits for the device check (does the pill stay on listeners' phones after the sharer's End?).
+- Strings: Base + every lproj (English): P1-P4, R1/R2, end_confirm_message, row_value_sharing_alone; changed
+  leave_confirm_message(_own_copy), status_sharing_waiting. Guide: "When someone leaves", "Close SharePlay
+  completely" (control names marked to be checked on iOS 18/26), End line corrected, alone/retry/B1/B2 lines.
+- External review (Codex, review.md, not committed): P1 (unhandled new events) was a snapshot before the switch
+  was updated; both cases are handled and tested. P2 fixed: `deliver(onNotNotified:onClose:)` calls `onClose`
+  after the notification attempt (onNotNotified first); parameter order puts `onClose` last so existing trailing
+  closures still bind to it (an earlier order silently broke 7 tests).
+- Tests: new classes ListenTogetherBuild5EndTests and ListenTogetherGroupPauseTests (in
+  ListenTogetherSessionEndTests.swift; no pbxproj change) plus B1/B2/A4 tests in ListenTogetherSharingSheetTests and
+  B3/gate tests in ListenTogetherReliableSendingTests. Existing tests adjusted: listener leave/end now wait for
+  `transport.left` (the 1 s message first); own cancelled/stale shares expect `.end`; the retry-notice test adds a
+  participant; the background-task test counts the End task; leave confirmation strings.
+- Red: old behaviour patched back into the source (abandoned -> release, cancelled -> leave, no sheet fallback, no
+  End background task, no leaving message, retry notice alone, no send wait, no pause, onClose before the attempt):
+  28 tests failed in the four classes. Restored.
+- Green: 32 SharePlay classes 590/0. Full suite: 4 runs crashed in InsertBooksTests (EXC_BAD_ACCESS in
+  `_PFFastMOCObjectWillChange` from `LibraryService.createFolder`, test on the cooperative pool while the main
+  run loop processed the same main-queue context); develop (stashed) passed 2/2 on the same simulator. Root cause is
+  the test: its async tests mutate the main-queue view context off the main actor. Fix: those 10 async tests are
+  `@MainActor` (BookPlayerTests/Services/LibraryServiceTests.swift). Then "Executed 1162 tests, with 0 failures",
+  ** TEST SUCCEEDED **. Why the branch tips the race (timing only, or something on the main run loop) is not
+  known. TSan on the 32 SharePlay classes: 590/0, 0 warnings (xcodebuild hung after the results, killed).
+- Simulator: the usual iPhone 17 (98A8CF98-...) hung in `installApplication` after a killed run (simctl listapps
+  hung too); it was shut down and the runs moved to iPhone 18 Pro Max iOS 27 (1525DDCB-...), also shut down after.

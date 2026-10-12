@@ -19,6 +19,9 @@ enum TransportEvent: Equatable {
   case sharerParticipant(id: UUID)
   /// A listener reported `.inStep(at:)`; `from` is its participant id (nil when unknown).
   case inStep(at: TimeInterval, from: UUID?)
+  /// A listener said it is leaving (`.listenerLeaving`, build 5); `id` is its participant id (nil when
+  /// unknown).
+  case listenerLeaving(id: UUID?)
 }
 
 /// Everything the session service needs from SharePlay, so tests can use a fake.
@@ -44,6 +47,10 @@ protocol ListenTogetherTransport: AnyObject {
   func reloadPiece(attachmentID: UUID)
   /// Sharer: whether the journal still holds this attachment; nil when not known.
   func hasAttachment(_ id: UUID) -> Bool?
+  /// Sharer (build 5, B3): returns once this device has joined and someone else is in the session, so
+  /// no piece is exported or uploaded while the sharer is alone. False when the transport stopped (or
+  /// the waiting task was cancelled) first.
+  func waitUntilReadyToSend() async -> Bool
 }
 
 extension ListenTogetherTransport {
@@ -54,6 +61,7 @@ extension ListenTogetherTransport {
   func retryFailedPieceLoads() {}
   func reloadPiece(attachmentID: UUID) {}
   func hasAttachment(_ id: UUID) -> Bool? { nil }
+  func waitUntilReadyToSend() async -> Bool { true }
 }
 
 /// A sent or received audio piece. Sent as `Data` (transfer fix A): the journal's `add` only packages
@@ -118,6 +126,8 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
   private var failedAttachments = Set<UUID>()
   /// A listener with their own copy never downloads either (addendum 2).
   private var receivesPieces = true
+  /// Build 5 (B3): pieces wait until this device has joined and someone else is here.
+  private let sendGate = ListenTogetherSendGate()
   let events: AsyncStream<TransportEvent>
   private let continuation: AsyncStream<TransportEvent>.Continuation
 
@@ -172,6 +182,8 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
           continuation.yield(.message(message))
         case .inStep(let time):
           continuation.yield(.inStep(at: time, from: context.source.id))
+        case .listenerLeaving:
+          continuation.yield(.listenerLeaving(id: context.source.id))
         default:
           continuation.yield(.message(message))
         }
@@ -187,6 +199,8 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
       for await active in publisher {
         guard let self else { return }
         self.participants.byID = Dictionary(active.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let localID = self.session.localParticipant.id
+        self.sendGate.update(hasOthers: active.contains { $0.id != localID })
         self.transfers.rosterChanged(Set(active.map(\.id)), localID: self.session.localParticipant.id)
         self.continuation.yield(.participantsChanged(count: active.count, ids: Set(active.map(\.id))))
       }
@@ -194,7 +208,8 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     loops.append(Task { [weak self] in
       guard let publisher = self?.session.$state.values else { return }
       for await state in publisher {
-        Self.logger.info("Listen Together: group session state \(String(describing: state), privacy: .public)")
+        Self.logger.info("Listen Together: group session state \(Self.describe(state), privacy: .public)")
+        if case .joined = state { self?.sendGate.update(isJoined: true) }
         if case .invalidated = state {
           self?.continuation.yield(.invalidated)
           self?.continuation.finish()
@@ -253,6 +268,14 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     transfers.hasAttachment(id)
   }
 
+  func waitUntilReadyToSend() async -> Bool {
+    if !sendGate.isOpen {
+      Self.logger.info(
+        "Listen Together: pieces wait until the session is joined and someone else is here (joined=\(self.sendGate.isJoined, privacy: .public) others=\(self.sendGate.hasOthers, privacy: .public))")
+    }
+    return await sendGate.wait()
+  }
+
   /// Chunk sends and receives stop at once (End, before the share folder is deleted: Minor 1).
   func stopPieceTransfers() {
     transfers.stop()
@@ -260,13 +283,47 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
 
   func leave() {
     stopEverything()
+    Self.logger.info("Listen Together: leaving the group session, state before: \(Self.describe(self.session.state), privacy: .public)")
     session.leave()
+    logStateAfterwards(of: session, call: "leave")
   }
 
   /// Sharer: SharePlay ends for everyone (transfer fix, item 4).
   func end() {
     stopEverything()
+    Self.logger.info("Listen Together: ending the group session, state before: \(Self.describe(self.session.state), privacy: .public)")
     session.end()
+    logStateAfterwards(of: session, call: "end")
+  }
+
+  /// A6 (build 5): after `end()` or `leave()` the state loop is gone, so a small observer logs every
+  /// state the session moves through for a few seconds, then its state at 1 s, so a device log shows
+  /// whether the call really invalidated the session. Public and without personal data.
+  private func logStateAfterwards(of session: GroupSession<ListenTogetherActivity>, call: String) {
+    let observer = Task { @MainActor in
+      for await state in session.$state.values {
+        Self.logger.info("Listen Together: after \(call, privacy: .public), group session state \(Self.describe(state), privacy: .public)")
+        if case .invalidated = state { return }
+      }
+    }
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1))
+      Self.logger.info("Listen Together: 1 s after \(call, privacy: .public), group session state \(Self.describe(session.state), privacy: .public)")
+      try? await Task.sleep(for: .seconds(4))
+      observer.cancel()
+    }
+  }
+
+  /// The session state for logs: the case, and for an invalidation only the error's domain and code.
+  nonisolated static func describe(_ state: GroupSession<ListenTogetherActivity>.State) -> String {
+    switch state {
+    case .waiting: return "waiting"
+    case .joined: return "joined"
+    case .invalidated(let reason):
+      let error = reason as NSError
+      return "invalidated(\(error.domain) \(error.code))"
+    @unknown default: return "unknown"
+    }
   }
 
   private func stopEverything() {
@@ -275,6 +332,7 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     loads.values.forEach { $0.cancel() }
     loads = [:]
     transfers.stop()
+    sendGate.close()
     continuation.finish()
   }
 
@@ -362,5 +420,58 @@ enum ListenTogetherDecline {
       }
       session.leave()
     }
+  }
+}
+
+/// Build 5 (B3): the sharer sends no piece until this device has joined the session and someone else is
+/// in it. Waiters resume with true once both hold, or with false when the transport stops or the waiting
+/// task is cancelled. It closes again while everyone else is gone.
+@MainActor
+final class ListenTogetherSendGate {
+  private(set) var isJoined = false
+  private(set) var hasOthers = false
+  private(set) var isStopped = false
+  private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+
+  var isOpen: Bool { isJoined && hasOthers && !isStopped }
+
+  func update(isJoined: Bool? = nil, hasOthers: Bool? = nil) {
+    if let isJoined { self.isJoined = isJoined }
+    if let hasOthers { self.hasOthers = hasOthers }
+    if isOpen { resumeAll(true) }
+  }
+
+  func close() {
+    isStopped = true
+    resumeAll(false)
+  }
+
+  func wait() async -> Bool {
+    if isOpen { return true }
+    if isStopped || Task.isCancelled { return false }
+    let id = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        if isOpen {
+          continuation.resume(returning: true)
+        } else if isStopped || Task.isCancelled {
+          continuation.resume(returning: false)
+        } else {
+          waiters[id] = continuation
+        }
+      }
+    } onCancel: {
+      Task { @MainActor [weak self] in self?.cancel(id) }
+    }
+  }
+
+  private func cancel(_ id: UUID) {
+    waiters.removeValue(forKey: id)?.resume(returning: false)
+  }
+
+  private func resumeAll(_ value: Bool) {
+    let waiting = waiters.values
+    waiters = [:]
+    waiting.forEach { $0.resume(returning: value) }
   }
 }

@@ -91,7 +91,7 @@ struct ListenTogetherBanner: View {
       }
       Button("cancel_button".localized, role: .cancel) {}
     } message: {
-      Text("listen_together_end_hint_sharer".localized)
+      Text("listen_together_end_confirm_message".localized)
     }
   }
 

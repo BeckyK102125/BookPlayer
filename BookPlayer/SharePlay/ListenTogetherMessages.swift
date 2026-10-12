@@ -1,3 +1,4 @@
+import BookPlayerKit
 import Combine
 import Foundation
 import UIKit
@@ -34,6 +35,9 @@ enum ListenTogetherUserMessage: Hashable {
   case retryingSend
   /// Listener: the group waits for this device's piece (E6).
   case waitingForBook
+  /// Build 5: the group paused because listeners left (P1-P4). `isSharer`: the sharer (who paused it,
+  /// is spoken to and notified when away) or a remaining listener (status and one announcement).
+  case pausedBecauseSomeoneLeft(ListenTogetherPauseCause, isSharer: Bool)
   /// An alert shown elsewhere (E18: "Couldn't open sharing", "You need your own copy"…): only spoken
   /// here, with `key` so the same alert is never queued twice.
   case alertShownElsewhere(text: String, key: String)
@@ -54,7 +58,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
       .ownCopyUnplayable, .prepareFailed, .unavailable, .didntStart:
       return .alert
-    case .waitingForSharer, .retryingSend, .waitingForBook:
+    case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft:
       return .status
     case .sharerBack:
       return .announcement
@@ -79,6 +83,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerBack: return "listen_together_sharer_back".localized
     case .retryingSend: return "listen_together_send_failed".localized
     case .waitingForBook: return "listen_together_waiting_download".localized
+    case .pausedBecauseSomeoneLeft(let cause, _): return cause.text
     case .alertShownElsewhere(let text, _): return text
     }
   }
@@ -99,6 +104,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerBack: return "sharerBack"
     case .retryingSend: return "retryingSend"
     case .waitingForBook: return "waitingForBook"
+    case .pausedBecauseSomeoneLeft: return "pausedBecauseSomeoneLeft"
     case .alertShownElsewhere(_, let key): return key
     }
   }
@@ -113,7 +119,17 @@ enum ListenTogetherUserMessage: Hashable {
       return true
     case .sharerBack, .waitingForBook:
       return false
+    case .pausedBecauseSomeoneLeft(_, let isSharer):
+      // The sharer's book stopped without their action; remaining listeners are told by the status.
+      return isSharer
     }
+  }
+
+  /// Build 5: away from the app, one local notification (existing permission only) instead of an
+  /// announcement; without one, the announcement waits for the return (a11y guidance 1.5).
+  var notifiesWhenAway: Bool {
+    if case .pausedBecauseSomeoneLeft(_, let isSharer) = self { return isSharer }
+    return false
   }
 
   /// The session ended because of someone else, or could not run at all.
@@ -166,6 +182,9 @@ struct ListenTogetherDeliveryPlan: Equatable {
   /// Also keep the alert pending after a notification (fix round 1, a11y I2): unlocked phone with
   /// VoiceOver off, where the notification is only a short banner at the screen's edge.
   var keepsAlertAfterNotification = false
+  /// Build 5: a status message while away: one local notification (existing permission only), no
+  /// announcement and no alert. Without a notification the caller announces it on the return.
+  var notifiesWhenAway = false
 }
 
 /// Where the person is when a message arrives (fix round 1).
@@ -343,7 +362,12 @@ final class ListenTogetherMessageDelivery: ObservableObject {
         plan.keepsAlertAfterNotification = !context.isLocked && !context.isVoiceOverRunning
       }
     case .status:
-      plan.announces = true
+      if message.notifiesWhenAway, context.isAway {
+        // 1.5: no announcement from the background (unreliable, and it would repeat the notification).
+        plan.notifiesWhenAway = true
+      } else {
+        plan.announces = true
+      }
       plan.speaksNow = message.speaks
     case .announcement:
       plan.announces = true
@@ -354,12 +378,27 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   }
 
   /// Shows, announces or speaks `message` as its plan says. `onClose` runs once the alert has been
-  /// closed (or the notification posted instead).
-  func deliver(_ message: ListenTogetherUserMessage, onClose: (@MainActor () -> Void)? = nil) {
+  /// closed, or once the notification has been attempted instead. `onNotNotified` runs (before `onClose`)
+  /// when an away-only notification could not be posted (no permission), so the caller can announce it
+  /// on the return.
+  func deliver(
+    _ message: ListenTogetherUserMessage, onNotNotified: (@MainActor () -> Void)? = nil,
+    onClose: (@MainActor () -> Void)? = nil
+  ) {
     let plan = Self.plan(for: message, context: context())
     if plan.announces { announcer.announce(message.text) }
     if plan.speaksNow { speaker.speak(message.text, key: message.key) }
-    if plan.showsAlert {
+    if plan.notifiesWhenAway {
+      let generation = sessionGeneration
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        let posted = await self.postNotification("listen_together_title".localized, message.text)
+        // Not posted (no permission) and still the same session: the caller says it on the return.
+        if !posted, self.sessionGeneration == generation { onNotNotified?() }
+        // After the attempt, whatever its result (review P2).
+        onClose?()
+      }
+    } else if plan.showsAlert {
       enqueue(message, isSpoken: false, onClose: onClose)
     } else if plan.notifiesOrWaits {
       // M9: a new invitation or session during the await drops this message (it was about the old one).
@@ -520,5 +559,25 @@ final class ListenTogetherMessageDelivery: ObservableObject {
     } catch {
       return false
     }
+  }
+}
+
+extension ListenTogetherPauseCause {
+  /// The exact sentence (P1-P4): "Paused." first, so the most important fact is heard and seen first.
+  var text: String {
+    switch (count > 1, lostConnection) {
+    case (false, false): return "listen_together_paused_someone_left".localized
+    case (false, true): return "listen_together_paused_someone_lost_connection".localized
+    case (true, false): return String.localizedStringWithFormat("listen_together_paused_people_left".localized, count)
+    case (true, true):
+      return String.localizedStringWithFormat("listen_together_paused_people_lost_connection".localized, count)
+    }
+  }
+
+  /// The Listen Together row's value while the pause is in effect (R1/R2), with the book's title.
+  func rowValue(title: String) -> String {
+    let key = lostConnection
+      ? "listen_together_row_value_paused_lost_connection" : "listen_together_row_value_paused_someone_left"
+    return String.localizedStringWithFormat(key.localized, title)
   }
 }

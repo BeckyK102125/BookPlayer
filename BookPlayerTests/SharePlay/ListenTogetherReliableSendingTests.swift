@@ -287,14 +287,123 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
   func testAFailedPieceIsReportedAsATypedNoticeUntilItIsSent() async throws {
     let service = makeService(instantRetries: false), transport = FakeTransport()
     transport.uploadErrors = [URLError(.networkConnectionLost)]
-    let item = try makeHourLongItem()
-    let sending = Task { await service.beginSharing(with: transport, item: item) }
+    let item = try makeHourLongItem(), shareID = UUID()
+    service.startSharingSession(with: transport, item: item, shareID: shareID)
+    // Build 5 (B3): the retry status needs someone to have joined.
+    transport.emit(.participantsChanged(count: 2))
+    await waitUntil { service.participantCount == 2 }
+    let sending = Task { await service.uploadPieces(of: item, shareID: shareID, over: transport) }
     await waitUntil { !self.sleeps.isEmpty }
     XCTAssertEqual(service.notice, .retryingSend)
     system.become(.active)   // retries at once
     await sending.value
     XCTAssertNil(service.notice)
     XCTAssertEqual(uploadedIndexes(transport).count, 5)
+  }
+
+  // MARK: Build 5 (B3): nothing is sent, and no retry is shown, while the sharer is alone
+
+  func testNothingIsExportedOrUploadedUntilTheTransportIsReadyToSend() async throws {
+    let service = makeService(), transport = FakeTransport()
+    var release: CheckedContinuation<Bool, Never>?
+    var waits = 0
+    transport.readyToSend = {
+      waits += 1
+      guard waits == 1 else { return true }
+      return await withCheckedContinuation { release = $0 }
+    }
+    let item = try makeHourLongItem()
+    let sending = Task { await service.beginSharing(with: transport, item: item) }
+    await waitUntil { release != nil }
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(exporter.attempts, [], "no export while alone")
+    XCTAssertEqual(uploadedIndexes(transport), [])
+    XCTAssertTrue(transport.sent.contains { if case .manifest = $0 { return true } else { return false } },
+      "the manifest still goes out (messages are queued until joined)")
+
+    release?.resume(returning: true)
+    await sending.value
+    XCTAssertEqual(uploadedIndexes(transport).count, 5)
+  }
+
+  func testTheSendLoopStopsWhenTheTransportStopsWhileWaiting() async throws {
+    let service = makeService(), transport = FakeTransport()
+    var release: CheckedContinuation<Bool, Never>?
+    transport.readyToSend = { await withCheckedContinuation { release = $0 } }
+    let item = try makeHourLongItem()
+    let sending = Task { await service.beginSharing(with: transport, item: item) }
+    await waitUntil { release != nil }
+    service.end()
+    release?.resume(returning: false)
+    await sending.value
+    XCTAssertEqual(exporter.attempts, [])
+    XCTAssertFalse(system.isIdleTimerDisabled, "the idle timer is restored")
+  }
+
+  func testPieceFailureWhileAloneIsNotAnnounced() async throws {
+    let service = makeService(instantRetries: false), transport = FakeTransport()
+    transport.uploadErrors = [URLError(.networkConnectionLost)]
+    let item = try makeHourLongItem()
+    let sending = Task { await service.beginSharing(with: transport, item: item) }
+    await waitUntil { !self.sleeps.isEmpty }
+    XCTAssertNil(service.notice, "retried silently while alone")
+    XCTAssertFalse(posted.contains("listen_together_send_failed".localized))
+    XCTAssertEqual(sleeps, [.seconds(2)], "a retry was scheduled")
+
+    // The first person joins while the piece is still failing: one new episode.
+    transport.emit(.participantsChanged(count: 2))
+    await waitUntil { service.notice == .retryingSend }
+    XCTAssertEqual(service.notice, .retryingSend)
+    XCTAssertEqual(posted.filter { $0 == "listen_together_send_failed".localized }.count, 1)
+
+    // The last listener leaves during the episode: it ends silently.
+    posted = []
+    transport.emit(.participantsChanged(count: 1))
+    await waitUntil { service.notice == nil }
+    XCTAssertNil(service.notice)
+    XCTAssertFalse(posted.contains("listen_together_send_failed".localized))
+    service.end()
+    await sending.value
+  }
+
+  // MARK: The send gate (B3)
+
+  func testSendGateOpensOnlyWhenJoinedWithSomeoneElse() async {
+    let gate = ListenTogetherSendGate()
+    var result: Bool?
+    let waiting = Task { result = await gate.wait() }
+    await Task.yield()
+    gate.update(isJoined: true)
+    await Task.yield()
+    XCTAssertNil(result, "joined but alone")
+    gate.update(hasOthers: true)
+    await waiting.value
+    XCTAssertEqual(result, true)
+    let again = await gate.wait()
+    XCTAssertTrue(again, "open: returns at once")
+    gate.update(hasOthers: false)
+    XCTAssertFalse(gate.isOpen, "closes again while alone")
+  }
+
+  func testSendGateReleasesWaitersWhenStopped() async {
+    let gate = ListenTogetherSendGate()
+    var result: Bool?
+    let waiting = Task { result = await gate.wait() }
+    await Task.yield()
+    gate.close()
+    await waiting.value
+    XCTAssertEqual(result, false)
+    let after = await gate.wait()
+    XCTAssertFalse(after)
+  }
+
+  func testSendGateReleasesACancelledWaiter() async {
+    let gate = ListenTogetherSendGate()
+    let waiting = Task { await gate.wait() }
+    await Task.yield()
+    waiting.cancel()
+    let result = await waiting.value
+    XCTAssertFalse(result)
   }
 
   func testInterruptionsDoNotCountTowardsTheBackoff() async throws {
@@ -378,7 +487,9 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
       if piece.index == 2 { service?.end() }
     }
     await service.beginSharing(with: transport, item: try makeHourLongItem())
-    XCTAssertEqual(system.begun.count, 3)
+    // Three pieces, plus the End sequence's own task (A3, build 5), which ends once SharePlay is ended.
+    XCTAssertEqual(system.begun.count, 4)
+    await waitUntil { self.system.ended.count == 4 }
     XCTAssertEqual(Set(system.ended), Set(system.begun), "every task ended")
     XCTAssertEqual(system.ended.count, system.begun.count, "none ended twice")
   }

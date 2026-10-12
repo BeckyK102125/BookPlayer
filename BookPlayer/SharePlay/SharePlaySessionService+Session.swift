@@ -122,11 +122,14 @@ extension SharePlaySessionService {
     guard !isSendLoopRunning, let context = sendContext else { return }
     isSendLoopRunning = true
     defer { if self.transport === transport { isSendLoopRunning = false } }
-    while self.transport === transport, !Task.isCancelled,
-      let piece = pieceScheduler?.next(at: groupPosition(for: context.item))
-    {
+    while self.transport === transport, !Task.isCancelled, pieceScheduler?.isComplete == false {
       // Re-asserted for every piece: another screen may have turned the idle timer back on.
       setKeepingScreenAwake(true)
+      // B3 (build 5): nothing is exported or uploaded until the session is joined and someone else is
+      // here; the piece is chosen after the wait, so it follows the group's place then.
+      guard await transport.waitUntilReadyToSend(), self.transport === transport, !Task.isCancelled,
+        let piece = pieceScheduler?.next(at: groupPosition(for: context.item))
+      else { break }
       switch await exportAndUpload(piece, from: context.files, to: context.folder, on: transport) {
       case .uploaded(let attachmentID):
         pieceFailures[piece.index] = nil
@@ -147,7 +150,8 @@ extension SharePlaySessionService {
         pieceFailures[piece.index] = failures
         // Behind the other pieces still to send, unless a listener waits for it (minor 5).
         pieceScheduler?.markFailed(piece.index)
-        setNotice(.retryingSend)
+        // B3 (3.3): while nobody else has joined, failures are retried silently.
+        if hasOtherParticipants { setNotice(.retryingSend) }
         let delay = PieceRetryPolicy.delay(afterFailures: failures)
         Self.logger.info(
           "Listen Together: piece \(piece.index, privacy: .public) failure \(failures, privacy: .public), retry in \(String(describing: delay), privacy: .public)")
@@ -300,6 +304,21 @@ extension SharePlaySessionService {
     }
   }
 
+  /// Someone besides this device is counted in the session.
+  var hasOtherParticipants: Bool { participantCount > 1 }
+
+  /// B3 (3.3): the sharer's retry status needs someone to have joined. The first join while pieces are
+  /// still failing starts a new episode (status, one announcement); the last listener leaving ends one
+  /// silently.
+  func participantCountChanged(from previous: Int, to count: Int) {
+    guard role == .sharer, previous != count else { return }
+    if count > 1, previous <= 1, !pieceFailures.isEmpty {
+      setNotice(.retryingSend)
+    } else if count <= 1, notice == .retryingSend {
+      setNotice(nil)
+    }
+  }
+
   /// The app's state changed: logged during a session (it explains interruptions). Becoming active
   /// retries a waiting piece at once and holds the idle timer off again while pieces are left.
   func appStateChanged(to appState: ListenTogetherAppState) {
@@ -309,6 +328,11 @@ extension SharePlaySessionService {
     guard appState == .active else { return }
     if keepsScreenAwake { setKeepingScreenAwake(true) }
     retryWaiter.wake()
+    // 1.5: no notification could be posted for the pause while away: said once now, if still paused.
+    if announcesPauseWhenActive {
+      announcesPauseWhenActive = false
+      if let pauseCause { announcer.announce(pauseCause.text) }
+    }
   }
 
   /// "Still here", every `heartbeatInterval`, for as long as this share runs.
@@ -644,7 +668,10 @@ extension SharePlaySessionService {
   private func leaveBecauseOwnCopyFailed() {
     guard role == .listener, isUsingOwnCopy else { return }
     Self.logger.error("Listen Together: the own copy can't be played; leaving on this phone")
-    tearDown(reason: .ownCopyFailed)
+    // This phone leaves on purpose: the sharer hears "left", not "lost their connection" (build 5).
+    let transport = self.transport
+    tearDown(reason: .ownCopyFailed, leaveTransport: false)
+    if let transport { leaveTellingTheSharer(transport) }
   }
 
   private func listenerPositionReady() {
@@ -761,7 +788,11 @@ extension SharePlaySessionService {
       announcer.announce(ListenTogetherAnnouncements.text(for: action))
       // E9: why the audio stopped, visible until the next play.
       if action == .paused { setPausedByOther(true) }
-      if action == .resumed { setPausedByOther(false) }
+      if action == .resumed {
+        setPausedByOther(false)
+        // Build 5 (1.6): any play resumes for everyone and clears the pause status silently.
+        clearPauseCause()
+      }
       if let target = playbackTarget, let rate = Self.silentRate(for: action, target: target) {
         target.applyRate(rate)
       }
@@ -777,17 +808,27 @@ extension SharePlaySessionService {
       tearDown(reason: .connectionEnded)
     case .participantsChanged(let count, let ids):
       Self.logger.info("Listen Together: participants \(ids.isEmpty ? count : ids.count, privacy: .public)")
+      let wasSharerMissing = sharerMissingSince != nil
       noteRoster(count: count, ids: ids)
+      // Listener: the person sharing leaving the roster is the grace, never "Someone left" (1.8).
+      let sharerJustLeft = !wasSharerMissing && sharerMissingSince != nil
       if ids.isEmpty {
-        await participantsChanged(to: count, on: transport)
+        await participantsChanged(to: count, sharerJustLeft: sharerJustLeft, on: transport)
       } else {
-        await rosterChanged(to: ids, on: transport)
+        await rosterChanged(to: ids, sharerJustLeft: sharerJustLeft, on: transport)
       }
     case .participantDeclined(let id):
       participantDeclined(id)
     case .message(.declinedNoCopy):
       // The transport reports it as `.participantDeclined`; a bare message has no sender.
       participantDeclined(nil)
+    case .listenerLeaving(let id):
+      noteListenerLeaving(id)
+    case .message(.listenerLeaving):
+      // The transport reports it as `.listenerLeaving(id:)`; a bare message has no sender.
+      noteListenerLeaving(nil)
+    case .message(.groupPaused(let cause)):
+      groupPausedBySharer(cause)
     }
   }
 
@@ -822,7 +863,9 @@ extension SharePlaySessionService {
   /// The roster by id. The first one is the baseline. Someone new is counted and announced only after
   /// `joinConfirmationDelay`, if still here and not declined; someone counted who leaves is announced.
   /// The sharer re-sends the manifest and piece map to anyone new at once.
-  private func rosterChanged(to ids: Set<UUID>, on transport: ListenTogetherTransport) async {
+  private func rosterChanged(
+    to ids: Set<UUID>, sharerJustLeft: Bool = false, on transport: ListenTogetherTransport
+  ) async {
     guard role != nil else { return }
     guard hasParticipantBaseline else {
       hasParticipantBaseline = true
@@ -842,10 +885,18 @@ extension SharePlaySessionService {
       }
     }
     declinedParticipantIDs.subtract(gone)
-    let countedLeft = !gone.isDisjoint(with: confirmedParticipantIDs)
+    var countedGone = gone.intersection(confirmedParticipantIDs)
+    if role == .listener, sharerJustLeft {
+      // 1.8: the person sharing is not "someone".
+      if let sharer = sharerParticipantID, countedGone.contains(sharer) {
+        countedGone.remove(sharer)
+      } else if let any = countedGone.first {
+        countedGone.remove(any)
+      }
+    }
     confirmedParticipantIDs.subtract(gone)
     applyParticipantCount(confirmedParticipantIDs.count)
-    if countedLeft { announcer.announce(ListenTogetherAnnouncements.left()) }
+    if !countedGone.isEmpty { someoneLeft(ids: countedGone, count: countedGone.count) }
     guard !arrived.isEmpty else { return }
     if isOwnersOnlySession {
       schedule(Self.joinConfirmationDelay) { [weak self, weak transport] in
@@ -872,6 +923,7 @@ extension SharePlaySessionService {
     participantCount = max(count, 1)
     // The "couldn't join" line stays until the visible count changes.
     if participantCount != previous { setSomeoneDeclined(false) }
+    participantCountChanged(from: previous, to: participantCount)
     switch role {
     case .sharer: setState(.sharing(participants: participantCount))
     case .listener: updateListeningState()
@@ -891,12 +943,15 @@ extension SharePlaySessionService {
   }
 
   /// Roster changes reported as a count only (no ids).
-  private func participantsChanged(to count: Int, on transport: ListenTogetherTransport) async {
+  private func participantsChanged(
+    to count: Int, sharerJustLeft: Bool = false, on transport: ListenTogetherTransport
+  ) async {
     // A roster with nobody in it (not even us) is not a real change.
     guard count > 0, role != nil else { return }
     let previous = participantCount
     participantCount = count
     if count != previous { setSomeoneDeclined(false) }
+    participantCountChanged(from: previous, to: count)
     switch role {
     case .sharer: setState(.sharing(participants: count))
     default: updateListeningState()
@@ -915,8 +970,109 @@ extension SharePlaySessionService {
         awaitingAnonymousInStep = max(0, count - 1)
         confirmIfEveryJoinerIsInStep()
       }
-      announcer.announce(ListenTogetherAnnouncements.left())
+      let departed = previous - count - (role == .listener && sharerJustLeft ? 1 : 0)
+      if departed > 0 { someoneLeft(ids: [], count: departed) }
     }
+  }
+
+  // MARK: Someone left: the group pauses (build 5, a11y guidance section 1)
+
+  /// Counted listeners left. The sharer pauses the group when it was playing (P1-P4 replace "Someone
+  /// left"); otherwise, and on listeners, "Someone left Listen Together" as before (a listener holds it
+  /// for the sharer's `.groupPaused`).
+  private func someoneLeft(ids: Set<UUID>, count: Int) {
+    switch role {
+    case .sharer:
+      let cause = pauseCause(forDeparted: ids, count: count)
+      if pauseCause == nil, sharerTarget?.isPlayingForGroup == true {
+        pauseGroup(cause)
+      } else {
+        announcer.announce(ListenTogetherAnnouncements.left())
+      }
+    case .listener:
+      holdLeftAnnouncement()
+    case nil:
+      break
+    }
+  }
+
+  /// P1-P4: "lost their connection" only when ids are known and none of the departed said they were
+  /// leaving. Leaving notes are used up by the departure they explain.
+  private func pauseCause(forDeparted ids: Set<UUID>, count: Int) -> ListenTogetherPauseCause {
+    pruneLeavingNotes()
+    var explained = 0
+    for id in ids where leavingNotes.removeValue(forKey: id) != nil { explained += 1 }
+    let fromAnonymous = min(count - explained, anonymousLeavingNotes.count)
+    anonymousLeavingNotes.removeFirst(max(fromAnonymous, 0))
+    explained += max(fromAnonymous, 0)
+    // A count-only roster has no ids to prove a lost connection: the neutral "left" wording.
+    let lostConnection = !ids.isEmpty && explained == 0
+    return ListenTogetherPauseCause(count: count, lostConnection: lostConnection)
+  }
+
+  private func pruneLeavingNotes() {
+    let now = now()
+    leavingNotes = leavingNotes.filter { now.timeIntervalSince($0.value) <= Self.leavingNoteLifetime }
+    anonymousLeavingNotes.removeAll { now.timeIntervalSince($0) > Self.leavingNoteLifetime }
+  }
+
+  /// Sharer: a listener said it is leaving; the roster drop that follows reads as "left".
+  private func noteListenerLeaving(_ id: UUID?) {
+    guard role == .sharer else { return }
+    Self.logger.info("Listen Together: a listener is leaving")
+    if let id {
+      leavingNotes[id] = now()
+    } else {
+      anonymousLeavingNotes.append(now())
+    }
+  }
+
+  /// Sharer: the group was playing and listeners left. The book pauses for everyone; one message (status,
+  /// caption, row, one announcement, Speak, a notification when away) says why, and the listeners get
+  /// `.groupPaused` instead of "Another listener paused".
+  private func pauseGroup(_ cause: ListenTogetherPauseCause) {
+    Self.logger.info(
+      "Listen Together: \(cause.count, privacy: .public) listener(s) left (lostConnection=\(cause.lostConnection, privacy: .public)); pausing the group")
+    setPauseCause(cause)
+    suppressPausedActionUntil = now().addingTimeInterval(2)
+    announcesPauseWhenActive = false
+    outbox?.yield(.groupPaused(cause))
+    playerManager.pause()
+    messages.deliver(.pausedBecauseSomeoneLeft(cause, isSharer: true), onNotNotified: { [weak self] in
+      guard let self, self.pauseCause != nil else { return }
+      self.announcesPauseWhenActive = true
+    })
+  }
+
+  /// Listener: the person sharing paused the group because someone left. The P-sentence replaces
+  /// "Someone left" (held) and "Another listener paused"; one announcement per pause episode.
+  private func groupPausedBySharer(_ cause: ListenTogetherPauseCause) {
+    guard role == .listener else { return }
+    lastGroupPausedAt = now()
+    // The held "Someone left Listen Together" for this departure is dropped.
+    leftHoldGeneration += 1
+    setPausedByOther(false)
+    guard pauseCause == nil else { return }
+    setPauseCause(cause)
+    messages.deliver(.pausedBecauseSomeoneLeft(cause, isSharer: false))
+  }
+
+  /// Listener: "Someone left Listen Together" waits `listenerLeftHold` for the sharer's `.groupPaused`.
+  /// A drop just after a `.groupPaused` is the departure it already explained.
+  private func holdLeftAnnouncement() {
+    if let at = lastGroupPausedAt, now().timeIntervalSince(at) <= 2 { return }
+    leftHoldGeneration += 1
+    let generation = leftHoldGeneration
+    schedule(Self.listenerLeftHold) { [weak self] in
+      guard let self, self.role == .listener, self.leftHoldGeneration == generation else { return }
+      self.announcer.announce(ListenTogetherAnnouncements.left())
+    }
+  }
+
+  /// Any play (here or by someone else) ends the pause episode, silently (1.6).
+  func clearPauseCause() {
+    announcesPauseWhenActive = false
+    setPauseCause(nil)
   }
 
   // MARK: Sharer: joiners in step (start-position fix round 1, C1)
@@ -981,8 +1137,19 @@ extension SharePlaySessionService {
       .sink { [weak self] event in
         guard let self else { return }
         // The person's own play or pause: "Paused by another listener" no longer applies.
-        if case .played = event { self.setPausedByOther(false) }
-        if case .paused = event { self.setPausedByOther(false) }
+        if case .played = event {
+          self.setPausedByOther(false)
+          self.suppressPausedActionUntil = nil
+          self.clearPauseCause()
+        }
+        if case .paused = event {
+          self.setPausedByOther(false)
+          // The automatic pause travels as `.groupPaused`, never also as "Another listener paused".
+          if let until = self.suppressPausedActionUntil {
+            self.suppressPausedActionUntil = nil
+            if self.now() <= until { return }
+          }
+        }
         guard let action = self.remoteAction(for: event) else { return }
         self.outbox?.yield(.action(action))
       }
