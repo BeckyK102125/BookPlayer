@@ -18,7 +18,7 @@ cancelled shares ended (A4); state logs (A6); "SharePlay stays on until you clos
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - `develop` at f55d7e75 (start-position fix 06498b5b = TestFlight 5.22.2 (4), plus notes commits).
 - `listen-together-build5` (local, not pushed; from f55d7e75): 302cd8c9 build 5; bf2e1a8e + 49a5abab move the
-  InsertBooksTests @MainActor change into its own commit; this commit = fix round 1. Clean after the commit
+  InsertBooksTests @MainActor change into its own commit; 17fb4eff fix round 1; this commit = fix round 2. Clean after the commit
   except the untracked `review.md` (external Codex review; leave it, never commit it).
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
@@ -67,8 +67,9 @@ cancelled shares ended (A4); state logs (A6); "SharePlay stays on until you clos
 ## Test evidence (2026-10-12, build 5)
 - Build 5: red 28 failed (old behaviour patched back); SharePlay 590/0; full 1162/0 (after InsertBooksTests
   @MainActor: before it, 4/4 branch runs crashed there in CoreData, develop 2/2 passed); TSan 590/0.
-- Fix round 1: red 18 failed; SharePlay 609/0; full suite 1181/0 ** TEST SUCCEEDED **; TSan 609/0, 0
-  warnings, ** TEST SUCCEEDED **.
+- Fix round 1: red 18 failed; SharePlay 609/0; full 1181/0. Fix round 2 (late `.groupPaused` on a playing
+  listener waits 2 s; own-copy exit order test): red 3; SharePlay 612/0; full 1184/0 ** TEST SUCCEEDED **;
+  TSan 612/0, 0 warnings, ** TEST SUCCEEDED **.
 - Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
   Simulator,id=1525DDCB-A5AB-4EDE-B9F2-CAEDC19EEDB1' -testPlan "Unit Tests" -only-testing:BookPlayerTests
   test (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`).

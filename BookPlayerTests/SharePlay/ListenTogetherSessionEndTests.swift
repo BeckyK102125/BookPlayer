@@ -277,7 +277,7 @@ final class ListenTogetherBuild5EndTests: XCTestCase {
   /// Fix round 1 (I1): on every listener exit, receiving stops while the temporary book still exists, so
   /// nothing can be written after it is deleted.
   func testEveryListenerExitStopsReceivingBeforeTheTemporaryBookIsDeleted() async throws {
-    for exit in ["leave", "ownBook", "end"] {
+    for exit in ["leave", "ownBook", "end", "ownCopyFailed"] {
       let service = makeService(), transport = FakeTransport(), shareID = UUID()
       service.startListening(with: transport, shareID: shareID)
       let folder = try ShareStorage(root: root).folder(for: shareID, role: .listener)
@@ -288,6 +288,10 @@ final class ListenTogetherBuild5EndTests: XCTestCase {
       switch exit {
       case "leave": service.leave()
       case "ownBook": service.leaveForOwnBook(announcement: "x")
+      case "ownCopyFailed":
+        // Fix round 2 (m3): the own copy can't be played, so this phone leaves.
+        service.setOwnCopy(true)
+        service.leaveBecauseOwnCopyFailed()
       default: service.end()
       }
       XCTAssertEqual(existedWhenStopped, true, exit)
@@ -940,6 +944,48 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false))))
     await waitUntil { service.pauseCause != nil }
     XCTAssertNotNil(service.pauseCause)
+  }
+
+  // MARK: Fix round 2 (m1)
+
+  /// The group played again before the late `.groupPaused` arrived: no paused status, no announcement.
+  func testALatePauseAfterTheGroupPlaysAgainIsIgnored() async {
+    let (service, transport) = await makeListener()
+    service.setListenerPlaying(true)
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false))))
+    await settle()
+    XCTAssertNil(service.pauseCause)
+    timers.advance(by: .seconds(3))
+    XCTAssertNil(service.pauseCause)
+    XCTAssertEqual(posted, [])
+    XCTAssertNotEqual(ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text, p1)
+  }
+
+  /// The message overtook the coordinator's pause: applied as soon as this phone stops.
+  func testAPauseMessageBeforeThePlayerStopsIsAppliedWhenItStops() async {
+    let (service, transport) = await makeListener()
+    service.setListenerPlaying(true)
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false))))
+    await settle()
+    XCTAssertNil(service.pauseCause)
+    service.setListenerPlaying(false)
+    XCTAssertNotNil(service.pauseCause)
+    XCTAssertEqual(posted, [p1])
+    timers.advance(by: .seconds(3))
+    XCTAssertEqual(posted, [p1], "once")
+  }
+
+  /// A resume overtakes a pause still waiting for the player: the pause is dropped.
+  func testAResumeDropsAPauseStillWaitingForThePlayer() async {
+    let (service, transport) = await makeListener()
+    service.setListenerPlaying(true)
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false))))
+    transport.emit(.message(.action(.resumed)))
+    await waitUntil { !self.posted.isEmpty }
+    service.setListenerPlaying(false)
+    timers.advance(by: .seconds(3))
+    XCTAssertNil(service.pauseCause)
+    XCTAssertFalse(posted.contains(p1))
   }
 
   /// a11y M4: the listener's caption under Play shows the pause when nothing holds playback.

@@ -343,6 +343,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Listener: when the sharer's `.groupPaused` last arrived (a roster drop right after it is covered).
   var lastGroupPausedAt: Date?
   var lastGroupPausedNamedIDs = false
+  /// Listener (fix round 2, m1): a `.groupPaused` waiting for this phone's player to stop.
+  var pendingGroupPause: ListenTogetherPauseCause?
+  var groupPauseGeneration = 0
   /// Listener (fix round 1, a11y M1): departures a `.groupPaused` named (never "Someone left"), and those
   /// whose "Someone left" is being held for one.
   var explainedDepartures = Set<UUID>()
@@ -442,7 +445,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if isListenerWaitingForPiece != value { isListenerWaitingForPiece = value }
     announceSlowLineIfShown()
   }
-  func setListenerPlaying(_ value: Bool) { if isListenerPlaying != value { isListenerPlaying = value } }
+  func setListenerPlaying(_ value: Bool) {
+    guard isListenerPlaying != value else { return }
+    isListenerPlaying = value
+    if !value { listenerStoppedPlaying() }
+  }
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
   func setListenerJoining(_ value: Bool) { if isListenerJoining != value { isListenerJoining = value } }
@@ -1224,6 +1231,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     leftHoldGeneration += 1
     lastGroupPausedAt = nil
     lastGroupPausedNamedIDs = false
+    pendingGroupPause = nil
+    groupPauseGeneration += 1
     localEventsBag.removeAll()
     bridge?.invalidate()
     bridge = nil

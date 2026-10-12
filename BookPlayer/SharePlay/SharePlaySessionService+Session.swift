@@ -665,7 +665,7 @@ extension SharePlaySessionService {
     return size == file.byteSize
   }
 
-  private func leaveBecauseOwnCopyFailed() {
+  func leaveBecauseOwnCopyFailed() {
     guard role == .listener, isUsingOwnCopy else { return }
     Self.logger.error("Listen Together: the own copy can't be played; leaving on this phone")
     // This phone leaves on purpose: the sharer hears "left", not "lost their connection" (build 5).
@@ -1111,9 +1111,46 @@ extension SharePlaySessionService {
     }
     setPausedByOther(false)
     guard pauseCause == nil else { return }
+    // Fix round 2 (m1): `.groupPaused` and the coordinator's pause travel separately, and a play (here or
+    // another `.action(.resumed)`) can overtake the message. While this phone still plays, the pause
+    // waits up to `groupPauseSettle` for the player to stop; if it is still playing then, the group is
+    // playing again and the stale pause is dropped (no status, no announcement).
+    guard isListenerPlaying else {
+      applyGroupPause(cause)
+      return
+    }
+    pendingGroupPause = cause
+    groupPauseGeneration += 1
+    let generation = groupPauseGeneration
+    schedule(Self.groupPauseSettle) { [weak self] in
+      guard let self, self.role == .listener, self.groupPauseGeneration == generation,
+        self.pendingGroupPause != nil
+      else { return }
+      self.pendingGroupPause = nil
+      if self.isListenerPlaying {
+        Self.logger.info("Listen Together: a pause message arrived after the group played again; ignored")
+      } else {
+        self.applyGroupPause(cause)
+      }
+    }
+  }
+
+  /// The listener's player stopped while a `.groupPaused` waited (fix round 2): applied now.
+  func listenerStoppedPlaying() {
+    guard let cause = pendingGroupPause, role == .listener else { return }
+    pendingGroupPause = nil
+    groupPauseGeneration += 1
+    applyGroupPause(cause)
+  }
+
+  private func applyGroupPause(_ cause: ListenTogetherPauseCause) {
+    guard pauseCause == nil else { return }
     setPauseCause(cause)
     deliverPauseMessage(.pausedBecauseSomeoneLeft(cause, isSharer: false))
   }
+
+  /// How long a `.groupPaused` waits for a still-playing listener to stop (fix round 2, m1).
+  static let groupPauseSettle: Duration = .seconds(2)
 
   /// A `.groupPaused` this soon after the person sharing came back is ignored (fix round 1, M8).
   static let sharerReturnPauseGrace: TimeInterval = 5
@@ -1147,6 +1184,9 @@ extension SharePlaySessionService {
   /// Any play (here or by someone else) ends the pause episode, silently (1.6).
   func clearPauseCause() {
     announcesPauseWhenActive = false
+    // A pause still waiting for this phone to stop is overtaken by the play (fix round 2, m1).
+    pendingGroupPause = nil
+    groupPauseGeneration += 1
     let hadPause = pauseCause != nil
     setPauseCause(nil)
     if hadPause { messages.removePauseNotificationIfShown() }

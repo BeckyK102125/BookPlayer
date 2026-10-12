@@ -1378,3 +1378,15 @@ Rulings: build5-fix-round-1.md (code review build5-code-review.md, a11y review b
 - Green: 32 SharePlay classes 609/0.
 - Full suite "Executed 1181 tests, with 0 failures", ** TEST SUCCEEDED ** (no InsertBooksTests crash). TSan on the
   32 SharePlay classes 609/0, 0 warnings, ** TEST SUCCEEDED **. Simulator 1525DDCB (shut down after).
+
+## 2026-10-12 — build 5 fix round 2 (re-review m1, m3; build5-rereview-1.md)
+- m1: `.groupPaused` is sent directly (fix round 1), so a play can overtake it. A listener that is still playing
+  when it arrives keeps it pending up to 2 s (`groupPauseSettle`): applied when the player stops
+  (`setListenerPlaying(false)` → `listenerStoppedPlaying`), dropped if still playing after 2 s or if a play
+  (`.action(.resumed)`, own `.played` → `clearPauseCause`) comes first. E8/departed-id bookkeeping still happens on
+  arrival. Tests: late pause after play → no status/announcement; message before the player stops → applied once;
+  resume drops a waiting pause. Red (deferral disabled): those 3 failed.
+- m3: the exit-order test covers the own-copy failure exit (`leaveBecauseOwnCopyFailed` now internal).
+- m2/m4 not changed (m2 only matters if 302cd8c9 reached testers; m4 empty folder until next launch).
+- Green: SharePlay classes 612/0; full suite "Executed 1184 tests, with 0 failures", ** TEST SUCCEEDED **; TSan
+  612/0, 0 warnings, ** TEST SUCCEEDED **. Simulator 1525DDCB, shut down after.
