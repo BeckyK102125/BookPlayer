@@ -47,13 +47,18 @@ struct SharedBookManifest: Codable, Equatable {
 /// Why the group paused when listeners left (build 5, a11y guidance 1.2). `count` is how many counted
 /// listeners one roster update dropped; `lostConnection` is true only when none of them said they were
 /// leaving (`.listenerLeaving`), so "lost their connection" is never claimed without evidence.
+/// `departedIDs` (fix round 1, a11y M1): the participant ids that left, when the roster has ids. They are
+/// the same on every device, so a listener never says "Someone left" for a departure this pause explains,
+/// however late its own roster update arrives.
 struct ListenTogetherPauseCause: Codable, Equatable, Hashable {
   let count: Int
   let lostConnection: Bool
+  var departedIDs: Set<UUID> = []
 
-  init(count: Int, lostConnection: Bool) {
+  init(count: Int, lostConnection: Bool, departedIDs: Set<UUID> = []) {
     self.count = max(count, 1)
     self.lostConnection = lostConnection
+    self.departedIDs = departedIDs
   }
 }
 

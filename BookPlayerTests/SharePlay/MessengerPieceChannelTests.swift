@@ -367,6 +367,18 @@ final class MessengerPieceChannelTests: XCTestCase {
     } catch {}
   }
 
+  /// Build 5 fix round 1 (I1): a chunk arriving after the channel stopped writes nothing.
+  func testAChunkAfterStopWritesNothing() async throws {
+    let listener = makeChannel(listenerID)
+    listener.stop()
+    listener.receive(ChunkFrame(
+      pieceID: UUID(), index: 0, count: 2, totalBytes: Int64(chunk + 1), checksum: 0, pathExtension: "m4a",
+      payload: Data(count: chunk)).encoded(), from: sharerID)
+    let folder = root.appendingPathComponent(listenerID.uuidString)
+    let contents = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+    XCTAssertEqual(contents, [])
+  }
+
   func testAListenerWithItsOwnCopyDropsChunks() async throws {
     let listener = makeChannel(listenerID)
     listener.stopReceiving()

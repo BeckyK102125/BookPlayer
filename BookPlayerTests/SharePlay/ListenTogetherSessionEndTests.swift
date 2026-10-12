@@ -244,7 +244,9 @@ final class ListenTogetherBuild5EndTests: XCTestCase {
 
     XCTAssertFalse(service.isInSession, "the screen and state change at once")
     await waitUntil { transport.left }
-    XCTAssertEqual(transport.calls, ["send:listenerLeaving", "leave"])
+    XCTAssertEqual(
+      transport.calls, ["stopPieceTransfers", "stopReceivingPieces", "send:listenerLeaving", "leave"],
+      "receiving stops before anything else (fix round 1, I1)")
     XCTAssertFalse(transport.ended)
     XCTAssertEqual(system.begun.count, 1)
     XCTAssertEqual(system.ended, system.begun)
@@ -269,7 +271,47 @@ final class ListenTogetherBuild5EndTests: XCTestCase {
     service.leaveForOwnBook(announcement: "You left")
 
     await waitUntil { transport.left }
-    XCTAssertEqual(transport.calls, ["send:listenerLeaving", "leave"])
+    XCTAssertEqual(transport.calls, ["stopPieceTransfers", "stopReceivingPieces", "send:listenerLeaving", "leave"])
+  }
+
+  /// Fix round 1 (I1): on every listener exit, receiving stops while the temporary book still exists, so
+  /// nothing can be written after it is deleted.
+  func testEveryListenerExitStopsReceivingBeforeTheTemporaryBookIsDeleted() async throws {
+    for exit in ["leave", "ownBook", "end"] {
+      let service = makeService(), transport = FakeTransport(), shareID = UUID()
+      service.startListening(with: transport, shareID: shareID)
+      let folder = try ShareStorage(root: root).folder(for: shareID, role: .listener)
+      let piece = folder.appendingPathComponent("piece-000.m4a")
+      try Data([1]).write(to: piece)
+      var existedWhenStopped: Bool?
+      transport.onStopReceiving = { existedWhenStopped = FileManager.default.fileExists(atPath: piece.path) }
+      switch exit {
+      case "leave": service.leave()
+      case "ownBook": service.leaveForOwnBook(announcement: "x")
+      default: service.end()
+      }
+      XCTAssertEqual(existedWhenStopped, true, exit)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: piece.path), "\(exit): deleted at teardown")
+      XCTAssertEqual(Array(transport.calls.prefix(2)), ["stopPieceTransfers", "stopReceivingPieces"], exit)
+      // A piece that still arrives now is not placed anywhere.
+      transport.emit(.attachmentReceived(id: UUID(), url: piece))
+      await waitUntil { transport.left }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "\(exit): nothing written afterwards")
+    }
+  }
+
+  // MARK: Fix round 1 (M5)
+
+  func testExpiryRunsTheLastWorkBeforeTheTaskIsEnded() {
+    var endedWhenExpiring: [UIBackgroundTaskIdentifier]?
+    let task = ListenTogetherBackgroundTask(system: system, name: "test") { [system] in
+      endedWhenExpiring = system?.ended
+    }
+    system.expireAll()
+    XCTAssertEqual(endedWhenExpiring, [], "the work runs while the task is still held")
+    XCTAssertEqual(system.ended, system.begun)
+    task.end()
+    XCTAssertEqual(system.ended.count, 1)
   }
 
   // MARK: A4
@@ -404,12 +446,14 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     transport.emit(.participantsChanged(count: 0, ids: [me, b]))
     await waitUntil { service.pauseCause != nil }
 
-    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 1, lostConnection: false))
+    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 1, lostConnection: false, departedIDs: [a]))
     XCTAssertEqual(playerManager.pauseCallsCount, 1)
     XCTAssertEqual(posted, [p1], "the P-sentence replaces Someone left")
     XCTAssertEqual(speaker.spoken, [p1], "Speak says it once for the sharer")
     await waitUntil { !self.groupPausedMessages(transport).isEmpty }
-    XCTAssertEqual(groupPausedMessages(transport), [ListenTogetherPauseCause(count: 1, lostConnection: false)])
+    XCTAssertEqual(
+      groupPausedMessages(transport), [ListenTogetherPauseCause(count: 1, lostConnection: false, departedIDs: [a])],
+      "the departed ids travel, so listeners never double-message (a11y M1)")
 
     // The player's own pause event follows: never also sent as "Another listener paused".
     playerManager.underlyingIsPlaying = false
@@ -429,17 +473,29 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     posted = []
     transport.emit(.participantsChanged(count: 0, ids: [me, b]))
     await waitUntil { service.pauseCause != nil }
-    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 1, lostConnection: true))
+    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 1, lostConnection: true, departedIDs: [a]))
     XCTAssertEqual(posted, [p2])
   }
 
   func testTwoDroppedAtOnceWithoutMessagesLostConnection() async {
+    let c = UUID()
+    let (service, transport) = await makeSharer(listeners: [a, b, c])
+    posted = []
+    transport.emit(.participantsChanged(count: 0, ids: [me, c]))
+    await waitUntil { service.pauseCause != nil }
+    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 2, lostConnection: true, departedIDs: [a, b]))
+    XCTAssertEqual(posted, ["Paused. 2 people lost their connection to Listen Together."])
+  }
+
+  /// Fix round 1 (M8): everyone vanishing at once is most likely the sharer's own connection: the neutral
+  /// "left" wording, never "N people lost their connection".
+  func testEveryoneVanishingAtOnceUsesTheLeftWording() async {
     let (service, transport) = await makeSharer()
     posted = []
     transport.emit(.participantsChanged(count: 0, ids: [me]))
     await waitUntil { service.pauseCause != nil }
-    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 2, lostConnection: true))
-    XCTAssertEqual(posted, ["Paused. 2 people lost their connection to Listen Together."])
+    XCTAssertEqual(service.pauseCause?.lostConnection, false)
+    XCTAssertEqual(posted, ["Paused. 2 people left Listen Together."])
   }
 
   func testTwoDroppedAtOnceMixedSaysLeft() async {
@@ -447,7 +503,8 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     transport.emit(.listenerLeaving(id: a))
     transport.emit(.participantsChanged(count: 0, ids: [me]))
     await waitUntil { service.pauseCause != nil }
-    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 2, lostConnection: false))
+    XCTAssertEqual(service.pauseCause?.lostConnection, false)
+    XCTAssertEqual(service.pauseCause?.count, 2)
   }
 
   func testAnOldLeaveMessageNoLongerCounts() async {
@@ -505,7 +562,8 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     transport.emit(.participantsChanged(count: 0, ids: [me]))
     await waitUntil { !self.posted.isEmpty }
     XCTAssertEqual(posted, [left])
-    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 1, lostConnection: true), "the first sentence stays")
+    XCTAssertEqual(
+      service.pauseCause, ListenTogetherPauseCause(count: 1, lostConnection: true, departedIDs: [a]), "the first sentence stays")
     XCTAssertEqual(playerManager.pauseCallsCount, 1)
   }
 
@@ -702,6 +760,198 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     XCTAssertNil(service.pauseCause)
   }
 
+  // MARK: Fix round 1
+
+  /// I2: the automatic pause holds a background task, begun before the pause, until the `.groupPaused`
+  /// send and the notification attempt are done.
+  func testThePauseHoldsABackgroundTaskUntilTheSendAndTheNotificationAreDone() async {
+    let (service, transport) = await makeSharer()
+    var pausesAtBegin: [Int] = []
+    system.onBegin = { [unowned self] in pausesAtBegin.append(self.playerManager.pauseCallsCount) }
+    system.appState = .background
+    var release: CheckedContinuation<Bool, Never>?
+    service.messages.postNotification = { _, _ in await withCheckedContinuation { release = $0 } }
+    transport.emit(.participantsChanged(count: 0, ids: [me, b]))
+    await waitUntil { release != nil }
+    XCTAssertEqual(pausesAtBegin, [0], "begun before the book is paused")
+    await waitUntil { !self.groupPausedMessages(transport).isEmpty }
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertEqual(system.ended, [], "still held: the notification attempt is running")
+    release?.resume(returning: true)
+    await waitUntil { !self.system.ended.isEmpty }
+    XCTAssertEqual(system.ended, system.begun)
+    timers.advance(by: .seconds(6))
+    XCTAssertEqual(system.ended.count, 1, "never ended twice")
+  }
+
+  func testThePauseBackgroundTaskEndsAfterFiveSecondsAtTheLatest() async {
+    let (service, transport) = await makeSharer()
+    system.appState = .background
+    service.messages.postNotification = { _, _ in await withCheckedContinuation { _ in } }
+    transport.emit(.participantsChanged(count: 0, ids: [me, b]))
+    await waitUntil { service.pauseCause != nil }
+    await settle()
+    XCTAssertEqual(system.begun.count, 1)
+    XCTAssertEqual(system.ended, [])
+    timers.advance(by: .seconds(5))
+    XCTAssertEqual(system.ended, system.begun)
+  }
+
+  func testThePauseBackgroundTaskEndsOnExpiry() async {
+    let (service, transport) = await makeSharer()
+    system.appState = .background
+    service.messages.postNotification = { _, _ in await withCheckedContinuation { _ in } }
+    transport.emit(.participantsChanged(count: 0, ids: [me, b]))
+    await waitUntil { service.pauseCause != nil }
+    system.expireAll()
+    XCTAssertEqual(system.ended, system.begun)
+    timers.advance(by: .seconds(6))
+    XCTAssertEqual(system.ended.count, 1)
+  }
+
+  /// M3 / a11y M2: the "Paused" notification is removed once the group plays, and when the session ends.
+  func testThePauseNotificationIsRemovedWhenTheGroupPlays() async {
+    let (service, transport) = await makeSharer()
+    var removed = 0
+    service.messages.removeNotification = { removed += 1 }
+    service.messages.postNotification = { _, _ in true }
+    system.appState = .background
+    transport.emit(.participantsChanged(count: 0, ids: [me, b]))
+    await waitUntil { service.messages.lastNotifiedKey != nil }
+    transport.emit(.message(.action(.resumed)))
+    await waitUntil { service.pauseCause == nil }
+    XCTAssertEqual(removed, 1)
+    service.end()
+    XCTAssertEqual(removed, 1, "nothing left to remove")
+  }
+
+  func testThePauseNotificationIsRemovedWhenTheSessionEnds() async {
+    let (service, transport) = await makeSharer()
+    var removed = 0
+    service.messages.removeNotification = { removed += 1 }
+    service.messages.postNotification = { _, _ in true }
+    system.appState = .background
+    transport.emit(.participantsChanged(count: 0, ids: [me, b]))
+    await waitUntil { service.messages.lastNotifiedKey != nil }
+    service.end()
+    XCTAssertEqual(removed, 1)
+  }
+
+  func testAnEndingNotificationIsNeverRemoved() async {
+    let service = makeService()
+    var removed = 0
+    service.messages.removeNotification = { removed += 1 }
+    service.messages.postNotification = { _, _ in true }
+    system.appState = .background
+    service.messages.deliver(.sharerEnded)
+    await waitUntil { service.messages.lastNotifiedKey != nil }
+    service.messages.removePauseNotificationIfShown()
+    XCTAssertEqual(removed, 0)
+  }
+
+  /// M6: the app became active while the notification was being checked: said at once.
+  func testNoNotificationAndAlreadyBackIsSaidAtOnce() async {
+    let (service, transport) = await makeSharer()
+    system.appState = .background
+    var release: CheckedContinuation<Bool, Never>?
+    service.messages.postNotification = { _, _ in await withCheckedContinuation { release = $0 } }
+    posted = []
+    transport.emit(.participantsChanged(count: 0, ids: [me, b]))
+    await waitUntil { release != nil }
+    system.become(.active)
+    XCTAssertEqual(posted, [])
+    release?.resume(returning: false)
+    await waitUntil { !self.posted.isEmpty }
+    XCTAssertEqual(posted, [p2])
+    XCTAssertFalse(service.announcesPauseWhenActive)
+  }
+
+  /// a11y I1: a remaining listener away gets the notification; without one, one announcement on return.
+  func testAListenerAwayWithANotificationHearsNoAnnouncement() async {
+    let (service, transport) = await makeListener()
+    var notified: [String] = []
+    service.messages.postNotification = { _, body in notified.append(body); return true }
+    system.appState = .background
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false))))
+    await waitUntil { !notified.isEmpty }
+    XCTAssertEqual(notified, [p1])
+    XCTAssertEqual(posted, [])
+    XCTAssertEqual(speaker.spoken, [], "Speak stays the sharer's")
+    system.become(.active)
+    XCTAssertEqual(posted, [])
+  }
+
+  func testAListenerAwayWithoutANotificationHearsItOnTheReturn() async {
+    let (service, transport) = await makeListener()
+    system.appState = .background
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false))))
+    await waitUntil { service.announcesPauseWhenActive }
+    XCTAssertEqual(posted, [])
+    system.become(.active)
+    XCTAssertEqual(posted, [p1])
+    system.become(.background)
+    system.become(.active)
+    XCTAssertEqual(posted, [p1], "once")
+  }
+
+  /// a11y M1: departures named by `.groupPaused` are never "Someone left", however late the roster is.
+  func testANamedDepartureIsNeverSomeoneLeftEvenWhenTheRosterIsLate() async {
+    let (service, transport) = await makeListener()
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false, departedIDs: [b]))))
+    await waitUntil { service.pauseCause != nil }
+    timers.advance(by: .seconds(3))
+    transport.emit(.participantsChanged(count: 0, ids: [sharer, me]))
+    await waitUntil { service.participantCount == 2 }
+    timers.advance(by: .seconds(3))
+    XCTAssertEqual(posted, [p1])
+  }
+
+  func testAnotherDepartureRightAfterTheNamedOneIsStillSaid() async {
+    let c = UUID()
+    let service = makeService(playing: false), transport = FakeTransport()
+    service.startListening(with: transport, shareID: UUID())
+    transport.emit(.participantsChanged(count: 0, ids: [sharer, me, b, c]))
+    transport.emit(.sharerParticipant(id: sharer))
+    await waitUntil { service.participantCount == 4 }
+    await settle()
+    posted = []
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false, departedIDs: [b]))))
+    await waitUntil { service.pauseCause != nil }
+    transport.emit(.participantsChanged(count: 0, ids: [sharer, me]))
+    await waitUntil { service.participantCount == 2 }
+    timers.advance(by: .seconds(3))
+    XCTAssertEqual(posted, [p1, left], "c's departure is its own news")
+  }
+
+  /// M8: a `.groupPaused` while the person sharing is missing, or just back, is not about the others.
+  func testAListenerIgnoresAPauseWhileOrJustAfterTheSharerWasAway() async {
+    let (service, transport) = await makeListener()
+    transport.emit(.participantsChanged(count: 0, ids: [me, b]))   // the sharer drops
+    await waitUntil { service.isSharerGraceRunning }
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 2, lostConnection: true))))
+    await settle()
+    XCTAssertNil(service.pauseCause)
+    transport.emit(.participantsChanged(count: 0, ids: [sharer, me, b]))   // back
+    await waitUntil { !service.isSharerGraceRunning }
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 2, lostConnection: true))))
+    await settle()
+    XCTAssertNil(service.pauseCause, "queued while they were away")
+    timers.advance(by: .seconds(6))
+    transport.emit(.message(.groupPaused(ListenTogetherPauseCause(count: 1, lostConnection: false))))
+    await waitUntil { service.pauseCause != nil }
+    XCTAssertNotNil(service.pauseCause)
+  }
+
+  /// a11y M4: the listener's caption under Play shows the pause when nothing holds playback.
+  func testTheListenersCaptionShowsThePause() {
+    let cause = ListenTogetherPauseCause(count: 1, lostConnection: false)
+    XCTAssertEqual(ListenTogetherStatus.listenerCaption(.init(pauseCause: cause)), p1)
+    XCTAssertEqual(
+      ListenTogetherStatus.listenerCaption(.init(isWaitingForPiece: true, pauseCause: cause)),
+      "listen_together_waiting_download".localized, "what holds playback comes first")
+    XCTAssertNil(ListenTogetherStatus.waitingCaption(.init(pauseCause: cause)), "never the Play value")
+  }
+
   // MARK: Delivery plan
 
   func testDeliveryPlan() {
@@ -719,7 +969,10 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     var listener = ListenTogetherDeliveryPlan()
     listener.announces = true
     XCTAssertEqual(ListenTogetherMessageDelivery.plan(for: .pausedBecauseSomeoneLeft(cause, isSharer: false), context: active), listener)
-    XCTAssertEqual(ListenTogetherMessageDelivery.plan(for: .pausedBecauseSomeoneLeft(cause, isSharer: false), context: away), listener)
+    // Fix round 1 (a11y I1): a listener away gets the notification too; Speak stays the sharer's.
+    var listenerAway = ListenTogetherDeliveryPlan()
+    listenerAway.notifiesWhenAway = true
+    XCTAssertEqual(ListenTogetherMessageDelivery.plan(for: .pausedBecauseSomeoneLeft(cause, isSharer: false), context: away), listenerAway)
     XCTAssertEqual(ListenTogetherUserMessage.pausedBecauseSomeoneLeft(cause, isSharer: true).kind, .status)
   }
 

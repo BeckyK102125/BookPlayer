@@ -104,7 +104,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerBack: return "sharerBack"
     case .retryingSend: return "retryingSend"
     case .waitingForBook: return "waitingForBook"
-    case .pausedBecauseSomeoneLeft: return "pausedBecauseSomeoneLeft"
+    case .pausedBecauseSomeoneLeft: return Self.pauseKey
     case .alertShownElsewhere(_, let key): return key
     }
   }
@@ -125,10 +125,13 @@ enum ListenTogetherUserMessage: Hashable {
     }
   }
 
+  static let pauseKey = "pausedBecauseSomeoneLeft"
+
   /// Build 5: away from the app, one local notification (existing permission only) instead of an
-  /// announcement; without one, the announcement waits for the return (a11y guidance 1.5).
+  /// announcement; without one, the announcement waits for the return (a11y guidance 1.5). Both roles
+  /// (fix round 1, a11y I1): a remaining listener with the phone locked also hears why the book stopped.
   var notifiesWhenAway: Bool {
-    if case .pausedBecauseSomeoneLeft(_, let isSharer) = self { return isSharer }
+    if case .pausedBecauseSomeoneLeft = self { return true }
     return false
   }
 
@@ -292,6 +295,13 @@ final class ListenTogetherMessageDelivery: ObservableObject {
       action()
     }
   }
+  /// Removes the delivered `listenTogether.message` notification. Test seam.
+  var removeNotification: @MainActor () -> Void = {
+    UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["listenTogether.message"])
+  }
+  /// The key of the message the last posted notification carried (the identifier is shared, so a later
+  /// notification replaces an earlier one).
+  private(set) var lastNotifiedKey: String?
   private var closeActions: [UUID: @MainActor () -> Void] = [:]
   private var coverWaits = Set<AnyCancellable>()
   private var trackerObservations = Set<AnyCancellable>()
@@ -393,6 +403,7 @@ final class ListenTogetherMessageDelivery: ObservableObject {
       Task { @MainActor [weak self] in
         guard let self else { return }
         let posted = await self.postNotification("listen_together_title".localized, message.text)
+        if posted { self.lastNotifiedKey = message.key }
         // Not posted (no permission) and still the same session: the caller says it on the return.
         if !posted, self.sessionGeneration == generation { onNotNotified?() }
         // After the attempt, whatever its result (review P2).
@@ -406,6 +417,7 @@ final class ListenTogetherMessageDelivery: ObservableObject {
       Task { @MainActor [weak self] in
         guard let self else { return }
         let posted = await self.postNotification("listen_together_title".localized, message.text)
+        if posted { self.lastNotifiedKey = message.key }
         guard self.sessionGeneration == generation else {
           onClose?()
           return
@@ -538,6 +550,15 @@ final class ListenTogetherMessageDelivery: ObservableObject {
         once.run()
       }
     }
+  }
+
+  /// Fix round 1 (M3, a11y M2): the "Paused..." notification is taken off the lock screen and
+  /// Notification Center once it is no longer true (the group plays again or the session ends). An
+  /// ending's notification, which replaced it, is never removed.
+  func removePauseNotificationIfShown() {
+    guard lastNotifiedKey == ListenTogetherUserMessage.pauseKey else { return }
+    lastNotifiedKey = nil
+    removeNotification()
   }
 
   /// Only with permission the user already gave; never prompts.

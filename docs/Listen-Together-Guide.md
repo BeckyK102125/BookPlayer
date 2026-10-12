@@ -156,14 +156,18 @@ When someone else pauses, the status line says "Paused by another listener" unti
 
 If someone leaves Listen Together while the book is playing, the book pauses for everyone, so nobody misses anything. This happens when a listener chooses Leave, and when a listener's iPhone loses its connection.
 
-- The status line says "Paused. Someone left Listen Together." (or "Paused. Someone lost their connection to Listen Together." when their iPhone dropped out; with more people, for example "Paused. 2 people left Listen Together."). Under it, the usual status still shows how many people are left.
-- If you are sharing, the same sentence also appears just under the Play button, and the Play button reads it as its value. The Listen Together row says, for example, "paused, someone left, Moby Dick".
-- VoiceOver says the sentence once on each iPhone. You do not also hear "Someone left Listen Together" or "Another listener paused" for it.
+- The status line says "Paused. Someone left Listen Together." (or "Paused. Someone lost their connection to Listen Together." when their iPhone dropped out; with more people, for example "Paused. 2 people left Listen Together."). Under it, the usual status still shows how many people are left, or, for the person sharing, "Someone couldn't join because they don't have the book." when that applies.
+- The same sentence also appears just under the Play button, on every iPhone. If you are sharing, the Play button also reads it as its value. The Listen Together row says, for example, "paused, someone left, Moby Dick".
+- VoiceOver says the sentence once on each iPhone that has BookPlayer open. If BookPlayer is in the background or the phone is locked, a notification says it instead (see below). You do not also hear "Someone left Listen Together" or "Another listener paused" for it.
+- If you are sharing and "Speak error messages" is on, BookPlayer also reads the sentence aloud once.
+- If someone else leaves while the book is still paused, VoiceOver only says "Someone left Listen Together", and the status keeps the first sentence.
 - Anyone can carry on: press Play (on the screen, the lock screen, Control Center or AirPods). It plays for everyone and the message goes away.
 - If the book was already paused, nothing more happens: VoiceOver says "Someone left Listen Together".
 - If the person sharing leaves, this does not apply: everyone waits for them as described in "End the session".
 
-If you are sharing and BookPlayer is in the background or the phone is locked (for example while you talk on Discord), you hear the book stop. If you have allowed notifications for BookPlayer, a notification says "Paused. Someone left Listen Together.", and VoiceOver reads it on the lock screen. Allowing notifications for BookPlayer is what makes this audible on the lock screen; BookPlayer never asks for that permission. Without notifications, VoiceOver says it when you return to BookPlayer, if the book is still paused. You can press Play on the lock screen or your AirPods to carry on for everyone without unlocking.
+If BookPlayer is in the background or the phone is locked (for example while you talk on Discord), whether you are sharing or listening, you hear the book stop. If you have allowed notifications for BookPlayer, a notification says "Paused. Someone left Listen Together.", and VoiceOver reads it on the lock screen. Allowing notifications for BookPlayer is what makes this audible on the lock screen; BookPlayer never asks for that permission. Without notifications, VoiceOver says it when you return to BookPlayer, if the book is still paused. You can press Play on the lock screen or your AirPods to carry on for everyone without unlocking. Once the book plays again, or Listen Together ends, the notification is removed, so it never tells you about a pause that is over.
+
+If everyone else disappears at the same moment, the most likely cause is your own connection, so the person sharing sees "Paused. 2 people left Listen Together." rather than that they lost their connection.
 
 ## With the screen locked
 

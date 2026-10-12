@@ -342,6 +342,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var leftHoldGeneration = 0
   /// Listener: when the sharer's `.groupPaused` last arrived (a roster drop right after it is covered).
   var lastGroupPausedAt: Date?
+  var lastGroupPausedNamedIDs = false
+  /// Listener (fix round 1, a11y M1): departures a `.groupPaused` named (never "Someone left"), and those
+  /// whose "Someone left" is being held for one.
+  var explainedDepartures = Set<UUID>()
+  var heldLeftIDs = Set<UUID>()
+  /// Listener: when the person sharing last came back to the roster (fix round 1, M8).
+  var sharerReturnedAt: Date?
   /// An own file that fails this many times makes this phone leave.
   static let ownCopyFailureLimit = 3
   private var appStateObservation: AnyCancellable?
@@ -590,6 +597,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
         Self.logger.error(
           "Listen Together: could not start SharePlay on the call: \(ListenTogetherErrorDescription.describe(error), privacy: .public) domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)")
         guard pendingShareID == shareID else { return }
+        // Fix round 1 (M4): if its session still arrives (a stale conversation), it is ended, not offered.
+        cancelledShareIDs.insert(shareID)
         clearPendingShare()
         // B2 (build 5): a call that is still ringing or a stale SharePlay conversation makes the device
         // look eligible while activation fails. Apple's sharing sheet still works then.
@@ -1011,6 +1020,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     guard role == .listener else { return }
     if let shareID { endedShareIDs.insert(shareID) }
     let transport = self.transport
+    stopReceivingBeforeLeaving(transport)
     tearDown(reason: .left, announcement: announcement, leaveTransport: false)
     if let transport { leaveTellingTheSharer(transport) }
   }
@@ -1022,10 +1032,19 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     guard role == .listener else { return }
     if let shareID { endedShareIDs.insert(shareID) }
     let transport = self.transport
+    stopReceivingBeforeLeaving(transport)
     tearDown(reason: .left, announces: false, leaveTransport: false)
     if let transport { leaveTellingTheSharer(transport) }
     messages.forgetStuckCover()
     messages.afterListenerCoverGone(announce: "listen_together_left_for_own_book".localized)
+  }
+
+  /// Fix round 1 (I1): before teardown deletes the temporary book, nothing more may arrive. Piece
+  /// transfers stop and in-flight loads are cancelled, so no piece is written after the files are gone
+  /// during the leaving message's wait.
+  func stopReceivingBeforeLeaving(_ transport: ListenTogetherTransport?) {
+    transport?.stopPieceTransfers()
+    transport?.stopReceivingPieces()
   }
 
   /// Build 5: a listener's deliberate Leave first tells the others (`.listenerLeaving`, at most
@@ -1070,6 +1089,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       tearDown(reason: .normal, leaveTransport: false)
       endForEveryone(transport)
     } else if let transport {
+      stopReceivingBeforeLeaving(transport)
       tearDown(reason: .normal, leaveTransport: false)
       leaveTellingTheSharer(transport)
     } else {
@@ -1192,13 +1212,18 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     isListenerPlaying = false
     isPausedByOther = false
     someoneDeclined = false
+    if pauseCause != nil { messages.removePauseNotificationIfShown() }
     pauseCause = nil
+    explainedDepartures = []
+    heldLeftIDs = []
+    sharerReturnedAt = nil
     leavingNotes = [:]
     anonymousLeavingNotes = []
     suppressPausedActionUntil = nil
     announcesPauseWhenActive = false
     leftHoldGeneration += 1
     lastGroupPausedAt = nil
+    lastGroupPausedNamedIDs = false
     localEventsBag.removeAll()
     bridge?.invalidate()
     bridge = nil

@@ -169,6 +169,13 @@ enum ListenTogetherStatus {
     return nil
   }
 
+  /// The caption under a listener's play controls (Zoom): why playback is held, else (fix round 1,
+  /// a11y M4) why the group paused because someone left. Hidden from VoiceOver; unlike `waitingCaption`
+  /// it is never the Play value (Play works; the banner and row carry the pause for VoiceOver).
+  static func listenerCaption(_ conditions: ListenTogetherStatusConditions) -> String? {
+    waitingCaption(conditions) ?? conditions.pauseCause?.text
+  }
+
   /// Build 5 (1.4): the sharer's reason under the play controls (Zoom) and the play button's value:
   /// the P-sentence while the group is paused because someone left. Nil otherwise, and for listeners
   /// (their Play works; the banner and row carry it).

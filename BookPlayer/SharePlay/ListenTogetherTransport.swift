@@ -235,9 +235,13 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     return id
   }
 
+  /// Also cancels loads in flight (fix round 1, I1): a listener leaving stops receiving before its
+  /// temporary files are deleted, and a load that still completes discards its file (`load`).
   func stopReceivingPieces() {
     receivesPieces = false
     transfers.stopReceiving()
+    loads.values.forEach { $0.cancel() }
+    loads = [:]
   }
 
   var hasFailedPieceLoads: Bool {
@@ -367,6 +371,11 @@ final class GroupSessionTransport: ListenTogetherTransport, BPLogger {
     do {
       let piece = try await attachment.load(PieceTransfer.self)
       loaded = piece.url
+      // Stopped meanwhile (Leave, End): the file is not kept; teardown may already have emptied incoming/.
+      guard receivesPieces, !Task.isCancelled else {
+        try? FileManager.default.removeItem(at: piece.url)
+        return
+      }
       let metadata = try? await attachment.loadMetadata(of: PieceMetadata.self)
       let destination = downloadFolder.appendingPathComponent(
         PieceTransfer.receivedFileName(for: piece.url, pathExtension: metadata?.pathExtension))

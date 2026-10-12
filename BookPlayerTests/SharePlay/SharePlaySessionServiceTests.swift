@@ -49,6 +49,12 @@ final class FakeTransport: ListenTogetherTransport {
   func leave() { left = true; calls.append("leave"); _ = events; continuation.finish() }
   func end() { ended = true; calls.append("end"); _ = events; continuation.finish() }
   func stopPieceTransfers() { calls.append("stopPieceTransfers") }
+  /// Runs when `stopReceivingPieces()` is called (fix round 1: to check what still exists then).
+  var onStopReceiving: (() -> Void)?
+  func stopReceivingPieces() {
+    calls.append("stopReceivingPieces")
+    onStopReceiving?()
+  }
   /// Build 5 (B3): what `waitUntilReadyToSend()` does; nil means ready at once.
   var readyToSend: (@MainActor () async -> Bool)?
   func waitUntilReadyToSend() async -> Bool { await readyToSend?() ?? true }

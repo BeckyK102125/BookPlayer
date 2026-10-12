@@ -407,6 +407,20 @@ final class ListenTogetherSharingSheetTests: XCTestCase {
     XCTAssertNotEqual(service.state, .ended(reason: .unavailable))
   }
 
+  /// Fix round 1 (M4): the failed activation's share is cancelled, so its session is ended if it still comes.
+  func testAFailedActivationsLateSessionIsEnded() async throws {
+    let presenter = FakeSharingSheetPresenter(outcome: .sent)
+    let service = makeService(presenter: presenter, scheduler: ManualScheduler())
+    service.isEligibleForGroupSession = { true }
+    service.prepareActivation = { _ in .activationPreferred }
+    var activated: ListenTogetherActivity?
+    service.activateActivity = { activated = $0; throw NSError(domain: "x", code: 1) }
+    await service.startSharing(makeItem())
+    let failed = try XCTUnwrap(activated?.shareID)
+    XCTAssertNotEqual(failed, presenter.presented.first?.shareID)
+    XCTAssertTrue(isEnd(service.action(forIncoming: failed)))
+  }
+
   /// B2: without a sheet to fall back to, the activation failure still says it isn't available.
   func testActivateFailureWithoutASheetIsUnavailable() async {
     let service = makeService(presenter: nil, scheduler: ManualScheduler())

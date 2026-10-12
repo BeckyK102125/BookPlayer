@@ -137,13 +137,14 @@ struct ListenerHeaderView: View {
 
 /// The reason playback is held, under the play controls (C.1, C.2): where a Zoom user looks when Play
 /// "does nothing". The only intentionally duplicated visual text; hidden from VoiceOver, which hears it
-/// in the status and as the play button's value.
+/// in the status and as the play button's value. Fix round 1 (a11y M4): when nothing holds playback, the
+/// "Paused. Someone left..." sentence shows here too (VoiceOver hears it in the status and row only).
 struct ListenerWaitingCaption: View {
   @ObservedObject var service: SharePlaySessionService
   @EnvironmentObject private var theme: ThemeViewModel
 
   var body: some View {
-    if let caption = ListenTogetherStatus.waitingCaption(service.statusConditions) {
+    if let caption = ListenTogetherStatus.listenerCaption(service.statusConditions) {
       Text(caption)
         .bpFont(.subheadline)
         .foregroundStyle(theme.primaryColor)

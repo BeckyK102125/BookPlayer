@@ -7,7 +7,8 @@ SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a d
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: build 5 on `listen-together-build5` (implemented 2026-10-12, waiting for review): the whole
+Current goal: build 5 on `listen-together-build5` (implemented 2026-10-12; fix round 1 done, waiting for
+re-review): the whole
 group pauses when a listener leaves or drops; sharer start errors B1-B3; End background task (A3); own
 cancelled shares ended (A4); state logs (A6); "SharePlay stays on until you close it in Control Center".
 - Specs/plans: docs/superpowers/. Guide: docs/Listen-Together-Guide.md. Ledger, briefs, reports, rulings:
@@ -16,8 +17,9 @@ cancelled shares ended (A4); state logs (A6); "SharePlay stays on until you clos
 ## Branches and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - `develop` at f55d7e75 (start-position fix 06498b5b = TestFlight 5.22.2 (4), plus notes commits).
-- `listen-together-build5` (local, not pushed; from f55d7e75): this commit = build 5. Clean after the
-  commit except the untracked `review.md` (external Codex review; leave it, never commit it).
+- `listen-together-build5` (local, not pushed; from f55d7e75): 302cd8c9 build 5; bf2e1a8e + 49a5abab move the
+  InsertBooksTests @MainActor change into its own commit; this commit = fix round 1. Clean after the commit
+  except the untracked `review.md` (external Codex review; leave it, never commit it).
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
 - Change A (streamed-book alert) of addendum 1 is NOT done.
 
@@ -51,25 +53,22 @@ cancelled shares ended (A4); state logs (A6); "SharePlay stays on until you clos
   upload until joined with someone else (`ListenTogetherSendGate`), retries silent while alone; alone text
   "Listen Together, sharing, waiting for people to join". A3 End in a background task (expiry ends at once).
   A4 own cancelled/stale shares `end()`. A6 state logs around end/leave.
-
-## Start-position fix (build 4, on develop; full detail in Notes.md 2026-10-11)
-- The group starts at the sharer's saved place; the sharer's place is protected until each joiner reports
-  `.inStep`; listeners do nothing until the group's place is known ("Finding the group's place", 12 s line).
+- Fix round 1: listeners stop receiving before teardown deletes files; pause held by a background task (send +
+  notification, max 5 s); away notification for listeners too; Paused notification removed on play/end; idle
+  timer released while alone; no retry episode from a join; failed activation's share ended if it arrives;
+  "left" wording when everyone vanishes at once; listeners ignore `.groupPaused` during/just after the sharer
+  grace; `.groupPaused` carries departed ids (no double message); P-sentence caption under listeners' Play.
 
 ## Built before this branch (on develop; details in Notes.md)
-- Addendum 2 own copy + owners-only; Task A pieces/scheduler/retries/heartbeat/grace; Task B one message
-  path, Speak, Leave; final review fixes; transfer fix (build 3): pieces as `Data` with a chunked messenger
-  fallback, readable error logs, End really ends SharePlay.
+- Start position (build 4): the group starts at the sharer's saved place, protected until each joiner reports
+  `.inStep`. Earlier: own copy + owners-only, pieces/retries/grace, one message path, Speak, Leave, transfer
+  fix (pieces as `Data`, chunk fallback), End really ends SharePlay.
 
 ## Test evidence (2026-10-12, build 5)
-- Red (old behaviour patched back into the source, new tests kept): 28 tests failed across
-  ListenTogetherBuild5EndTests, ListenTogetherGroupPauseTests, ListenTogetherSharingSheetTests,
-  ListenTogetherReliableSendingTests. Restored; green below.
-- SharePlay classes (32): 590 tests, 0 failures (xcodebuild hung after the results and was killed).
-- Full suite: "Executed 1162 tests, with 0 failures", ** TEST SUCCEEDED ** (after making InsertBooksTests'
-  async tests @MainActor: before that, 4/4 branch runs crashed there in CoreData, develop 2/2 passed).
-- TSan on the 32 SharePlay classes: 590 tests, 0 failures, 0 ThreadSanitizer warnings (no final ** line:
-  xcodebuild hung after the results and was killed).
+- Build 5: red 28 failed (old behaviour patched back); SharePlay 590/0; full 1162/0 (after InsertBooksTests
+  @MainActor: before it, 4/4 branch runs crashed there in CoreData, develop 2/2 passed); TSan 590/0.
+- Fix round 1: red 18 failed; SharePlay 609/0; full suite 1181/0 ** TEST SUCCEEDED **; TSan 609/0, 0
+  warnings, ** TEST SUCCEEDED **.
 - Command: xcodebuild -project BookPlayer.xcodeproj -scheme BookPlayer -destination 'platform=iOS
   Simulator,id=1525DDCB-A5AB-4EDE-B9F2-CAEDC19EEDB1' -testPlan "Unit Tests" -only-testing:BookPlayerTests
   test (per class `-only-testing:BookPlayerTests/<Class>`; TSan adds `-enableThreadSanitizer YES`).
@@ -117,7 +116,6 @@ S. Build 4 checks (start position) remain as listed in Notes.md 2026-10-11.
 13. R38/R39 own book during a listener session; cold launch from the Messages invitation.
 14. Settings in Sky dark; switch and picker checkmark in Ayu light; AX5 on the smallest iPhone.
 15. Parked: End action sheet at Zoom 3x (a11y M9); iOS 26.0 accessory status (M10).
-Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.md.
 
 ## Known limitations
 - Streamed books and video cannot be shared.
@@ -127,7 +125,8 @@ Full lists: reliable-sending-task-B-report.md, own-copy-a11y-guidance.md, Notes.
 - A killed sharer that iOS keeps in the roster never ends listeners' sessions (they see the silence line).
 - Own book can't start from Siri/widget/CarPlay while locked during a listener session (R38/R39).
 - Notifications dormant (no permission asked); SwiftUI alerts are outside the one-alert gate.
-- Mixed builds degrade (old listeners on owners-only shares wait at 0 %): update both phones.
+- Mixed builds degrade (old listeners on owners-only shares wait at 0 %; build 4 can't read build 5's pause
+  messages): every phone on the same build.
 - New strings are English in every lproj; mark for translation before release.
 - Own copy: other editions/recordings never match; plays at the sharer's file boundaries (±2 s).
 

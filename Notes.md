@@ -1341,3 +1341,40 @@ via the sharer, as a status (not an alert); SharePlay-stays-on sentence in End a
   known. TSan on the 32 SharePlay classes: 590/0, 0 warnings (xcodebuild hung after the results, killed).
 - Simulator: the usual iPhone 17 (98A8CF98-...) hung in `installApplication` after a killed run (simctl listapps
   hung too); it was shut down and the runs moved to iPhone 18 Pro Max iOS 27 (1525DDCB-...), also shut down after.
+
+## 2026-10-12 — build 5 fix round 1 (listen-together-build5)
+Rulings: build5-fix-round-1.md (code review build5-code-review.md, a11y review build5-a11y-review.md).
+- Commits: bf2e1a8e takes the InsertBooksTests @MainActor change out of 302cd8c9; 49a5abab re-applies it alone
+  ("Tests: run InsertBooksTests on the main actor (CoreData main-context race)", code M9); then "fix round 1".
+- I1: every listener exit (Leave, leave for own book, listener End, own copy unplayable) calls
+  `stopReceivingBeforeLeaving` (`stopPieceTransfers`, `stopReceivingPieces`) before teardown deletes the files;
+  `GroupSessionTransport.stopReceivingPieces` cancels in-flight `loads`, and a journal load that completes after
+  the stop deletes its imported file. Order tested; a chunk after `stop()` writes nothing (channel test).
+- I2: `pauseGroup` begins "Listen Together pause" before `playerManager.pause()`; `.groupPaused` is sent directly
+  (not via the outbox) so its completion is known; the task ends when the send and the notification attempt
+  (`deliver` onClose) are both done, or after 5 s (`schedule`), or on expiry. Paired, tested.
+- a11y I1: `notifiesWhenAway` for both roles (Speak still sharer-only); `groupPausedBySharer` passes the same
+  `onNotNotified` (shared `deliverPauseMessage`). M6/a11y M7: if the app is already active when the attempt
+  returns without a notification, it is announced at once.
+- M3/a11y M2: `messages.lastNotifiedKey`; `removePauseNotificationIfShown()` (seam `removeNotification`) on any
+  play (`clearPauseCause`), on teardown while paused, and if play came during the attempt. Endings never removed.
+- M1: the send loop releases the idle timer while nobody else is counted, and sets it after the gate opens; the
+  count falling to 1 also releases it. M2/a11y M3: a join never starts a retry episode (the next failure does).
+- M4: a failed activation's share id goes into `cancelledShareIDs` (its late session is ended).
+- M5: `ListenTogetherBackgroundTask` expiry runs `onExpire` first, then ends the task (held strongly for the call,
+  because `onExpire` may release its owner: the speaker's in-flight entry; caught by ListenTogetherSpeakerTests).
+- M8/a11y M8: the sharer uses the "left" wording when 2+ listeners vanish in one update and nobody is left;
+  listeners ignore `.groupPaused` during the sharer grace and for 5 s after the sharer is back.
+- a11y M1: `ListenTogetherPauseCause.departedIDs` travels in `.groupPaused`; listeners never say E8 for those ids,
+  whatever the timing; other departures are still said (held ids). Count-only keeps the 2 s window.
+- a11y M4: `ListenTogetherStatus.listenerCaption` (waiting caption, else the P-sentence) under the listener's Play;
+  never the Play value. a11y M6: guide wording (second line, Speak, later departures, away for both roles).
+- Not done (rulings): a11y M5 iOS 26.0 accessory value; guide Control Center names (device checks). Code M7: every
+  phone must run build 5 (a build-4 peer can't decode the new messages): put it in the TestFlight notes.
+- Red: fix-round-1 behaviour reverted in the source: 18 tests failed (I1 x3, M5, a11y I1 x3, M8 x2, a11y M1, plan,
+  M6, a11y M4, I2 x2, M3 x2, M2, M4). Not red by construction: the idle-timer test (the fix also moved the
+  idle-timer set after the gate), the 5 s cap test (strengthened afterwards), the channel stop test (guards
+  existing behaviour), the second-departure test.
+- Green: 32 SharePlay classes 609/0.
+- Full suite "Executed 1181 tests, with 0 failures", ** TEST SUCCEEDED ** (no InsertBooksTests crash). TSan on the
+  32 SharePlay classes 609/0, 0 warnings, ** TEST SUCCEEDED **. Simulator 1525DDCB (shut down after).
