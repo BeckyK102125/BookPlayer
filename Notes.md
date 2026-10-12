@@ -1268,3 +1268,10 @@ start-position-a11y-rereview-1.md (I-A, I-B Important; M-a to M-e).
 - TestFlight 5.22.2 (4) archived from 06498b5b (same overrides, CURRENT_PROJECT_VERSION=4), uploaded internal only: "Upload succeeded".
   Worktree, archive and export deleted.
 - Device test to do: both phones on build 4; note the sharer's place before, verify unchanged after; "Finding the group's place" flow.
+- 2026-10-11 22:21 device result (build 4, Becky listener via Messages, live log): joined 22:21:34, manifest at once,
+  group timing 4264 s (= Michael's place, start-position fix works), play 22:22:07, all 41 pieces via journal (Data
+  representation) 2-4 s each, no chunk fallback. Earlier (22:04) archive: listener Leave ended the activity
+  (activitySessions 1→0 at 22:04:31); iOS's own SharePlay conversation left at 22:04:50 (system layer, no app API).
+  Open: sharer's immediate error when sharing before a listener joins (suspect "didn't start" B1 in
+  session-end-investigation.md), Messages Send button report (needs a capture on the sharer's phone), pause the sharer
+  when a listener disconnects (Becky request), sharer End background-task gap (A3).
