@@ -648,9 +648,6 @@ class LibraryServiceTests: XCTestCase {
 
 // MARK: - insertBooks(from:into:or:completion:)
 
-/// The async tests run on the main actor: `sut`'s context is the main-queue view context, and mutating it
-/// from the cooperative pool raced CoreData's main run-loop observer (EXC_BAD_ACCESS in
-/// `_PFFastMOCObjectWillChange`, seen in full-suite runs; Notes.md 2026-10-12).
 class InsertBooksTests: LibraryServiceTests {
   func testInsertEmptyBooksInLibrary() throws {
 
@@ -661,7 +658,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssert(library.items?.count == 0)
   }
 
-  @MainActor func testInsertOneBookInLibrary() async throws {
+  func testInsertOneBookInLibrary() async throws {
     let library = self.sut.getLibrary()
 
     let filename = "file.txt"
@@ -677,7 +674,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssert(processedItems.count == 1)
   }
 
-  @MainActor func testInsertMultipleBooksInLibrary() async throws {
+  func testInsertMultipleBooksInLibrary() async throws {
     let library = self.sut.getLibrary()
 
     let filename1 = "file1.txt"
@@ -697,7 +694,7 @@ class InsertBooksTests: LibraryServiceTests {
   }
 
   /// Verify that items inserted via insertItems maintain their input order (sequential orderRank)
-  @MainActor func testInsertedItemsPreserveOrder() async throws {
+  func testInsertedItemsPreserveOrder() async throws {
     let processedFolder = DataManager.getProcessedFolderURL()
     let bookContents = "bookcontents".data(using: .utf8)!
 
@@ -717,7 +714,7 @@ class InsertBooksTests: LibraryServiceTests {
   }
 
   /// Verify that items inserted into a folder via insertItems maintain their order
-  @MainActor func testInsertedItemsPreserveOrderInFolder() async throws {
+  func testInsertedItemsPreserveOrderInFolder() async throws {
     let processedFolder = DataManager.getProcessedFolderURL()
     let bookContents = "bookcontents".data(using: .utf8)!
 
@@ -737,7 +734,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssertEqual(contents?[2].relativePath, "ordered-folder/chapter3.txt")
   }
 
-  @MainActor func testInsertEmptyBooksIntoPlaylist() async throws {
+  func testInsertEmptyBooksIntoPlaylist() async throws {
     let library = self.sut.getLibrary()
 
     _ = try self.sut.createFolder(with: "test-folder", inside: nil)
@@ -748,7 +745,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssert(folder.items?.count == 0)
   }
 
-  @MainActor func testInsertOneBookIntoPlaylist() async throws {
+  func testInsertOneBookIntoPlaylist() async throws {
     let library = self.sut.getLibrary()
 
     _ = try self.sut.createFolder(with: "test-folder", inside: nil)
@@ -771,7 +768,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssert(processedItems.count == 1)
   }
 
-  @MainActor func testInsertMultipleBooksIntoPlaylist() async throws {
+  func testInsertMultipleBooksIntoPlaylist() async throws {
     let library = self.sut.getLibrary()
 
     _ = try self.sut.createFolder(with: "test-folder", inside: nil)
@@ -798,7 +795,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssert(processedItems.count == 2)
   }
 
-  @MainActor func testInsertExistingBookFromLibraryIntoPlaylist() async throws {
+  func testInsertExistingBookFromLibraryIntoPlaylist() async throws {
     let library = self.sut.getLibrary()
 
     _ = try self.sut.createFolder(with: "test-folder", inside: nil)
@@ -825,7 +822,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssert(folder.items?.count == 1)
   }
 
-  @MainActor func testInsertExistingBookFromPlaylistIntoLibrary() async throws {
+  func testInsertExistingBookFromPlaylistIntoLibrary() async throws {
     let library = self.sut.getLibrary()
 
     _ = try self.sut.createFolder(with: "test-folder", inside: nil)
@@ -855,7 +852,7 @@ class InsertBooksTests: LibraryServiceTests {
     XCTAssert(folder.items?.count == 0)
   }
 
-  @MainActor func testInsertExistingBookFromPlaylistIntoPlaylist() async throws {
+  func testInsertExistingBookFromPlaylistIntoPlaylist() async throws {
     let library = self.sut.getLibrary()
 
     _ = try self.sut.createFolder(with: "test-folder1", inside: nil)
