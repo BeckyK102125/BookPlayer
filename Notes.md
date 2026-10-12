@@ -1390,3 +1390,9 @@ Rulings: build5-fix-round-1.md (code review build5-code-review.md, a11y review b
 - m2/m4 not changed (m2 only matters if 302cd8c9 reached testers; m4 empty folder until next launch).
 - Green: SharePlay classes 612/0; full suite "Executed 1184 tests, with 0 failures", ** TEST SUCCEEDED **; TSan
   612/0, 0 warnings, ** TEST SUCCEEDED **. Simulator 1525DDCB, shut down after.
+
+## 2026-10-12 — build 5 merged, pushed, TestFlight build 5.22.2 (5)
+- `develop` fast-forwarded to 64556121 (build 5: 302cd8c9, bf2e1a8e, 49a5abab test-only, 17fb4eff, 64556121; re-review ready) and pushed (Becky approved).
+- TestFlight 5.22.2 (5) archived from 64556121 (same overrides, CURRENT_PROJECT_VERSION=5), uploaded internal only: "Upload succeeded". Worktree, archive and export deleted.
+- Both phones must run build 5 (new .listenerLeaving / .groupPaused messages). Device checks: build5-report.md / context.md B5.
+- Next after testing (Becky decisions 2026-10-12): Siri/CarPlay listener leaves + sharer refusal message; streamed-book "Download this book first"; translations for all locales; upstream own-copy-only PR branch later.

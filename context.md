@@ -7,7 +7,7 @@ SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a d
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: build 5 on `listen-together-build5` (implemented 2026-10-12; fix round 1 done, waiting for
+Current goal: two-device run of TestFlight build 5.22.2 (5) (develop 64556121), uploaded 2026-10-12. Then: Siri/CarPlay rules, streamed-book alert, translations, upstream own-copy-only branch.
 re-review): the whole
 group pauses when a listener leaves or drops; sharer start errors B1-B3; End background task (A3); own
 cancelled shares ended (A4); state logs (A6); "SharePlay stays on until you close it in Control Center".
