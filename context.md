@@ -7,7 +7,7 @@ SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a d
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: two-device run of TestFlight build 5.22.2 (4) (develop 06498b5b, start-position fix), uploaded 2026-10-11.
+Current goal (resume 2026-10-12): build 5 — pause the sharer when any listener leaves/disconnects (Becky ruling), fix the sharer's early 'didn't start' error (session-end-investigation.md B1-B3), background task around sharer End (A3), end() own cancelled shares (A4), post-end 'close SharePlay in Control Center' guidance. Build 4 works on device (start position + journal transfer). A11y guidance: build5-a11y-guidance.md (in progress at end of 2026-10-11).
 progress is the top priority). Docs: started-over-investigation.md, start-position-brief.md,
 start-position-fix-round-1.md, start-position-report.md. Waiting for review, then TestFlight build 4.
 - Specs/plans: docs/superpowers/. Guide: docs/Listen-Together-Guide.md. Ledger, briefs, reports, rulings:
