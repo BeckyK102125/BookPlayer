@@ -95,7 +95,8 @@ class MainCoordinator: NSObject {
     self.sharePlayService = SharePlaySessionService(
       playerManager: coreServices.playerManager,
       ownCopyFinder: LibraryOwnCopyFinder(
-        libraryService: coreServices.libraryService, playbackService: coreServices.playbackService))
+        libraryService: coreServices.libraryService, playbackService: coreServices.playbackService),
+      progressLibrary: coreServices.libraryService)
 
     ThemeManager.shared.libraryService = libraryService
 

@@ -25,7 +25,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
   private let base = Date(timeIntervalSince1970: 1_000_000)
 
   private static let allMessages: [Message] = [
-    .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .unavailable, .didntStart,
+    .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .everyoneLeft, .unavailable, .didntStart,
     .waitingForSharer, .sharerBack, .retryingSend, .waitingForBook,
     .alertShownElsewhere(text: "Couldn't open sharing", key: "needsFaceTime"),
   ]
@@ -135,7 +135,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
   func testAlertMessagesWhenActive() {
     for message in [
       Message.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .prepareFailed, .unavailable, .didntStart,
+      .prepareFailed, .everyoneLeft, .unavailable, .didntStart,
     ] {
       XCTAssertEqual(
         ListenTogetherMessageDelivery.plan(for: message, context: Self.active),
@@ -559,7 +559,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertTrue(listening.confirms, "asks once")
     XCTAssertEqual(
       ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: false),
-      "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone. SharePlay stays on until you close it in Control Center.")
+      "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone.")
 
     XCTAssertNil(ListenTogetherSessionAction.action(for: .ended(reason: .normal)))
     XCTAssertNil(ListenTogetherSessionAction.action(for: .idle))

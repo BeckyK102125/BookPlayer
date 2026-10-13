@@ -23,6 +23,8 @@ enum ListenTogetherUserMessage: Hashable {
   case ownCopyUnplayable
   /// Sharer: the book couldn't be prepared at all; the session ends (E14).
   case prepareFailed
+  /// Sharer (build 6): the last listener left, so Listen Together ended for everyone.
+  case everyoneLeft
   /// Listen Together isn't available (E12).
   case unavailable
   /// The sharing sheet was used but the session never started (E13).
@@ -56,7 +58,7 @@ enum ListenTogetherUserMessage: Hashable {
   var kind: Kind {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .ownCopyUnplayable, .prepareFailed, .unavailable, .didntStart:
+      .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart:
       return .alert
     case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft:
       return .status
@@ -77,6 +79,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .connectionEndedSharer: return "listen_together_connection_ended_sharer".localized
     case .ownCopyUnplayable: return "listen_together_own_copy_unplayable".localized
     case .prepareFailed: return "listen_together_prepare_failed".localized
+    case .everyoneLeft: return "listen_together_ended_everyone_left".localized
     case .unavailable: return "listen_together_unavailable".localized
     case .didntStart: return "listen_together_didnt_start_announcement".localized
     case .waitingForSharer: return "listen_together_waiting_for_sharer".localized
@@ -98,6 +101,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .connectionEndedSharer: return "connectionEndedSharer"
     case .ownCopyUnplayable: return "ownCopyUnplayable"
     case .prepareFailed: return "prepareFailed"
+    case .everyoneLeft: return "everyoneLeft"
     case .unavailable: return "unavailable"
     case .didntStart: return "didntStart"
     case .waitingForSharer: return "waitingForSharer"
@@ -114,8 +118,8 @@ enum ListenTogetherUserMessage: Hashable {
   var speaks: Bool {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .ownCopyUnplayable, .prepareFailed, .unavailable, .didntStart, .waitingForSharer, .retryingSend,
-      .alertShownElsewhere:
+      .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart, .waitingForSharer,
+      .retryingSend, .alertShownElsewhere:
       return true
     case .sharerBack, .waitingForBook:
       return false
@@ -139,7 +143,7 @@ enum ListenTogetherUserMessage: Hashable {
   var isEnding: Bool {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .ownCopyUnplayable, .prepareFailed:
+      .ownCopyUnplayable, .prepareFailed, .everyoneLeft:
       return true
     default: return false
     }
@@ -164,6 +168,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .connectionEnded: return wasListener ? .connectionEnded : .connectionEndedSharer
     case .prepareFailed: return .prepareFailed
     case .ownCopyFailed: return .ownCopyUnplayable
+    case .everyoneLeft: return .everyoneLeft
     case .normal, .left, .unavailable: return nil
     }
   }

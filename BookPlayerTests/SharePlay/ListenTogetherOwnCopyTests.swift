@@ -1,5 +1,6 @@
 @testable import BookPlayer
 @testable import BookPlayerKit
+import AVFoundation
 import Combine
 import CryptoKit
 import XCTest
@@ -74,7 +75,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     defaults.removePersistentDomain(forName: suiteName)
   }
 
-  private func makeService() -> SharePlaySessionService {
+  private func makeService(progressLibrary: LibraryServiceProtocol? = nil) -> SharePlaySessionService {
     let playerManager = PlayerManagerProtocolMock()
     playerManager.isPlayingPublisherReturnValue = Just(false).eraseToAnyPublisher()
     playerManager.currentSpeedPublisherReturnValue = Just(Float(1)).eraseToAnyPublisher()
@@ -85,10 +86,90 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
       storage: ShareStorage(root: root),
       announcer: ListenTogetherAnnouncer(post: { [weak self] in self?.posted.append($0) }),
       defaults: defaults,
-      ownCopyFinder: finder)
+      ownCopyFinder: finder, progressLibrary: progressLibrary)
     service.schedule = { [weak self] delay, action in self?.scheduled.append((delay, action)) }
     services.append(service)
     return service
+  }
+
+  func testOwnCopySavesGroupPlaceAndFlushesOnLeave() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let copy = try ownCopy(of: makeLibraryFile())
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    XCTAssertFalse(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveCalled,
+                   "the initial zero must not replace the saved place")
+    service.bridge?.handleSeek(itemTime: 4)
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 4)
+    service.bridge?.handleSeek(itemTime: 7)
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 7)
+    service.leave()
+    let saved = try XCTUnwrap(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments)
+    XCTAssertEqual(saved.relativePath, copy.relativePath)
+    XCTAssertEqual(saved.time, 7, accuracy: 0.05)
+    XCTAssertFalse(saved.scheduleSave, "flush before teardown")
+  }
+
+  func testLeavingBeforeGroupTimingDoesNotOverwriteOwnCopy() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+    service.leave()
+    XCTAssertFalse(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveCalled)
+  }
+
+  func testOwnCopyMapsSharedFileOffsetToLocalBookTime() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let first = try makeLibraryFile(seconds: 12), second = try makeLibraryFile()
+    let copy = ListenTogetherOwnCopy(relativePath: "bound-book", files: [
+      SourceFile(url: first, bookStart: 0, duration: 12, byteSize: 1),
+      SourceFile(url: second, bookStart: 12, duration: 10, byteSize: 1)
+    ], chapters: [], duration: 22)
+    let shared = BookFingerprint(title: "T", author: "A", duration: 20, files: [
+      BookFingerprint.File(bookStart: 0, duration: 10, byteSize: 1),
+      BookFingerprint.File(bookStart: 10, duration: 10, byteSize: 1)
+    ], sampleHash: nil)
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy, shared: shared)
+    service.bridge?.handleSeek(itemTime: 9)
+    service.listener?.onProgressChanged?(11, 0)
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 11,
+                   "a slightly longer first file must not be mistaken for the second file")
+    service.bridge?.handleSeek(itemTime: 15)
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 17)
+    service.end()
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 17)
+  }
+
+  func testOwnCopyFlushesOnRemoteEndAndDisconnect() async throws {
+    for event in [TransportEvent.message(.sessionEnding), .invalidated] {
+      let library = LibraryServiceProtocolMock()
+      let service = makeService(progressLibrary: library), transport = OwnCopyTransport()
+      service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+      service.bridge?.handleSeek(itemTime: 6)
+      service.listener?.itemTimeProvider = { CMTime(seconds: 6, preferredTimescale: 600) }
+      transport.emit(event)
+      await waitUntil { !service.isInSession }
+      XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 6)
+      XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.scheduleSave, false)
+    }
+  }
+
+  func testLoadedOwnCopyIsRestoredAtTheSharedPosition() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let manager = try XCTUnwrap(service.playerManager as? PlayerManagerProtocolMock)
+    let url = try makeLibraryFile(), copy = try ownCopy(of: url)
+    let item = PlayableItem.stub(currentTime: 1, duration: 10, fileURL: url)
+    manager.currentItem = item
+    manager.stopClosure = { [weak manager] in manager?.currentItem = nil }
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    XCTAssertTrue(manager.stopCalled, "old player must not overwrite shared progress")
+    service.bridge?.handleSeek(itemTime: 8)
+    service.leave()
+    let restored = try XCTUnwrap(manager.loadAutoplayReceivedArguments)
+    XCTAssertEqual(restored.item.currentTime, 8, accuracy: 0.05)
+    XCTAssertFalse(restored.autoplay)
   }
 
   /// A real 10 s book in the library's Processed folder.
@@ -480,9 +561,10 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined()])
     XCTAssertEqual(service.state, .sharing(participants: 2))
     transport.emit(.participantsChanged(count: 1, ids: [me]))
-    await flush(transport)
-    XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined(), ListenTogetherAnnouncements.left()])
-    XCTAssertEqual(service.state, .sharing(participants: 1))
+    await waitUntil { !service.isInSession }
+    XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined()])
+    XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
+    XCTAssertEqual(service.messages.alerts.pending.map(\.message), [.everyoneLeft])
   }
 
   func testSomeoneWhoLeavesBeforeTheConfirmationIsNeverAnnounced() async throws {

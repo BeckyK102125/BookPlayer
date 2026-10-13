@@ -37,6 +37,8 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
   /// is no longer needed can end (path 3).
   var onPositionReady: (() -> Void)?
+  /// Shared book time and the actual source file; file durations can differ slightly between copies.
+  var onProgressChanged: ((TimeInterval, Int) -> Void)?
   /// A received piece could not be played (its item failed): it was dropped and must come again.
   var onPieceFailed: ((Int) -> Void)?
 
@@ -82,6 +84,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
           let piece = self.timeline.pieces.first(where: { $0.index == index })
         else { return }
         self.bookTime = piece.bookStart + time.seconds
+        self.onProgressChanged?(self.bookTime, piece.index)
       }
     }
     NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification)
@@ -304,6 +307,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     _ piece: SharedPiece, offset: TimeInterval, bookTime: TimeInterval, requestIfMissing: Bool
   ) -> Bool {
     self.bookTime = bookTime
+    onProgressChanged?(bookTime, piece.index)
     guard let url = timeline.url(forPiece: piece.index) else {
       player.removeAllItems()
       forgetItems(keeping: [])
@@ -450,6 +454,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   }
 
   /// Where the player really is, computed from the player rather than the last periodic tick.
+  /// During a seek the AVPlayer clock still belongs to the old position.
+  var positionForSaving: TimeInterval { isSeeking ? bookTime : currentPosition }
+  var fileIndexForSaving: Int? {
+    isSeeking ? timeline.location(for: bookTime)?.piece.index : loadedPieceIndex
+  }
+
   private var currentPosition: TimeInterval {
     guard player.currentItem != nil, let index = loadedPieceIndex,
       let piece = timeline.pieces.first(where: { $0.index == index })

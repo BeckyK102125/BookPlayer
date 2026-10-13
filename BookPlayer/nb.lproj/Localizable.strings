@@ -606,15 +606,15 @@ Vi jobber hardt for å gi deg en sømløs opplevelse. Hvis mulig, kontakt oss p�
 "listen_together_leave_session_hint" = "The others keep listening. The book is deleted from this iPhone.";
 "listen_together_leave_session_hint_own_copy" = "The others keep listening. Your copy stays in your library.";
 "listen_together_leave_confirm_title" = "Leave Listen Together?";
-"listen_together_leave_confirm_message" = "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone. SharePlay stays on until you close it in Control Center.";
-"listen_together_leave_confirm_message_own_copy" = "You will leave Listen Together on this iPhone. The others keep listening. Your copy stays in your library. SharePlay stays on until you close it in Control Center.";
+"listen_together_leave_confirm_message" = "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone.";
+"listen_together_leave_confirm_message_own_copy" = "You will leave Listen Together on this iPhone. The others keep listening. Your copy stays in your library.";
 "listen_together_paused_someone_left" = "Paused. Someone left Listen Together.";
 "listen_together_paused_someone_lost_connection" = "Paused. Someone lost their connection to Listen Together.";
 "listen_together_paused_people_left" = "Paused. %d people left Listen Together.";
 "listen_together_paused_people_lost_connection" = "Paused. %d people lost their connection to Listen Together.";
 "listen_together_row_value_paused_someone_left" = "paused, someone left, %@";
 "listen_together_row_value_paused_lost_connection" = "paused, someone lost their connection, %@";
-"listen_together_end_confirm_message" = "It ends for everyone. SharePlay stays on until you close it in Control Center.";
+"listen_together_end_confirm_message" = "It ends for everyone.";
 "listen_together_row_value_sharing_alone" = "sharing, waiting for people to join, %@";
 "listen_together_cancel_sharing_button" = "Cancel Sharing";
 "settings_listen_together_speak_header" = "Messages";
@@ -624,6 +624,7 @@ Vi jobber hardt for å gi deg en sømløs opplevelse. Hvis mulig, kontakt oss p�
 "settings_listen_together_speak_sample_text" = "This is how Listen Together problems are read aloud.";
 "listen_together_connection_ended" = "Listen Together ended because the connection to the person sharing was lost.";
 "listen_together_connection_ended_sharer" = "Listen Together ended because the call or connection ended.";
+"listen_together_ended_everyone_left" = "Listen Together ended because everyone left.";
 "listen_together_sharer_could_not_prepare" = "The person sharing couldn't prepare the book. Listen Together ended.";
 "listen_together_sharer_quiet" = "Can't reach the person sharing. The book keeps playing.";
 "listen_together_row_value_sharer_quiet" = "can't reach the person sharing, %@";

@@ -34,6 +34,8 @@ enum ListenTogetherState: Equatable {
     /// Listener with their own copy: a file couldn't be played (gone, or failed three times), so this
     /// phone left (final review I1). One alert says why.
     case ownCopyFailed
+    /// Sharer (build 6): the last listener left, so Listen Together ended for everyone. One alert says why.
+    case everyoneLeft
   }
 }
 
@@ -123,6 +125,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
 
   // Collaborators. Internal (not private) so SharePlaySessionService+Session.swift can use them.
   let playerManager: PlayerManagerProtocol
+  let progressLibrary: LibraryServiceProtocol?
+  var progressOwnCopy: ListenTogetherOwnCopy?
+  var suspendedOwnItem: PlayableItem?
   let storage: ShareStorage
   let announcer: ListenTogetherAnnouncer
   let transportFactory: @MainActor (GroupSession<ListenTogetherActivity>, URL) -> ListenTogetherTransport
@@ -352,6 +357,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var heldLeftIDs = Set<UUID>()
   /// Listener: when the person sharing last came back to the roster (fix round 1, M8).
   var sharerReturnedAt: Date?
+  /// A counted listener left while a new joiner is still being confirmed.
+  var isEndingAfterPendingJoin = false
   /// An own file that fails this many times makes this phone leave.
   static let ownCopyFailureLimit = 3
   private var appStateObservation: AnyCancellable?
@@ -397,6 +404,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     announcer: ListenTogetherAnnouncer? = nil,
     defaults: UserDefaults = .standard,
     ownCopyFinder: ListenTogetherOwnCopyFinding? = nil,
+    progressLibrary: LibraryServiceProtocol? = nil,
     appSystem: ListenTogetherAppSystem? = nil,
     speaker: ListenTogetherSpeaking? = nil,
     coverTracker: ListenTogetherCoverTracker? = nil,
@@ -406,6 +414,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       = { GroupSessionTransport(session: $0, downloadFolder: $1) }
   ) {
     self.playerManager = playerManager
+    self.progressLibrary = progressLibrary
     self.storage = storage
     // Built here rather than as a default argument, which would run outside the main actor.
     self.announcer = announcer ?? ListenTogetherAnnouncer()
@@ -1109,7 +1118,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// says has ended. A short pause after the message lets it be handled before listeners see the
   /// session end. A3 (build 5): a background task covers the whole sequence, so going home or locking
   /// right after End can't suspend the app before `end()`; if its time runs out, `end()` runs at once.
-  private func endForEveryone(_ transport: ListenTogetherTransport) {
+  func endForEveryone(_ transport: ListenTogetherTransport) {
     let endOnce = ListenTogetherOnce {
       Self.logger.info("Listen Together: ending the group session for everyone")
       transport.end()
@@ -1170,6 +1179,10 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     leaveTransport: Bool = true
   ) {
     guard isInSession else { return }
+    saveOwnCopyProgress(at: listener?.positionForSaving, fileIndex: listener?.fileIndexForSaving, immediately: true)
+    progressOwnCopy = nil
+    let itemToRestore = suspendedOwnItem
+    suspendedOwnItem = nil
     // N1: a cover recorded for an earlier ending is never closed by this one.
     messages.forgetStuckCover()
     let transport = self.transport
@@ -1221,6 +1234,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     someoneDeclined = false
     if pauseCause != nil { messages.removePauseNotificationIfShown() }
     pauseCause = nil
+    isEndingAfterPendingJoin = false
     explainedDepartures = []
     heldLeftIDs = []
     sharerReturnedAt = nil
@@ -1238,6 +1252,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     bridge = nil
     listener?.stop()
     listener = nil
+    // The normal player's old clock must not overwrite shared progress. It was stopped at Join;
+    // restore its updated snapshot only after the listener releases the audio session.
+    if let itemToRestore, playerManager.currentItem == nil {
+      if let chapter = itemToRestore.getChapter(at: itemToRestore.currentTime) {
+        itemToRestore.currentChapter = chapter
+      }
+      playerManager.load(itemToRestore, autoplay: false)
+    }
     joinedTitle = nil
     sharerTarget?.stop()
     sharerTarget = nil
@@ -1270,7 +1292,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     }
     // Never offered or joined again in this app session. `.unavailable` has no share (it ends before
     // one starts), and an own End or Leave records it before tearing down.
-    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .connectionEnded, .ownCopyFailed]
+    if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .connectionEnded, .ownCopyFailed,
+      .everyoneLeft]
       .contains(reason),
       let shareID
     {

@@ -314,6 +314,7 @@ extension SharePlaySessionService {
   /// heard before "Someone joined"); the next failure after the join does. The last listener leaving
   /// ends an episode silently and resets it, and the idle timer is released (M1).
   func participantCountChanged(from previous: Int, to count: Int) {
+    if role == .sharer, count > 1 { isEndingAfterPendingJoin = false }
     guard role == .sharer, previous != count, count <= 1 else { return }
     if notice == .retryingSend { setNotice(nil) }
     setKeepingScreenAwake(false)
@@ -369,8 +370,8 @@ extension SharePlaySessionService {
   /// With `ownCopy` (addendum 2) the listener plays its own files: the player is built at once from
   /// them (already-arrived pieces on the shared timeline), so there is no "getting the book" screen,
   /// nothing is downloaded and the state is complete from the start (no percent). One announcement,
-  /// "Joined. Playing your copy.", once the screen change has settled. The library is only read: the
-  /// copy's progress, bookmarks and last-played date are never written by the session.
+  /// "Joined. Playing your copy.", once the screen change has settled. Once group timing is known,
+  /// listening progress is saved to the matching library copy; bookmarks are unchanged.
   @discardableResult
   func startListening(
     with transport: ListenTogetherTransport, shareID: UUID, ownCopy: ListenTogetherOwnCopy? = nil,
@@ -394,6 +395,11 @@ extension SharePlaySessionService {
       Self.logger.info("Listen Together: joined, getting the book")
       return true
     }
+    progressOwnCopy = ownCopy
+    if let item = playerManager.currentItem, item.relativePath == ownCopy.relativePath {
+      suspendedOwnItem = item
+      playerManager.stop()
+    }
     transport.stopReceivingPieces()
     setOwnCopy(true)
     setState(.listening(participants: participantCount, downloaded: 1))
@@ -413,6 +419,30 @@ extension SharePlaySessionService {
       self?.announceOwnCopyJoined(on: transport)
     }
     return true
+  }
+
+  /// Save only a confirmed group position, mapped from the shared file timeline to the local one.
+  /// The ordinary library updater publishes progress and coalesces disk writes. Teardown flushes it.
+  func saveOwnCopyProgress(at time: TimeInterval?, fileIndex: Int? = nil, immediately: Bool = false) {
+    guard role == .listener, bridge?.hasGroupTiming == true,
+      let time, time.isFinite, time >= 0, let copy = progressOwnCopy,
+      let listener,
+      let piece = fileIndex.flatMap({ index in listener.timeline.pieces.first { $0.index == index } })
+        ?? listener.timeline.location(for: time)?.piece,
+      copy.files.indices.contains(piece.index)
+    else { return }
+    let file = copy.files[piece.index]
+    let offset = min(max(0, time - piece.bookStart), file.duration)
+    let localTime = min(copy.duration, file.bookStart + offset)
+    let date = now()
+    progressLibrary?.updatePlaybackTime(
+      relativePath: copy.relativePath, time: localTime, date: date, scheduleSave: !immediately)
+    // Keep the previously loaded snapshot in step too, so Play resumes at the saved place.
+    if let item = suspendedOwnItem {
+      item.currentTime = localTime
+      item.lastPlayDate = date
+      item.percentCompleted = copy.duration > 0 ? round(localTime / copy.duration * 100) : 0
+    }
   }
 
   private func receivedManifest(_ manifest: SharedBookManifest) {
@@ -466,6 +496,9 @@ extension SharePlaySessionService {
       self?.listenerFoundPlace(at: time, playing: player?.isPlaying == true)
     }
     bridge.onGroupTime = { [weak self] time in self?.reportInStep(at: time) }
+    player.onProgressChanged = { [weak self] time, index in
+      self?.saveOwnCopyProgress(at: time, fileIndex: index)
+    }
     // The status line and the Zoom caption follow the player's wait for a piece.
     player.$isWaitingForPiece
       .removeDuplicates()
@@ -495,6 +528,7 @@ extension SharePlaySessionService {
   /// The listener received its first group time (round 1): the fallback's status ends, and what waited
   /// for the place is said now. (The sharer hears `.inStep` through `reportInStep`, after every command.)
   private func listenerFoundPlace(at time: TimeInterval, playing: Bool) {
+    saveOwnCopyProgress(at: time)
     setListenerJoining(false)
     setListenerJoiningSlow(false)
     slowLineWaitsToBeShown = false
@@ -854,6 +888,7 @@ extension SharePlaySessionService {
       if confirmedParticipantIDs.remove(id) != nil { applyParticipantCount(confirmedParticipantIDs.count) }
       if awaitingInStep.remove(id) != nil { confirmIfEveryJoinerIsInStep() }
     }
+    endAfterPendingJoinIfAlone()
     guard role == .sharer else { return }
     // E11: also a second status line, so a sharer without VoiceOver learns why no one joined.
     setSomeoneDeclined(true)
@@ -900,7 +935,10 @@ extension SharePlaySessionService {
     if !countedGone.isEmpty {
       someoneLeft(ids: countedGone, count: countedGone.count, othersLeft: participantCount - 1)
     }
-    guard !arrived.isEmpty else { return }
+    guard !arrived.isEmpty else {
+      endAfterPendingJoinIfAlone()
+      return
+    }
     if isOwnersOnlySession {
       schedule(Self.joinConfirmationDelay) { [weak self, weak transport] in
         guard let transport else { return }
@@ -986,7 +1024,17 @@ extension SharePlaySessionService {
   private func someoneLeft(ids: Set<UUID>, count: Int, othersLeft: Int = 1) {
     switch role {
     case .sharer:
-      let cause = pauseCause(forDeparted: ids, count: count, everyoneLeft: othersLeft == 0)
+      let explained = useLeavingNotes(forDeparted: ids, count: count)
+      if othersLeft == 0 {
+        // System Stop Listening has no app-specific leaving message. The roster is authoritative.
+        // A concurrent arrival gets its existing confirmation window before deciding nobody is left.
+        isEndingAfterPendingJoin = true
+        if !hasUnconfirmedArrivals {
+          endBecauseEveryoneLeft()
+          return
+        }
+      }
+      let cause = pauseCause(forDeparted: ids, count: count, explained: explained, everyoneLeft: othersLeft == 0)
       if pauseCause == nil, sharerTarget?.isPlayingForGroup == true {
         pauseGroup(cause)
       } else {
@@ -1004,18 +1052,24 @@ extension SharePlaySessionService {
   /// listeners vanish at once and nobody is left, the likelier cause is the sharer's own connection, so the
   /// neutral "left" wording is used rather than blaming the others' connections.
   private func pauseCause(
-    forDeparted ids: Set<UUID>, count: Int, everyoneLeft: Bool = false
+    forDeparted ids: Set<UUID>, count: Int, explained: Int, everyoneLeft: Bool = false
   ) -> ListenTogetherPauseCause {
+    // A count-only roster has no ids to prove a lost connection: the neutral "left" wording.
+    var lostConnection = !ids.isEmpty && explained == 0
+    if lostConnection, count > 1, everyoneLeft { lostConnection = false }
+    return ListenTogetherPauseCause(count: count, lostConnection: lostConnection, departedIDs: ids)
+  }
+
+  /// How many of the departed said they were leaving. Leaving notes are used up by the departure they
+  /// explain.
+  private func useLeavingNotes(forDeparted ids: Set<UUID>, count: Int) -> Int {
     pruneLeavingNotes()
     var explained = 0
     for id in ids where leavingNotes.removeValue(forKey: id) != nil { explained += 1 }
     let fromAnonymous = min(count - explained, anonymousLeavingNotes.count)
     anonymousLeavingNotes.removeFirst(max(fromAnonymous, 0))
     explained += max(fromAnonymous, 0)
-    // A count-only roster has no ids to prove a lost connection: the neutral "left" wording.
-    var lostConnection = !ids.isEmpty && explained == 0
-    if lostConnection, count > 1, everyoneLeft { lostConnection = false }
-    return ListenTogetherPauseCause(count: count, lostConnection: lostConnection, departedIDs: ids)
+    return explained
   }
 
   private func pruneLeavingNotes() {
@@ -1033,6 +1087,34 @@ extension SharePlaySessionService {
     } else {
       anonymousLeavingNotes.append(now())
     }
+  }
+
+  // MARK: Everyone left: Listen Together ends (build 6)
+
+  /// Someone is in the roster who is neither counted nor declined yet (owners-only joiners are counted
+  /// after `joinConfirmationDelay`). Ids only; a count-only roster has none.
+  private var hasUnconfirmedArrivals: Bool {
+    !rosterIDs.subtracting(declinedParticipantIDs).subtracting(confirmedParticipantIDs).isEmpty
+  }
+
+  /// Build 6 (Becky, 2026-10-12): nobody is left to listen, so Listen Together ends for everyone exactly
+  /// like the sharer's End (`.sessionEnding`, then `GroupSession.end()` in the End background task), and
+  /// the sharer gets one alert: "Listen Together ended because everyone left."
+  func endBecauseEveryoneLeft() {
+    guard role == .sharer, let transport else { return }
+    Self.logger.info(
+      "Listen Together: nobody is left listening; ending Listen Together for everyone")
+    if let shareID { rememberEndedShare(shareID) }
+    transport.stopPieceTransfers()
+    tearDown(reason: .everyoneLeft, leaveTransport: false)
+    endForEveryone(transport)
+  }
+
+  /// A pending arrival left or declined before confirmation. Do not strand the sharer alone.
+  private func endAfterPendingJoinIfAlone() {
+    guard role == .sharer, isEndingAfterPendingJoin, participantCount <= 1,
+      !hasUnconfirmedArrivals else { return }
+    endBecauseEveryoneLeft()
   }
 
   /// The longest the pause's background task is held (fix round 1, I2).

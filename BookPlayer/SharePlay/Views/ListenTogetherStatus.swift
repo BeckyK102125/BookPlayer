@@ -70,7 +70,8 @@ enum ListenTogetherStatus {
       // The person's own End (E15): the short ended banner stays.
       return "listen_together_ended".localized
     case .ended(.prepareFailed), .ended(.unavailable), .ended(.sharerEnded), .ended(.sharerLeft),
-      .ended(.sharerCouldNotPrepare), .ended(.connectionEnded), .ended(.left), .ended(.ownCopyFailed):
+      .ended(.sharerCouldNotPrepare), .ended(.connectionEnded), .ended(.left), .ended(.ownCopyFailed),
+      .ended(.everyoneLeft):
       return nil
     case .idle, .needsFaceTime, .invitation:
       return nil
