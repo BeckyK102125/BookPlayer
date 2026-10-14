@@ -100,6 +100,20 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
 
   // MARK: Routing
 
+  func testPauseCancelsSilentPendingPlaybackOnce() {
+    let listener = startListening(at: 40)
+    defer { listener.stop() }
+    listener.applyPlay(at: 40, rate: 1)
+    XCTAssertFalse(listener.isPlaying)
+    XCTAssertTrue(listener.isPlayingForGroup)
+    _ = router.handle(.pause)
+    XCTAssertEqual(events, [.paused(at: 40)])
+    XCTAssertFalse(listener.isPlayingForGroup)
+    _ = router.handle(.pause)
+    XCTAssertEqual(events, [.paused(at: 40)])
+    assertPlayerManagerUntouched()
+  }
+
   func testNotHandledOutsideAListenerSession() {
     for state: ListenTogetherState in [.idle, .sharing(participants: 2), .preparing(title: "T"),
                                        .invitation(title: "T", author: "A"), .ended(reason: .normal)] {

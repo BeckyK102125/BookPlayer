@@ -136,7 +136,9 @@ final class SharePlaySessionServiceTests: XCTestCase {
     try AudioFixture.makeM4A(seconds: 10, at: file)
     transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
     transport.emit(.attachmentReceived(id: attachment, url: file))
-    await waitUntil { service.listener?.isReady(at: 1) == true }
+    try await AudioFixture.waitUntil(player: service.listener?.player) {
+      service.listener?.isReady(at: 1) == true
+    }
     XCTAssertTrue(service.listener?.isReady(at: 1) == true)
     XCTAssertEqual(service.state, .listening(participants: 1, downloaded: 1))
   }

@@ -370,6 +370,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertTrue(transport.stoppedReceivingPieces)
     XCTAssertTrue(service.isUsingOwnCopy)
     XCTAssertEqual(service.state, .listening(participants: 1, downloaded: 1))
+    try await AudioFixture.waitUntil { listener.isReady(at: 0) }
     XCTAssertTrue(listener.isReady(at: 5))
     XCTAssertEqual(listener.timeline.arrivedFraction, 1)
     XCTAssertEqual(listener.timeline.url(forPiece: 0), url, "played in place")

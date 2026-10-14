@@ -629,13 +629,14 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     let attachment = UUID()
     transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
-    await waitUntil { service.listener?.isReady(at: 1) == true }
+    await waitUntil { service.listener?.timeline.isReady(at: 1) == true }
     let listener = try XCTUnwrap(service.listener)
     service.bridge?.handleSeek(itemTime: 0)   // the group's place is known (start-position fix C, round 1 I2)
 
     listener.userJump(to: 15)   // piece 1 is missing: the group waits
     XCTAssertEqual(control.openSuspensions, 1)
     listener.userJump(to: 5)    // back into piece 0, which is here
+    try await AudioFixture.waitUntil(player: listener.player) { listener.isReady(at: 5) && self.control.openSuspensions == 0 }
     XCTAssertEqual(control.openSuspensions, 0, "no piece is awaited any more")
   }
 
@@ -652,7 +653,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     let late = UUID(), first = UUID()
     transport.emit(.message(.pieceUploaded(index: 1, attachmentID: late)))
     transport.emit(.attachmentReceived(id: late, url: try pieceFile("p1")))
-    await waitUntil { listener.isReady(at: 15) }
+    await waitUntil { listener.timeline.isReady(at: 15) }
     XCTAssertEqual(control.openSuspensions, 1, "still waiting for piece 0")
     transport.emit(.message(.pieceUploaded(index: 0, attachmentID: first)))
     transport.emit(.attachmentReceived(id: first, url: try pieceFile("p0")))
@@ -686,8 +687,10 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     let attachment = UUID()
     transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
-    await waitUntil { service.listener?.isReady(at: 1) == true }
+    await waitUntil { service.listener?.timeline.isReady(at: 1) == true }
+    service.listener?.player.volume = 0
     service.listener?.applyPlay(at: 1, rate: 1)
+    try await AudioFixture.waitUntil { service.listener?.isPlaying == true }
     return (service, transport, id)
   }
 
@@ -790,7 +793,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     let attachment = UUID()
     transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
-    await waitUntil { service.listener?.isReady(at: 1) == true }
+    await waitUntil { service.listener?.timeline.isReady(at: 1) == true }
     let folder = root.appendingPathComponent("listener").appendingPathComponent(id.uuidString)
     XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path))
 
@@ -898,7 +901,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     let attachment = UUID()
     transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
-    await waitUntil { service.listener?.isReady(at: 1) == true }
+    await waitUntil { service.listener?.timeline.isReady(at: 1) == true }
     let listener = try XCTUnwrap(service.listener)
     listener.applySeek(to: 1)
     listener.pieceFailed(index: 0)
@@ -911,7 +914,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     XCTAssertEqual(control.openSuspensions, 1, "the group waits for the piece")
     // The reloaded file is placed again.
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0-again")))
-    await waitUntil { listener.isReady(at: 1) }
+    try await AudioFixture.waitUntil(player: listener.player) { listener.isReady(at: 1) }
     XCTAssertTrue(listener.isReady(at: 1))
     XCTAssertEqual(control.openSuspensions, 0)
   }
@@ -1016,7 +1019,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
     let attachment = UUID()
     transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
-    await waitUntil { service.listener?.isReady(at: 1) == true }
+    await waitUntil { service.listener?.timeline.isReady(at: 1) == true }
     let listener = try XCTUnwrap(service.listener)
     listener.applySeek(to: 1)
 
@@ -1027,7 +1030,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
 
     // It arrives again and fails again: the next reload waits 10 s.
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0-2")))
-    await waitUntil { listener.isReady(at: 1) }
+    try await AudioFixture.waitUntil(player: listener.player) { listener.isReady(at: 1) }
     listener.pieceFailed(index: 0)
     advance(seconds: 5)
     XCTAssertEqual(transport.reloadedAttachments.count, 1, "backing off")
@@ -1036,7 +1039,7 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
 
     // Teardown cancels a pending reload.
     transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0-3")))
-    await waitUntil { listener.isReady(at: 1) }
+    try await AudioFixture.waitUntil(player: listener.player) { listener.isReady(at: 1) }
     listener.pieceFailed(index: 0)
     service.end()
     advance(seconds: 60)

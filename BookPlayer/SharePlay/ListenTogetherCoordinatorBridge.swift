@@ -31,6 +31,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   private var endStallSuspension: (() -> Void)?
   /// A second suspension while a listener waits for the person sharing (addendum 3, decision 9).
   private var endSharerHold: (() -> Void)?
+  private var endInterruptionHold: (() -> Void)?
   private var disposeBag = Set<AnyCancellable>()
   private var isInvalidated = false
   private let role: SharePlaySessionService.Role
@@ -162,8 +163,23 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     end()
   }
 
+  /// Audio interruption holds are independent of missing pieces and sharer absence.
+  func holdForInterruption() {
+    guard !isInvalidated, endInterruptionHold == nil else { return }
+    endInterruptionHold = control.beginStallSuspension()
+  }
+
+  func releaseInterruptionHold() {
+    guard !isInvalidated, let end = endInterruptionHold else { return }
+    endInterruptionHold = nil
+    end()
+    reapplyCurrentItemState()
+  }
+
   func invalidate() {
     isInvalidated = true
+    endInterruptionHold?()
+    endInterruptionHold = nil
     endStallSuspension?()
     endStallSuspension = nil
     endSharerHold?()
@@ -185,7 +201,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   /// A pause with `shouldBuffer` is also a request to buffer in anticipation of playback.
   func handlePause(itemTime: TimeInterval, shouldBuffer: Bool = false) {
     guard !isInvalidated else { return }
-    target?.applyPause(at: itemTime)
+    target?.applyPause(at: itemTime, shouldBuffer: shouldBuffer)
     if shouldBuffer { waitIfNotReady() } else { pieceBecameAvailable() }
   }
 
@@ -219,11 +235,16 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     case .played(_, let rate):
       control.coordinateRateChange(to: rate)
     case .paused:
+      // A deliberate Pause must reach the group, even when local preparation is suspended.
+      // Clear the hold first; commands proposed during a suspension affect only this device.
+      let end = endStallSuspension
+      endStallSuspension = nil
+      end?()
       control.coordinateRateChange(to: 0)
     case .seeked(let to, _):
       control.coordinateSeek(to: to)
     case .rateChanged(let rate):
-      if target?.isPlaying == true { control.coordinateRateChange(to: rate) }
+      if target?.isPlayingForGroup == true { control.coordinateRateChange(to: rate) }
     case .reasserted:
       // Sent from inside a coordinator command: coordinated after that command has completed (the
       // main queue is FIFO, and the command's completion handler runs in the same turn as the command).

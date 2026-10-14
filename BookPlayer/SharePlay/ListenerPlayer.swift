@@ -37,6 +37,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
   /// is no longer needed can end (path 3).
   var onPositionReady: (() -> Void)?
+  /// Decoder/seek readiness and system interruptions are separate from missing file transfers.
+  var onBufferingNeeded: (() -> Void)?
+  var onInterruptionBegan: (() -> Void)?
+  var onInterruptionEnded: (() -> Void)?
   /// Shared book time and the actual source file; file durations can differ slightly between copies.
   var onProgressChanged: ((TimeInterval, Int) -> Void)?
   /// A received piece could not be played (its item failed): it was dropped and must come again.
@@ -61,6 +65,16 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// piece missing), false when it began while paused.
   private var isHeldWhilePlaying = false
   private var sessionConfigured = false
+  private var isStopped = false
+  private var isAudioInterrupted = false
+  private var requiresUserResume = false
+  private var hasInterruptionHold = false
+  private var wantsPlayback = false
+  /// The coordinator paused for buffering; preserve intent for an explicit cancellation, but do
+  /// not let local readiness alone resume playback while other participants are still waiting.
+  private var awaitingGroupPlayback = false
+  private var isBuffering = false
+  private var pendingSeekOffset: TimeInterval?
   /// True from issuing a seek until its completion handler runs; periodic ticks in between are stale.
   private var isSeeking = false
   /// Test seam: overrides the player's item time when computing the real position.
@@ -68,6 +82,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   private var seekGeneration = 0
   private let subject = PassthroughSubject<LocalPlaybackEvent, Never>()
   private var disposeBag = Set<AnyCancellable>()
+
+  /// Playback intent remains true during asynchronous preparation, unlike audible playback state.
+  var isPlayingForGroup: Bool { wantsPlayback || awaitingGroupPlayback }
 
   var localEvents: AnyPublisher<LocalPlaybackEvent, Never> { subject.eraseToAnyPublisher() }
 
@@ -78,7 +95,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
     ) { [weak self] time in
       MainActor.assumeIsolated {
-        guard let self, !self.isSeeking, time.isNumeric,
+        guard let self, !self.isStopped, !self.isSeeking, time.isNumeric,
           let item = self.player.currentItem,
           let index = self.pieceIndexByItem[ObjectIdentifier(item)],
           let piece = self.timeline.pieces.first(where: { $0.index == index })
@@ -106,6 +123,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
           else { return }
           Self.logger.error(
             "Listen Together: piece \(index, privacy: .public) failed to play to its end: \(error?.domain ?? "", privacy: .public) \(error?.code ?? 0, privacy: .public)")
+          self.itemFailed(item)
         }
       }
       .store(in: &disposeBag)
@@ -122,7 +140,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
         let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
           .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
         MainActor.assumeIsolated {
-          if reason == .oldDeviceUnavailable, self?.isPlaying == true { self?.userTogglePlay() }
+          guard let self, !self.isStopped, reason == .oldDeviceUnavailable else { return }
+          Self.logger.info("Listen Together: listener audio route removed; requiring explicit Play")
+          self.userPause(requiringUserResume: true)
         }
       }
       .store(in: &disposeBag)
@@ -131,12 +151,18 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       .sink { [weak self] note in
         let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
           .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+        let options = AVAudioSession.InterruptionOptions(
+          rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
         MainActor.assumeIsolated {
-          guard type == .began else { return }
-          // The system deactivated our session; the next play must activate it again.
-          self?.sessionConfigured = false
-          if self?.isPlaying == true { self?.userTogglePlay() }
+          guard let self, let type else { return }
+          self.handleInterruption(type, shouldResume: options.contains(.shouldResume))
         }
+      }
+      .store(in: &disposeBag)
+    player.publisher(for: \.timeControlStatus)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated { self?.playbackStateChanged() }
       }
       .store(in: &disposeBag)
   }
@@ -146,6 +172,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   }
 
   func pieceArrived(index: Int, url: URL) {
+    guard !isStopped else { return }
     timeline.markArrived(index: index, url: url)
     // We were waiting for this piece: load it in place (paused). The caller decides when to resume.
     if waitingPieceIndex == index {
@@ -156,45 +183,60 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     }
   }
 
-  func isReady(at bookTime: TimeInterval) -> Bool { timeline.isReady(at: bookTime) }
+  func isReady(at bookTime: TimeInterval) -> Bool {
+    guard !isStopped, !isSeeking, !isBuffering,
+      let piece = timeline.location(for: bookTime)?.piece,
+      let item = player.currentItem, item.status == .readyToPlay,
+      pieceIndexByItem[ObjectIdentifier(item)] == piece.index
+    else { return false }
+    return timeline.isReady(at: bookTime)
+  }
 
   // MARK: Remote commands (never reported back)
 
   func applyPlay(at bookTime: TimeInterval, rate: Float) {
+    guard !isStopped else { return }
     self.rate = rate
-    guard load(at: bookTime) else {
-      player.pause()
-      isPlaying = false
-      isHeldWhilePlaying = true
-      return
+    awaitingGroupPlayback = false
+    wantsPlayback = true
+    isHeldWhilePlaying = true
+    if load(at: bookTime) {
+      resumeIfReady()
+    } else {
+      // A preceding explicit Pause may have released the wait for this same missing file.
+      // Reopen the hold without repeating the deduplicated transfer request.
+      onBufferingNeeded?()
     }
-    activateSessionIfNeeded()
-    player.playImmediately(atRate: rate)
-    isPlaying = true
   }
 
   func applyPause(at bookTime: TimeInterval) {
+    applyPause(at: bookTime, shouldBuffer: false)
+  }
+
+  func applyPause(at bookTime: TimeInterval, shouldBuffer: Bool) {
+    guard !isStopped else { return }
+    awaitingGroupPlayback = shouldBuffer
+    wantsPlayback = false
     player.pause()
     isPlaying = false
-    isHeldWhilePlaying = false
-    // A pause never suspends the group, so a missing piece is not requested here.
-    load(at: bookTime, requestIfMissing: false)
+    isHeldWhilePlaying = shouldBuffer
+    // An already-loaded item needs no seek to its own pause position. In particular, a buffering
+    // pause must not cancel the seek whose completion will release the group's wait.
+    if loadedPieceIndex == nil || abs(positionForSaving - bookTime) > 0.05 {
+      load(at: bookTime, requestIfMissing: false)
+    }
   }
 
   func applySeek(to bookTime: TimeInterval) {
-    let wasPlaying = isPlaying
-    guard load(at: bookTime) else {
-      player.pause()
-      isPlaying = false
-      isHeldWhilePlaying = wasPlaying
-      return
-    }
-    if wasPlaying { player.playImmediately(atRate: rate) }
+    guard !isStopped else { return }
+    isHeldWhilePlaying = wantsPlayback
+    if load(at: bookTime) { resumeIfReady() }
   }
 
   /// Another participant changed the speed while playback is paused (so no play command carries it):
   /// use it from the next play. Never reported back.
   func applyRate(_ newRate: Float) {
+    guard !isStopped else { return }
     rate = newRate
     if isPlaying { player.rate = newRate }
   }
@@ -224,25 +266,43 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       onActionWhileJoining?()
       return
     }
-    if isPlaying {
-      // Use the real position, not the last 0.5 s tick, and don't re-seek.
-      let position = currentPosition
-      subject.send(.paused(at: position))
-      player.pause()
-      isPlaying = false
-      bookTime = position
-    } else {
-      // Reported even if the piece is missing: the group plays and the stall suspension
-      // (started by onNeedsPiece) holds everyone until it arrives.
-      let position = bookTime
-      subject.send(.played(at: position, rate: rate))
-      applyPlay(at: position, rate: rate)
-    }
+    // Match the displayed control. A pending or blocked Play is not audible playback, and a
+    // fresh Play after headphone removal must clear the explicit-resume requirement.
+    if isPlaying && !requiresUserResume { userPause() } else { userPlay() }
+  }
+
+  func userPause(requiringUserResume: Bool = false) {
+    guard !isStopped else { return }
+    requiresUserResume = requiresUserResume || requiringUserResume || isAudioInterrupted || hasInterruptionHold
+    // A repeated Pause is a no-op, but a silent player with pending recovery still needs cancellation.
+    guard wantsPlayback || awaitingGroupPlayback || isPlaying || hasInterruptionHold else { return }
+    wantsPlayback = false
+    awaitingGroupPlayback = false
+    isHeldWhilePlaying = false
+    let position = positionForSaving
+    player.pause()
+    isPlaying = false
+    bookTime = position
+    // Release our temporary hold before proposing a deliberate pause to the group.
+    releaseInterruptionHold()
+    subject.send(.paused(at: position))
+  }
+
+  func userPlay() {
+    guard !isStopped, !isAudioInterrupted else { return }
+    if isHeldForSharer { onToggleWhileHeldForSharer?(); return }
+    if isJoiningGroup { onActionWhileJoining?(); return }
+    if isWaitingForPiece, isHeldWhilePlaying { onToggleWhileWaiting?(); return }
+    requiresUserResume = false
+    releaseInterruptionHold()
+    subject.send(.played(at: bookTime, rate: rate))
+    applyPlay(at: bookTime, rate: rate)
   }
 
   func userSkip(by seconds: TimeInterval) { userJump(to: bookTime + seconds) }
 
   func userJump(to target: TimeInterval) {
+    guard !isStopped, !isAudioInterrupted else { return }
     if isJoiningGroup {
       onActionWhileJoining?()
       return
@@ -254,6 +314,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   }
 
   func userSetRate(_ newRate: Float) {
+    guard !isStopped else { return }
     if isJoiningGroup {
       onActionWhileJoining?()
       return
@@ -265,14 +326,27 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The person sharing is missing (decision 9): stop here without telling anyone (the service's
   /// suspension makes the whole group wait). When they are back, the coordinator resumes the group.
   func holdForSharer() {
-    guard isPlaying else { return }
-    let position = currentPosition
+    guard !isStopped else { return }
+    wantsPlayback = false
+    awaitingGroupPlayback = false
+    let position = positionForSaving
     player.pause()
     isPlaying = false
     bookTime = position
   }
 
   func stop() {
+    isStopped = true
+    wantsPlayback = false
+    awaitingGroupPlayback = false
+    seekGeneration += 1
+    pendingSeekOffset = nil
+    disposeBag.removeAll()
+    onInterruptionBegan = nil
+    onInterruptionEnded = nil
+    onBufferingNeeded = nil
+    onPositionReady = nil
+    hasInterruptionHold = false
     player.pause()
     player.removeAllItems()
     forgetItems(keeping: [])
@@ -306,14 +380,26 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   private func load(
     _ piece: SharedPiece, offset: TimeInterval, bookTime: TimeInterval, requestIfMissing: Bool
   ) -> Bool {
+    guard !isStopped else { return false }
+    // Ignore an echo at an already-prepared position; repeatedly seeking on recovery would create
+    // another suspension every time the coordinator reapplies Play.
+    if loadedPieceIndex == piece.index, player.currentItem != nil,
+      abs(positionForSaving - bookTime) < 0.05, (isSeeking || isReady(at: bookTime)) {
+      return true
+    }
     self.bookTime = bookTime
     onProgressChanged?(bookTime, piece.index)
+    seekGeneration += 1
+    pendingSeekOffset = nil
+    isSeeking = false
+    isBuffering = false
+    player.pause()
+    isPlaying = false
     guard let url = timeline.url(forPiece: piece.index) else {
       player.removeAllItems()
       forgetItems(keeping: [])
       loadedPieceIndex = nil
       queuedPieceIndex = nil
-      isSeeking = false
       if requestIfMissing, waitingPieceIndex != piece.index {
         waitingPieceIndex = piece.index
         onNeedsPiece?(piece.index)
@@ -322,7 +408,6 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     }
     waitingPieceIndex = nil
     if loadedPieceIndex != piece.index || player.currentItem == nil {
-      // Another piece: the queue starts over with it (and the piece after it, if here).
       player.removeAllItems()
       forgetItems(keeping: [])
       queuedPieceIndex = nil
@@ -332,19 +417,30 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       enqueueSuccessorIfArrived()
     }
     isSeeking = true
-    seekGeneration += 1
+    pendingSeekOffset = offset
+    if player.currentItem?.status != .readyToPlay { onBufferingNeeded?() }
+    seekWhenReady()
+    return true
+  }
+
+  private func seekWhenReady() {
+    guard !isStopped, let offset = pendingSeekOffset,
+      let item = player.currentItem, item.status == .readyToPlay else { return }
+    pendingSeekOffset = nil
     let generation = seekGeneration
-    player.seek(
-      to: CMTime(seconds: offset, preferredTimescale: 600),
-      toleranceBefore: .zero, toleranceAfter: .zero
-    ) { [weak self] _ in
+    player.seek(to: CMTime(seconds: offset, preferredTimescale: 600),
+                toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak item] finished in
       Task { @MainActor in
-        // Only the latest seek ends the seeking state.
-        if let self, self.seekGeneration == generation { self.isSeeking = false }
+        guard let self, !self.isStopped, self.seekGeneration == generation,
+          let item, self.player.currentItem === item else { return }
+        guard finished else {
+          self.itemFailed(item)
+          return
+        }
+        self.isSeeking = false
+        self.positionBecameReady()
       }
     }
-    onPositionReady?()
-    return true
   }
 
   private func makeItem(url: URL, index: Int) -> AVPlayerItem {
@@ -353,16 +449,26 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     let id = ObjectIdentifier(item)
     pieceIndexByItem[id] = index
     let pathExtension = url.pathExtension
-    // Diagnostics (decision 11): a piece that can't be decoded is logged with its error.
-    itemObservations[id] = item.publisher(for: \.status)
+    itemObservations[id] = Publishers.CombineLatest3(
+      item.publisher(for: \.status), item.publisher(for: \.isPlaybackLikelyToKeepUp),
+      item.publisher(for: \.isPlaybackBufferFull))
       .receive(on: DispatchQueue.main)
-      .sink { [weak self, weak item] status in
-        guard status == .failed else { return }
-        let error = item?.error as NSError?
+      .sink { [weak self, weak item] status, _, _ in
         MainActor.assumeIsolated {
-          Self.logger.error(
-            "Listen Together: piece \(index, privacy: .public) (\(pathExtension, privacy: .public)) can't be played: \(error?.domain ?? "", privacy: .public) \(error?.code ?? 0, privacy: .public) \(error?.localizedDescription ?? "")")
-          self?.pieceFailed(index: index)
+          guard let self, !self.isStopped, let item,
+            self.pieceIndexByItem[id] != nil else { return }
+          if status == .failed {
+            let error = item.error as NSError?
+            Self.logger.error(
+              "Listen Together: piece \(index, privacy: .public) (\(pathExtension, privacy: .public)) can't be played: \(error?.domain ?? "", privacy: .public) \(error?.code ?? 0, privacy: .public)")
+            self.itemFailed(item)
+          } else if self.player.currentItem === item, status == .readyToPlay {
+            self.seekWhenReady()
+            if self.isBuffering, item.isPlaybackLikelyToKeepUp || item.isPlaybackBufferFull {
+              self.isBuffering = false
+            }
+            self.positionBecameReady()
+          }
         }
       }
     return item
@@ -393,26 +499,30 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// becomes the loaded piece and the one after it is queued in turn. Changes made by `load` are
   /// already accounted for and do nothing here.
   func queueAdvanced() {
-    guard let item = player.currentItem, let index = pieceIndexByItem[ObjectIdentifier(item)],
+    guard !isStopped, let item = player.currentItem, let index = pieceIndexByItem[ObjectIdentifier(item)],
       index != loadedPieceIndex, index == queuedPieceIndex
     else { return }
     loadedPieceIndex = index
     queuedPieceIndex = nil
     waitingPieceIndex = nil
+    bookTime = currentPosition
     forgetItems(keeping: [])
     enqueueSuccessorIfArrived()
+    if item.status != .readyToPlay { onBufferingNeeded?() }
   }
 
   /// A piece's file can't be played (AVPlayerItem failed): it no longer counts as arrived, the
   /// service is told (it loads the piece again and the group waits), and it leaves the queue. If it was
   /// playing, playback is held here as for any missing piece, instead of "playing" in silence.
   func pieceFailed(index: Int) {
-    guard timeline.url(forPiece: index) != nil else { return }
-    let position = currentPosition
+    recoverFailedPiece(index: index, position: positionForSaving)
+  }
+
+  private func recoverFailedPiece(index: Int, position: TimeInterval) {
+    guard !isStopped, timeline.url(forPiece: index) != nil else { return }
     timeline.forget(index: index)
-    onPieceFailed?(index)
     if index == loadedPieceIndex {
-      let wasPlaying = isPlaying
+      let wasPlaying = wantsPlayback
       player.pause()
       isPlaying = false
       loadedPieceIndex = nil
@@ -424,6 +534,28 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       queuedPieceIndex = nil
       forgetItems(keeping: [])
     }
+    onPieceFailed?(index)
+  }
+
+  private func itemFailed(_ item: AVPlayerItem) {
+    let id = ObjectIdentifier(item)
+    guard !isStopped, let index = pieceIndexByItem[id] else { return }
+    // AVQueuePlayer may have advanced before our queued KVO callbacks. Snapshot the failed item's
+    // position before removing it, rather than attributing its clock to the preceding file.
+    let isCurrent = player.currentItem === item
+    let time = item.currentTime()
+    let piece = timeline.pieces.first { $0.index == index }
+    let position = isCurrent && !isSeeking && time.isNumeric
+      ? (piece?.bookStart ?? bookTime) + time.seconds : positionForSaving
+    pieceIndexByItem.removeValue(forKey: id)
+    itemObservations.removeValue(forKey: id)
+    if isCurrent {
+      loadedPieceIndex = index
+      if queuedPieceIndex == index { queuedPieceIndex = nil }
+    } else if queuedPieceIndex == index {
+      player.remove(item)
+    }
+    recoverFailedPiece(index: index, position: position)
   }
 
   enum PieceEndDecision: Equatable {
@@ -472,22 +604,90 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The current piece played to its end: continue with the next piece in book order, from its own
   /// start (not from this piece's end time, which float seams can put just before it). Internal for tests.
   func advanceToNextPiece() {
+    guard !isStopped else { return }
     guard let index = loadedPieceIndex, let next = timeline.piece(after: index) else {
+      wantsPlayback = false
       isPlaying = false
       return
     }
     // A missing next piece pauses us locally; the service decides what to tell the others.
-    let wasPlaying = isPlaying
+    let wasPlaying = wantsPlayback
     if load(next, offset: 0, bookTime: next.bookStart, requestIfMissing: true) {
-      if isPlaying { player.playImmediately(atRate: rate) }
+      resumeIfReady()
     } else {
       isHeldWhilePlaying = wasPlaying
       isPlaying = false
     }
   }
 
-  private func activateSessionIfNeeded() {
-    guard !sessionConfigured else { return }
+  private func handleInterruption(_ type: AVAudioSession.InterruptionType, shouldResume: Bool) {
+    guard !isStopped else { return }
+    switch type {
+    case .began:
+      guard !isAudioInterrupted else { return }
+      Self.logger.info("Listen Together: listener audio interrupted; holding the group")
+      bookTime = positionForSaving
+      isAudioInterrupted = true
+      sessionConfigured = false
+      player.pause()
+      isPlaying = false
+      if !hasInterruptionHold {
+        hasInterruptionHold = true
+        onInterruptionBegan?()
+      }
+    case .ended:
+      guard isAudioInterrupted else { return }
+      isAudioInterrupted = false
+      requiresUserResume = requiresUserResume || !shouldResume
+      Self.logger.info("Listen Together: listener interruption ended; requires Play=\(self.requiresUserResume, privacy: .public)")
+      if !requiresUserResume {
+        // Release the hold and adopt the group's current state. Never propose an unconditional Play.
+        wantsPlayback = false
+        releaseInterruptionHold()
+      } else {
+        wantsPlayback = false
+      }
+    @unknown default:
+      break
+    }
+  }
+
+  private func releaseInterruptionHold() {
+    guard hasInterruptionHold else { return }
+    hasInterruptionHold = false
+    onInterruptionEnded?()
+  }
+
+  private func playbackStateChanged() {
+    guard !isStopped else { return }
+    queueAdvanced()
+    let status = player.timeControlStatus
+    isPlaying = status == .playing && !isAudioInterrupted && !requiresUserResume
+    Self.logger.debug("Listen Together: listener playback state=\(status.rawValue, privacy: .public)")
+    if status == .waitingToPlayAtSpecifiedRate, !isSeeking, wantsPlayback, !isBuffering {
+      isBuffering = true
+      onBufferingNeeded?()
+      if let item = player.currentItem, item.isPlaybackLikelyToKeepUp || item.isPlaybackBufferFull {
+        isBuffering = false
+        positionBecameReady()
+      }
+    }
+  }
+
+  private func positionBecameReady() {
+    guard isReady(at: bookTime) else { return }
+    onPositionReady?()
+    resumeIfReady()
+  }
+
+  private func resumeIfReady() {
+    guard !isStopped, wantsPlayback, !isAudioInterrupted, !requiresUserResume,
+      !isHeldForSharer, isReady(at: bookTime), activateSessionIfNeeded() else { return }
+    player.playImmediately(atRate: rate)
+  }
+
+  private func activateSessionIfNeeded() -> Bool {
+    guard !sessionConfigured else { return true }
     let session = AVAudioSession.sharedInstance()
     do {
       try session.setCategory(.playback, mode: .spokenAudio)
@@ -496,5 +696,6 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     } catch {
       Self.logger.error("Listen Together: could not activate the audio session: \(error.localizedDescription)")
     }
+    return sessionConfigured
   }
 }

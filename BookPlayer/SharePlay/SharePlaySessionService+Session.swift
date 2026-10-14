@@ -465,6 +465,9 @@ extension SharePlaySessionService {
     // Path 3: whenever the player is at an arrived piece again (a placement, load, seek or play), a
     // stall that is no longer needed ends, so the group never waits for a piece nobody needs.
     player.onPositionReady = { [weak self] in self?.listenerPositionReady() }
+    player.onBufferingNeeded = { [weak bridge] in bridge?.waitForPiece() }
+    player.onInterruptionBegan = { [weak bridge] in bridge?.holdForInterruption() }
+    player.onInterruptionEnded = { [weak bridge] in bridge?.releaseInterruptionHold() }
     player.onPieceFailed = { [weak self] index in self?.listenerPieceFailed(index) }
     // Play or pause while the group waits for this device's piece: nothing is sent; say why.
     player.onToggleWhileWaiting = { [weak self] in

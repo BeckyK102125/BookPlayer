@@ -191,9 +191,10 @@ final class ListenTogetherRemoteCommands {
       listener.userTogglePlay()
     case .play:
       // Idempotent: a repeated Play must not pause.
-      if !listener.isPlaying { listener.userTogglePlay() }
+      if !listener.isPlaying { listener.userPlay() }
     case .pause:
-      if listener.isPlaying { listener.userTogglePlay() }
+      // Pause must cancel pending recovery even while audio is temporarily stopped.
+      listener.userPause()
     case .skipForward:
       listener.userSkip(by: Self.skipInterval)
     case .skipBackward:
