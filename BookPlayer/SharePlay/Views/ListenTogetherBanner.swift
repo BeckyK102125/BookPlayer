@@ -246,7 +246,9 @@ struct ListenTogetherLeaveConfirmation: ViewModifier {
         Button("listen_together_leave_button".localized, role: .destructive) { service.leave() }
         Button("cancel_button".localized, role: .cancel) { onCancel() }
       } message: {
-        Text(ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: service.isUsingOwnCopy))
+        Text(ListenTogetherSessionAction.leaveConfirmationMessage(
+          usesOwnCopy: service.isUsingOwnCopy,
+          isLastListener: ListenTogetherSessionAction.isLastListener(service.state)))
       }
   }
 }

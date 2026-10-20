@@ -75,7 +75,9 @@ final class ListenTogetherSessionEndTests: XCTestCase {
     XCTAssertEqual(service.state, .ended(reason: .normal))
   }
 
-  func testSharerEndClosesListenersViaMessageOrSessionInvalidation() async throws {
+  /// Listener handling only (audit 1 M7): each listener, given the end message or an invalidation by
+  /// hand, tears down. That the sharer's End reaches them is covered by the End tests above.
+  func testEachListenerTearsDownOnTheEndMessageOrOnInvalidation() async throws {
     let sharer = makeService(), transport = FakeTransport()
     sharer.startSharingSession(with: transport, item: try makeSharedItem(), shareID: UUID())
     let first = makeService(), firstTransport = FakeTransport()
@@ -512,12 +514,31 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     XCTAssertEqual(posted, ["Paused. 2 people lost their connection to Listen Together."])
   }
 
-  func testEveryoneVanishingEndsInsteadOfPausing() async {
+  /// Decision B: everyone vanishing at once (likely the sharer's own connection) pauses with the
+  /// neutral "left" wording and waits for them (fix round 1 M8 wording; restored coverage).
+  func testEveryoneVanishingAtOnceUsesTheLeftWordingAndWaits() async {
     let (service, transport) = await makeSharer()
+    posted = []
     transport.emit(.participantsChanged(count: 1, ids: [me]))
-    await waitUntil { transport.ended }
-    XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
-    XCTAssertNil(service.pauseCause)
+    await waitUntil { service.pauseCause != nil }
+    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 2, lostConnection: false, departedIDs: [a, b]))
+    XCTAssertEqual(posted, ["Paused. 2 people left Listen Together."])
+    XCTAssertTrue(service.isWaitingForListeners)
+    XCTAssertTrue(service.isInSession)
+    XCTAssertFalse(transport.ended)
+  }
+
+  /// Restored (audit 1 M8): two of three leave at once, one said so: "left", and the session goes on.
+  func testTwoDroppedAtOnceMixedSaysLeft() async {
+    let c = UUID()
+    let (service, transport) = await makeSharer(listeners: [a, b, c])
+    posted = []
+    transport.emit(.listenerLeaving(id: a))
+    transport.emit(.participantsChanged(count: 0, ids: [me, c]))
+    await waitUntil { service.pauseCause != nil }
+    XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 2, lostConnection: false, departedIDs: [a, b]))
+    XCTAssertEqual(posted, ["Paused. 2 people left Listen Together."])
+    XCTAssertFalse(service.isWaitingForListeners, "someone is still listening")
   }
 
   func testAnOldLeaveMessageNoLongerCounts() async {
@@ -1077,10 +1098,28 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     XCTAssertEqual(
       "listen_together_end_confirm_message".localized,
       "It ends for everyone.")
-    XCTAssertTrue(ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: false)
-      .hasSuffix("The book is deleted from this iPhone."))
-    XCTAssertTrue(ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: true)
-      .hasSuffix("Your copy stays in your library."))
+    // Decision C: while others remain, SharePlay's own control is mentioned; the last listener is told
+    // that Listen Together ends for everyone (audit 1, a11y I3).
+    let cc = "SharePlay stays on until you close it in Control Center."
+    XCTAssertEqual(ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: false),
+      "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone. " + cc)
+    XCTAssertEqual(ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: true),
+      "You will leave Listen Together on this iPhone. The others keep listening. Your copy stays in your library. " + cc)
+    for ownCopy in [false, true] {
+      let last = ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: ownCopy, isLastListener: true)
+      XCTAssertTrue(last.contains("You are the last listener, so Listen Together ends for everyone."))
+      XCTAssertFalse(last.contains("The others keep listening"))
+      XCTAssertFalse(last.contains("Control Center"))
+    }
+    XCTAssertEqual(ListenTogetherSessionAction.leaveToPlayMessage(isLastListener: false),
+      "You will leave Listen Together on this iPhone. The others keep listening. " + cc)
+    XCTAssertFalse(ListenTogetherSessionAction.leaveToPlayMessage(isLastListener: true).contains("others"))
+    XCTAssertTrue(ListenTogetherSessionAction.isLastListener(.listening(participants: 2, downloaded: 1)))
+    XCTAssertFalse(ListenTogetherSessionAction.isLastListener(.listening(participants: 3, downloaded: 1)))
+    let lastHint = ListenTogetherSessionAction.action(for: .listening(participants: 2, downloaded: 1))?.hint
+    XCTAssertEqual(lastHint, "Listen Together ends for everyone. The book is deleted from this iPhone.")
+    let ownLastHint = ListenTogetherSessionAction.action(for: .listening(participants: 2, downloaded: 1), usesOwnCopy: true)?.hint
+    XCTAssertEqual(ownLastHint, "Listen Together ends for everyone. Your copy stays in your library.")
     XCTAssertEqual(
       ListenTogetherStatus.visibleText(for: .sharing(participants: 1)),
       "Listen Together, sharing, waiting for people to join")
@@ -1209,7 +1248,7 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     XCTAssertEqual(transport.calls.suffix(2), ["send:sessionEnding", "end"], "exactly like the sharer's End")
     XCTAssertEqual(endCount(transport), 1)
     XCTAssertFalse(transport.left, "ended for everyone, never only left")
-    XCTAssertEqual(playerManager.pauseCallsCount, 0, "no pause")
+    XCTAssertEqual(playerManager.pauseCallsCount, 1, "decision A: the sharer's book pauses too")
     XCTAssertNil(service.pauseCause)
     XCTAssertEqual(groupPausedCount(transport), 0)
     XCTAssertEqual(posted, [], "no Someone left, no Listen Together ended: the alert is the one message")
@@ -1222,14 +1261,57 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     XCTAssertEqual(service.messages.alerts.pending.count + (service.messages.alerts.onScreen == nil ? 0 : 1), 1)
   }
 
-  func testSystemStopWithoutLeavingMessageEndsImmediately() async {
+  // MARK: Decision B: the last listener vanishes (no leaving message): pause and wait a minute
+
+  func testAVanishedLastListenerPausesTheGroupAndEndsAfterAMinute() async {
     let (service, transport) = await makeSharer(listeners: [a])
+    posted = []
     transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.pauseCause != nil }
+    XCTAssertEqual(posted, [p2], "one message: the pause")
+    XCTAssertEqual(groupPausedCount(transport), 1)
+    XCTAssertTrue(service.isWaitingForListeners)
+    let line = ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)
+    XCTAssertEqual(line?.text, p2)
+    XCTAssertEqual(line?.detail, "If nobody is back within a minute, Listen Together ends.")
+    XCTAssertTrue(system.begun.count >= 1, "the wait holds a background task")
+    timers.advance(by: .seconds(59))
+    await settle()
+    XCTAssertTrue(service.isInSession)
+    XCTAssertEqual(endCount(transport), 0)
+    timers.advance(by: .seconds(1))
     await waitUntil { self.endCount(transport) == 1 }
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
-    XCTAssertEqual(endCount(transport), 1)
     XCTAssertFalse(transport.left)
-    XCTAssertNil(service.pauseCause)
+    XCTAssertFalse(service.isWaitingForListeners)
+    assertOneEndingAlert(service)
+    await waitUntil { Set(self.system.ended) == Set(self.system.begun) }
+    XCTAssertEqual(Set(system.ended), Set(system.begun), "every background task ended")
+  }
+
+  func testAVanishedLastListenerComingBackCancelsTheEnd() async {
+    let (service, transport) = await makeSharer(listeners: [a])
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.isWaitingForListeners }
+    timers.advance(by: .seconds(30))
+    transport.emit(.participantsChanged(count: 2, ids: [me, a]))
+    await waitUntil { !service.isWaitingForListeners }
+    timers.advance(by: .seconds(120))
+    await settle()
+    XCTAssertTrue(service.isInSession)
+    XCTAssertEqual(endCount(transport), 0)
+    XCTAssertNotNil(service.pauseCause, "the pause stays until someone plays")
+    await waitUntil { Set(self.system.ended) == Set(self.system.begun) }
+    XCTAssertEqual(Set(system.ended), Set(system.begun), "the wait's background task ended")
+  }
+
+  func testTheWaitEndsAtOnceIfIOSTakesTheBackgroundTimeBack() async {
+    let (service, transport) = await makeSharer(listeners: [a])
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.isWaitingForListeners }
+    system.expireAll()
+    await waitUntil { self.endCount(transport) == 1 }
+    XCTAssertEqual(service.state, .ended(reason: .everyoneLeft), "never left on with nobody listening")
   }
 
   func testTheLastListenerLeavingWhileThePlayerIsPausedAlsoEnds() async {
@@ -1265,7 +1347,7 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     transport.emit(.participantsChanged(count: 0, ids: [me]))
     await waitUntil { self.endCount(transport) == 1 }
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
-    XCTAssertEqual(playerManager.pauseCallsCount, 0)
+    XCTAssertEqual(playerManager.pauseCallsCount, 1, "decision A")
   }
 
   /// An own copy that can't be played sends `.listenerLeaving` like Leave (build 5); with a count-only
@@ -1281,7 +1363,7 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     transport.emit(.participantsChanged(count: 1))
     await waitUntil { self.endCount(transport) == 1 }
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
-    XCTAssertEqual(playerManager.pauseCallsCount, 0)
+    XCTAssertEqual(playerManager.pauseCallsCount, 1, "decision A")
     assertOneEndingAlert(service)
   }
 
@@ -1318,11 +1400,19 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
 
   // MARK: Rule 3: the last listener vanishes
 
-  func testSystemStopWhilePausedAlsoEndsImmediately() async {
+  func testAVanishedLastListenerWhilePausedAlsoWaitsThenEnds() async {
     let (service, transport) = await makeSharer(playing: false, listeners: [a])
+    posted = []
     transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.isWaitingForListeners }
+    XCTAssertEqual(posted, [ListenTogetherAnnouncements.left()])
+    XCTAssertEqual(
+      ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.detail,
+      "If nobody is back within a minute, Listen Together ends.")
+    timers.advance(by: .seconds(60))
     await waitUntil { self.endCount(transport) == 1 }
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
+    XCTAssertEqual(playerManager.pauseCallsCount, 0, "nothing was playing")
   }
 
   func testConcurrentArrivalKeepsSessionOpen() async {
@@ -1340,6 +1430,8 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     await waitUntil { service.rosterIDs.contains(self.b) }
     XCTAssertTrue(service.isInSession)
     transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await settle()
+    timers.advance(by: .seconds(60))
     await waitUntil { self.endCount(transport) == 1 }
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
   }
@@ -1350,11 +1442,13 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     transport.emit(.participantsChanged(count: 2, ids: [me, b]))
     await waitUntil { service.rosterIDs.contains(self.b) }
     transport.emit(.participantDeclined(id: b))
+    await settle()
+    timers.advance(by: .seconds(60))
     await waitUntil { self.endCount(transport) == 1 }
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
   }
 
-  func testCountOnlySystemStopEndsImmediately() async {
+  func testCountOnlyVanishingWaitsThenEnds() async {
     let service = makeService(playing: true), transport = FakeTransport()
     let item = PlayableItem.stub(currentTime: 100, duration: 1000)
     playerManager.currentItem = item
@@ -1362,6 +1456,9 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     transport.emit(.participantsChanged(count: 2))
     await waitUntil { service.participantCount == 2 }
     transport.emit(.participantsChanged(count: 1))
+    await waitUntil { service.isWaitingForListeners }
+    XCTAssertEqual(endCount(transport), 0)
+    timers.advance(by: .seconds(60))
     await waitUntil { self.endCount(transport) == 1 }
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
   }

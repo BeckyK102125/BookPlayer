@@ -155,11 +155,122 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     }
   }
 
+  private func libraryItem(_ relativePath: String, at time: Double = 0, type: SimpleItemType = .book) -> SimpleLibraryItem {
+    SimpleLibraryItem(
+      title: "T", details: "A", speed: 1, currentTime: time, duration: 10, percentCompleted: 0, isFinished: false,
+      relativePath: relativePath, remoteURL: nil, artworkURL: nil, orderRank: 0, parentFolder: nil,
+      originalFileName: relativePath, lastPlayDate: nil, type: type, uuid: "uuid-1")
+  }
+
+  /// Joined with the own copy loaded in the regular player, at `time` in the library.
+  private func joinWithLoadedCopy(
+    library: LibraryServiceProtocolMock, at time: Double = 1
+  ) throws -> (SharePlaySessionService, PlayerManagerProtocolMock, ListenTogetherOwnCopy) {
+    let service = makeService(progressLibrary: library)
+    let manager = try XCTUnwrap(service.playerManager as? PlayerManagerProtocolMock)
+    let url = try makeLibraryFile(), copy = try ownCopy(of: url)
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: time)
+    let item = PlayableItem.stub(currentTime: time, duration: 10, fileURL: url)
+    manager.currentItem = item
+    manager.stopClosure = { [weak manager] in manager?.currentItem = nil }
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    return (service, manager, copy)
+  }
+
+  // MARK: Audit 1 I2: no ghost book after the session
+
+  func testACopyDeletedOrMovedDuringTheSessionIsNotRestored() throws {
+    let library = LibraryServiceProtocolMock()
+    let (service, manager, _) = try joinWithLoadedCopy(library: library)
+    service.bridge?.handleSeek(itemTime: 8)
+    library.getSimpleItemWithReturnValue = nil   // deleted, or moved (its path finds nothing)
+    service.leave()
+    XCTAssertFalse(manager.loadAutoplayCalled, "no ghost book, no metadata error alert")
+  }
+
+  func testACopyConvertedDuringTheSessionIsNotRestored() throws {
+    let library = LibraryServiceProtocolMock()
+    let (service, manager, copy) = try joinWithLoadedCopy(library: library)
+    service.bridge?.handleSeek(itemTime: 8)
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, type: .bound)
+    service.leave()
+    XCTAssertFalse(manager.loadAutoplayCalled)
+  }
+
+  func testACopyThatFailedIsNotRestored() throws {
+    let library = LibraryServiceProtocolMock()
+    let (service, manager, _) = try joinWithLoadedCopy(library: library)
+    service.bridge?.handleSeek(itemTime: 8)
+    service.leaveBecauseOwnCopyFailed()
+    XCTAssertFalse(manager.loadAutoplayCalled, "the broken copy is never loaded again")
+  }
+
+  // MARK: Decision D: the own place is kept as a bookmark before it follows the group
+
+  func testAnOwnPlaceFarFromTheGroupIsKeptAsABookmarkOnce() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let copy = try ownCopy(of: makeLibraryFile())
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: 300)
+    let bookmark = SimpleBookmark(time: 300, note: nil, type: .user, relativePath: copy.relativePath, uuid: "uuid-1")
+    library.createBookmarkAtRelativePathUuidTypeReturnValue = bookmark
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    XCTAssertFalse(library.createBookmarkAtRelativePathUuidTypeCalled, "not before the group's place is known")
+    service.bridge?.handleSeek(itemTime: 4)
+    let created = try XCTUnwrap(library.createBookmarkAtRelativePathUuidTypeReceivedArguments)
+    XCTAssertEqual(created.time, 300)
+    XCTAssertEqual(created.relativePath, copy.relativePath)
+    XCTAssertEqual(created.uuid, "uuid-1")
+    XCTAssertEqual(created.type, .user)
+    XCTAssertEqual(library.addNoteBookmarkReceivedArguments?.note, "Your place before Listen Together")
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 4,
+                   "then the place follows the group")
+    service.bridge?.handleSeek(itemTime: 9)
+    XCTAssertEqual(library.createBookmarkAtRelativePathUuidTypeCallsCount, 1, "once per session")
+  }
+
+  func testAnOwnPlaceNearTheGroupGetsNoBookmark() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let copy = try ownCopy(of: makeLibraryFile())
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: 20)
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    service.bridge?.handleSeek(itemTime: 4)
+    XCTAssertFalse(library.createBookmarkAtRelativePathUuidTypeCalled, "16 s apart: within 30 s")
+  }
+
+  // MARK: Audit 1 M2 and M6
+
+  func testOwnCopyProgressIsSavedAtMostOnceASecond() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let copy = try ownCopy(of: makeLibraryFile())
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    service.bridge?.handleSeek(itemTime: 4)
+    let saves = library.updatePlaybackTimeRelativePathTimeDateScheduleSaveCallsCount
+    service.saveOwnCopyProgress(at: 4.5, fileIndex: 0)
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveCallsCount, saves, "same second")
+    service.saveOwnCopyProgress(at: 5.0, fileIndex: 0)
+    XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveCallsCount, saves + 1)
+  }
+
+  func testFinishingTheBookTogetherMarksTheOwnCopyFinished() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let copy = try ownCopy(of: makeLibraryFile())
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    service.bridge?.handleSeek(itemTime: 9)
+    service.listener?.advanceToNextPiece()
+    XCTAssertEqual(library.markAsFinishedFlagRelativePathReceivedArguments?.flag, true)
+    XCTAssertEqual(library.markAsFinishedFlagRelativePathReceivedArguments?.relativePath, copy.relativePath)
+  }
+
   func testLoadedOwnCopyIsRestoredAtTheSharedPosition() throws {
     let library = LibraryServiceProtocolMock()
     let service = makeService(progressLibrary: library)
     let manager = try XCTUnwrap(service.playerManager as? PlayerManagerProtocolMock)
     let url = try makeLibraryFile(), copy = try ownCopy(of: url)
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: 1)
     let item = PlayableItem.stub(currentTime: 1, duration: 10, fileURL: url)
     manager.currentItem = item
     manager.stopClosure = { [weak manager] in manager?.currentItem = nil }
@@ -432,8 +543,12 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
   func testOwnCopyEndHintSaysTheCopyIsKept() async throws {
     let service = makeService(), transport = OwnCopyTransport()
     service.startListening(with: transport, shareID: UUID(), ownCopy: try ownCopy(of: makeLibraryFile()))
+    // Alone with the person sharing (or the roster not in yet): leaving ends it for everyone.
     XCTAssertEqual(
       ListenTogetherStatus.endHint(for: service.state, usesOwnCopy: service.isUsingOwnCopy),
+      "listen_together_leave_session_hint_own_copy_last".localized)
+    XCTAssertEqual(
+      ListenTogetherStatus.endHint(for: .listening(participants: 3, downloaded: 1), usesOwnCopy: true),
       "listen_together_leave_session_hint_own_copy".localized)
     service.end()
     XCTAssertFalse(service.isUsingOwnCopy)
@@ -587,6 +702,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     runScheduled()
     XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined()])
     XCTAssertEqual(service.state, .sharing(participants: 2))
+    transport.emit(.listenerLeaving(id: friend))
     transport.emit(.participantsChanged(count: 1, ids: [me]))
     await waitUntil { !service.isInSession }
     XCTAssertEqual(posted, [ListenTogetherAnnouncements.joined()])

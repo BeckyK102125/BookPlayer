@@ -314,7 +314,12 @@ extension SharePlaySessionService {
   /// heard before "Someone joined"); the next failure after the join does. The last listener leaving
   /// ends an episode silently and resets it, and the idle timer is released (M1).
   func participantCountChanged(from previous: Int, to count: Int) {
-    if role == .sharer, count > 1 { isEndingAfterPendingJoin = false }
+    if role == .sharer, count > 1 {
+      isEndingAfterPendingJoin = false
+      // Decision B: someone is back (or new): the wait is over; the pause stays until someone plays.
+      if isWaitingForListeners { Self.logger.info("Listen Together: someone is back; not ending") }
+      cancelEveryoneLeftWait()
+    }
     guard role == .sharer, previous != count, count <= 1 else { return }
     if notice == .retryingSend { setNotice(nil) }
     setKeepingScreenAwake(false)
@@ -396,6 +401,9 @@ extension SharePlaySessionService {
       return true
     }
     progressOwnCopy = ownCopy
+    let libraryItem = progressLibrary?.getSimpleItem(with: ownCopy.relativePath)
+    ownPlaceAtJoin = libraryItem?.currentTime
+    ownCopyTypeAtJoin = libraryItem?.type
     if let item = playerManager.currentItem, item.relativePath == ownCopy.relativePath {
       suspendedOwnItem = item
       playerManager.stop()
@@ -434,6 +442,11 @@ extension SharePlaySessionService {
     let file = copy.files[piece.index]
     let offset = min(max(0, time - piece.bookStart), file.duration)
     let localTime = min(copy.duration, file.bookStart + offset)
+    // Audit 1 M2: at most once a second, like normal playback (the final save always runs).
+    let second = Int(localTime.rounded(.down))
+    if !immediately, second == lastSavedOwnSecond { return }
+    lastSavedOwnSecond = second
+    keepOwnPlaceAsBookmarkIfFar(from: localTime, copy: copy)
     let date = now()
     progressLibrary?.updatePlaybackTime(
       relativePath: copy.relativePath, time: localTime, date: date, scheduleSave: !immediately)
@@ -443,6 +456,31 @@ extension SharePlaySessionService {
       item.lastPlayDate = date
       item.percentCompleted = copy.duration > 0 ? round(localTime / copy.duration * 100) : 0
     }
+  }
+
+  /// Decision D (Becky): before the own copy's place first follows the group, a place more than
+  /// `ownPlaceBookmarkThreshold` away is kept as a bookmark, "Your place before Listen Together", so it
+  /// can be found again. Once per session; silent (the invitation and guide say so).
+  private func keepOwnPlaceAsBookmarkIfFar(from groupPlace: TimeInterval, copy: ListenTogetherOwnCopy) {
+    guard !ownPlaceBookmarkChecked else { return }
+    ownPlaceBookmarkChecked = true
+    guard let library = progressLibrary, let old = ownPlaceAtJoin,
+      abs(old - groupPlace) > Self.ownPlaceBookmarkThreshold,
+      let item = library.getSimpleItem(with: copy.relativePath),
+      let bookmark = library.createBookmark(at: old, relativePath: copy.relativePath, uuid: item.uuid, type: .user)
+    else { return }
+    library.addNote("listen_together_bookmark_place_before".localized, bookmark: bookmark)
+    Self.logger.info("Listen Together: kept the own copy's earlier place as a bookmark")
+  }
+
+  /// Audit 1 I2: the own copy is still the same book in the library, with its files in place.
+  func ownCopyIsStillInLibrary(_ copy: ListenTogetherOwnCopy) -> Bool {
+    if let library = progressLibrary {
+      // Gone or moved (its path no longer finds it), or converted (another kind of item now).
+      guard let item = library.getSimpleItem(with: copy.relativePath) else { return false }
+      if let type = ownCopyTypeAtJoin, item.type != type { return false }
+    }
+    return copy.isStillAvailable()
   }
 
   private func receivedManifest(_ manifest: SharedBookManifest) {
@@ -1053,12 +1091,18 @@ extension SharePlaySessionService {
     case .sharer:
       let explained = useLeavingNotes(forDeparted: ids, count: count)
       if othersLeft == 0 {
-        // System Stop Listening has no app-specific leaving message. The roster is authoritative.
-        // A concurrent arrival gets its existing confirmation window before deciding nobody is left.
-        isEndingAfterPendingJoin = true
-        if !hasUnconfirmedArrivals {
-          endBecauseEveryoneLeft()
-          return
+        if explained >= count {
+          // Everyone who went said they were leaving (Leave, leave to play, own copy unplayable): it
+          // ends at once. A concurrent arrival gets its confirmation window first.
+          isEndingAfterPendingJoin = true
+          if !hasUnconfirmedArrivals {
+            endBecauseEveryoneLeft()
+            return
+          }
+        } else {
+          // Decision B (Becky): a vanished last listener (no `.listenerLeaving`: lost connection, or the
+          // system's controls) may come back. The group pauses as for any departure and waits a minute.
+          startEveryoneLeftWait()
         }
       }
       let cause = pauseCause(forDeparted: ids, count: count, explained: explained, everyoneLeft: othersLeft == 0)
@@ -1132,9 +1176,55 @@ extension SharePlaySessionService {
     Self.logger.info(
       "Listen Together: nobody is left listening; ending Listen Together for everyone")
     if let shareID { rememberEndedShare(shareID) }
+    // Decision A (Becky): the sharer's book pauses too, so a locked sharer hears that it ended. After
+    // teardown, so the pause is never sent to anyone.
+    let sharedBookPlays = sharerTarget?.isPlayingForGroup == true
     transport.stopPieceTransfers()
     tearDown(reason: .everyoneLeft, leaveTransport: false)
+    if sharedBookPlays { playerManager.pause() }
     endForEveryone(transport)
+  }
+
+  /// Decision B: wait `everyoneLeftWait` for someone to come back, then end for everyone. A background
+  /// task keeps the wait alive while the sharer's phone is locked; if iOS takes that time back first,
+  /// Listen Together ends then (never left on with nobody listening).
+  private func startEveryoneLeftWait() {
+    guard role == .sharer, !isWaitingForListeners else { return }
+    Self.logger.info("Listen Together: the last listener vanished; waiting up to a minute for them")
+    setWaitingForListeners(true)
+    everyoneLeftWaitGeneration += 1
+    let generation = everyoneLeftWaitGeneration
+    everyoneLeftWaitTask = ListenTogetherBackgroundTask(
+      system: appSystem, name: "Listen Together wait for listeners",
+      onExpire: { [weak self] in
+        guard let self, self.everyoneLeftWaitGeneration == generation else { return }
+        self.everyoneLeftWaitEnded()
+      })
+    scheduleSessionTimer(Self.everyoneLeftWait) { [weak self] in
+      guard let self, self.everyoneLeftWaitGeneration == generation else { return }
+      self.everyoneLeftWaitEnded()
+    }
+  }
+
+  private func everyoneLeftWaitEnded() {
+    guard role == .sharer, isWaitingForListeners else { return }
+    cancelEveryoneLeftWait()
+    guard participantCount <= 1 else { return }
+    if hasUnconfirmedArrivals {
+      // Someone new is still being confirmed: their decline or leaving ends it.
+      isEndingAfterPendingJoin = true
+      return
+    }
+    Self.logger.info("Listen Together: nobody came back within a minute")
+    endBecauseEveryoneLeft()
+  }
+
+  func cancelEveryoneLeftWait() {
+    everyoneLeftWaitGeneration += 1
+    setWaitingForListeners(false)
+    let task = everyoneLeftWaitTask
+    everyoneLeftWaitTask = nil
+    task?.end()
   }
 
   /// A pending arrival left or declined before confirmation. Do not strand the sharer alone.

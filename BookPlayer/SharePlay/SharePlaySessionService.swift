@@ -108,6 +108,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Listener (Option 1): stopped on this phone while the group plays on (an interruption, headphones
   /// removed). Persistent status near the controls, announced once per change.
   @Published private(set) var listenerLocalStop: ListenTogetherLocalStop?
+  /// Sharer (decision B): the last listener vanished without leaving on purpose; Listen Together ends
+  /// unless someone is back within `everyoneLeftWait`.
+  @Published private(set) var isWaitingForListeners = false
 
   /// What the status line needs besides the state.
   var statusConditions: ListenTogetherStatusConditions {
@@ -119,7 +122,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       isJoiningGroup: isListenerJoining,
       isJoiningSlow: isListenerJoiningSlow,
       pauseCause: pauseCause,
-      localStop: listenerLocalStop)
+      localStop: listenerLocalStop,
+      isWaitingForListeners: isWaitingForListeners)
   }
 
   /// Every alert, announcement and spoken message goes through here (guidance A.2).
@@ -365,6 +369,20 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var sharerReturnedAt: Date?
   /// A counted listener left while a new joiner is still being confirmed.
   var isEndingAfterPendingJoin = false
+  /// Decision B: how long the sharer waits for a vanished last listener before ending for everyone.
+  static let everyoneLeftWait: Duration = .seconds(60)
+  var everyoneLeftWaitGeneration = 0
+  /// Holds the app awake for the wait; if iOS takes the time back first, Listen Together ends then.
+  var everyoneLeftWaitTask: ListenTogetherBackgroundTask?
+  /// Decision D: the own copy's place when this listener joined, and whether it was checked.
+  var ownPlaceAtJoin: TimeInterval?
+  var ownPlaceBookmarkChecked = false
+  var ownCopyTypeAtJoin: SimpleItemType?
+  /// Decision D: a place this far from the group's is kept as a bookmark before it follows the group.
+  static let ownPlaceBookmarkThreshold: TimeInterval = 30
+  /// Own copy: the last whole second saved, so progress is saved at most once a second (audit 1 M2).
+  var lastSavedOwnSecond: Int?
+  func setWaitingForListeners(_ value: Bool) { if isWaitingForListeners != value { isWaitingForListeners = value } }
   /// An own file that fails this many times makes this phone leave.
   static let ownCopyFailureLimit = 3
   private var appStateObservation: AnyCancellable?
@@ -1192,8 +1210,16 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   ) {
     guard isInSession else { return }
     saveOwnCopyProgress(at: listener?.positionForSaving, fileIndex: listener?.fileIndexForSaving, immediately: true)
+    // Audit 1 I2: the copy is looked up again before the regular player gets it back. Deleted, moved or
+    // converted during the session, or the copy that just failed: nothing is restored (no ghost book,
+    // no second error alert).
+    let restoreCopy = progressOwnCopy
+    let copyCanBeRestored = reason != .ownCopyFailed && restoreCopy.map(ownCopyIsStillInLibrary) == true
     progressOwnCopy = nil
-    let itemToRestore = suspendedOwnItem
+    let itemToRestore = copyCanBeRestored ? suspendedOwnItem : nil
+    if suspendedOwnItem != nil, !copyCanBeRestored {
+      Self.logger.info("Listen Together: the own copy is gone, moved or failed; the regular player is not restored")
+    }
     suspendedOwnItem = nil
     // N1: a cover recorded for an earlier ending is never closed by this one.
     messages.forgetStuckCover()
@@ -1249,6 +1275,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     if pauseCause != nil { messages.removePauseNotificationIfShown() }
     pauseCause = nil
     isEndingAfterPendingJoin = false
+    cancelEveryoneLeftWait()
+    ownPlaceAtJoin = nil
+    ownPlaceBookmarkChecked = false
+    ownCopyTypeAtJoin = nil
+    lastSavedOwnSecond = nil
     explainedDepartures = []
     heldLeftIDs = []
     sharerReturnedAt = nil

@@ -214,14 +214,14 @@ final class BookFingerprintTests: XCTestCase {
     XCTAssertEqual(
       ListenTogetherSharingMode.ownersOnly.firstShareMessage,
       "listen_together_first_share_message_owners_only".localized)
-    let listening = ListenTogetherState.listening(participants: 2, downloaded: 1)
+    let listening = ListenTogetherState.listening(participants: 3, downloaded: 1)
     XCTAssertEqual(ListenTogetherStatus.endHint(for: listening), "listen_together_leave_session_hint".localized)
     XCTAssertEqual(
       ListenTogetherStatus.endHint(for: listening, usesOwnCopy: true),
       "listen_together_leave_session_hint_own_copy".localized)
     // Complete from the start: no "getting the book" percent.
     XCTAssertEqual(ListenTogetherStatus.spokenText(for: listening), String.localizedStringWithFormat(
-      "listen_together_status_listening".localized, 2))
+      "listen_together_status_listening".localized, 3))
   }
 
   func testNeedsCopyNoticeWording() {

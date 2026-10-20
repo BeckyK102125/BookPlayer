@@ -623,12 +623,13 @@ enum ListenTogetherLeaveQuestion {
   }
 
   static func makeAlert(
+    isLastListener: Bool = false,
     onAnswer: @escaping (ListenTogetherOwnPlayback.Answer) -> Void
   ) -> ListenTogetherLeaveAlertController {
     let once = Once(onAnswer)
     let alert = ListenTogetherLeaveAlertController(
       title: "listen_together_leave_to_play_title".localized,
-      message: "listen_together_leave_to_play_message".localized,
+      message: ListenTogetherSessionAction.leaveToPlayMessage(isLastListener: isLastListener),
       preferredStyle: .alert)
     // No preferredAction: a habitual double-tap must never pick the destructive Leave.
     alert.addAction(UIAlertAction(title: "listen_together_leave_button".localized, style: .destructive) { _ in
@@ -682,7 +683,8 @@ extension MainCoordinator {
   private func askToLeaveListenTogether() async -> ListenTogetherOwnPlayback.Answer {
     guard let top = topmostPresenter() else { return .cancel }
     return await withCheckedContinuation { continuation in
-      let alert = ListenTogetherLeaveQuestion.makeAlert { continuation.resume(returning: $0) }
+      let isLast = ListenTogetherSessionAction.isLastListener(sharePlayService.state)
+      let alert = ListenTogetherLeaveQuestion.makeAlert(isLastListener: isLast) { continuation.resume(returning: $0) }
       top.present(alert, animated: true)
       // Refused presentation: nothing on screen, so nothing will answer.
       if alert.presentingViewController == nil { alert.onDisappear?() }

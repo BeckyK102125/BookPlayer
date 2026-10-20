@@ -575,14 +575,14 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertEqual(sharing.systemImage, "stop.circle")
     XCTAssertTrue(sharing.confirms)
 
-    let listening = try XCTUnwrap(ListenTogetherSessionAction.action(for: .listening(participants: 2, downloaded: 0)))
+    let listening = try XCTUnwrap(ListenTogetherSessionAction.action(for: .listening(participants: 3, downloaded: 0)))
     XCTAssertEqual(listening.label, "Leave Listen Together")
     XCTAssertEqual(listening.systemImage, "rectangle.portrait.and.arrow.right")
     XCTAssertEqual(listening.hint, "The others keep listening. The book is deleted from this iPhone.")
     XCTAssertTrue(listening.confirms, "asks once")
     XCTAssertEqual(
       ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: false),
-      "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone.")
+      "You will leave Listen Together on this iPhone. The others keep listening. The book is deleted from this iPhone. SharePlay stays on until you close it in Control Center.")
 
     XCTAssertNil(ListenTogetherSessionAction.action(for: .ended(reason: .normal)))
     XCTAssertNil(ListenTogetherSessionAction.action(for: .idle))

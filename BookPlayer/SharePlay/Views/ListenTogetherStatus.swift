@@ -248,11 +248,14 @@ struct ListenTogetherSessionAction: Equatable {
         kind: .endForEveryone, label: "listen_together_end_button".localized,
         systemImage: "stop.circle", hint: "listen_together_end_hint_sharer".localized, confirms: true)
     case .listening:
+      let last = isLastListener(state)
+      let key = usesOwnCopy
+        ? (last ? "listen_together_leave_session_hint_own_copy_last" : "listen_together_leave_session_hint_own_copy")
+        : (last ? "listen_together_leave_session_hint_last" : "listen_together_leave_session_hint")
       return ListenTogetherSessionAction(
         kind: .leave, label: "listen_together_leave_session_button".localized,
         systemImage: "rectangle.portrait.and.arrow.right",
-        hint: (usesOwnCopy
-          ? "listen_together_leave_session_hint_own_copy" : "listen_together_leave_session_hint").localized,
+        hint: key.localized,
         confirms: true)
     case .idle, .needsFaceTime, .invitation, .ended:
       return nil
@@ -265,8 +268,25 @@ struct ListenTogetherSessionAction: Equatable {
     kind != .leave || hasHostLeave
   }
 
-  /// The "Leave Listen Together?" message (own copy: the copy stays).
-  static func leaveConfirmationMessage(usesOwnCopy: Bool) -> String {
-    (usesOwnCopy ? "listen_together_leave_confirm_message_own_copy" : "listen_together_leave_confirm_message").localized
+  /// A listener's roster is the person sharing and this phone: leaving ends Listen Together for
+  /// everyone (build 6), so "The others keep listening" would be false (audit 1, a11y I3).
+  static func isLastListener(_ state: ListenTogetherState) -> Bool {
+    guard case .listening(let participants, _) = state else { return false }
+    return participants <= 2
+  }
+
+  /// The "Leave Listen Together?" message (own copy: the copy stays). While others remain it says that
+  /// SharePlay stays on until closed in Control Center (decision C); for the last listener, that Listen
+  /// Together ends for everyone.
+  static func leaveConfirmationMessage(usesOwnCopy: Bool, isLastListener: Bool = false) -> String {
+    let key = usesOwnCopy
+      ? (isLastListener ? "listen_together_leave_confirm_message_own_copy_last" : "listen_together_leave_confirm_message_own_copy")
+      : (isLastListener ? "listen_together_leave_confirm_message_last" : "listen_together_leave_confirm_message")
+    return key.localized
+  }
+
+  /// "Leave Listen Together to play this book?": the same two cases.
+  static func leaveToPlayMessage(isLastListener: Bool) -> String {
+    (isLastListener ? "listen_together_leave_to_play_message_last" : "listen_together_leave_to_play_message").localized
   }
 }
