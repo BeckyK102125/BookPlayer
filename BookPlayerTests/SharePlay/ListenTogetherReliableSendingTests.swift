@@ -621,6 +621,26 @@ final class ListenTogetherReliableSendingTests: XCTestCase {
 
   // MARK: Stall release (path 3)
 
+  /// Fix round 2 (F2): missing piece -> it arrives -> its preparation never finishes. The wait for the
+  /// piece becomes the bounded readiness wait, so the group carries on after the limit.
+  func testAnArrivedPieceThatNeverGetsReadyHoldsTheGroupOnlyForTheLimit() async throws {
+    let (service, transport, _) = try await startListeningWithManifest()
+    let listener = try XCTUnwrap(service.listener)
+    listener.readinessGate = { false }        // the decoder or seek never finishes
+    service.bridge?.handlePlay(itemTime: 1, rate: 1)   // the group plays; piece 0 is missing
+    XCTAssertEqual(control.openSuspensions, 1, "the group waits for the piece")
+    let attachment = UUID()
+    transport.emit(.message(.pieceUploaded(index: 0, attachmentID: attachment)))
+    transport.emit(.attachmentReceived(id: attachment, url: try pieceFile("p0")))
+    await waitUntil { listener.timeline.isReady(at: 1) }
+    XCTAssertEqual(control.openSuspensions, 1, "now waiting for it to be ready, still one wait")
+    advance(seconds: ListenTogetherCoordinatorBridge.readinessLimit - 1)
+    XCTAssertEqual(control.openSuspensions, 1)
+    advance(seconds: 1)
+    XCTAssertEqual(control.openSuspensions, 0, "never longer than the limit")
+    listener.readinessGate = nil
+  }
+
   func testAMoveToAnArrivedPieceEndsTheStall() async throws {
     let service = makeService(), transport = FakeTransport(), id = UUID()
     service.startListening(with: transport, shareID: id)

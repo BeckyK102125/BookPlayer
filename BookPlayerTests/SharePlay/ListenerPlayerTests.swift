@@ -396,6 +396,7 @@ final class ListenerPlayerTests: XCTestCase {
     let player = ListenerPlayer(manifest: manifest())
     player.player.volume = 0
     player.now = { [unowned self] in self.clock }
+    player.schedule = { [unowned self] _, work in self.timers.append(work) }
     player.pieceArrived(index: 0, url: try makePiece(0))
     let control = RecoveryCoordinatorControl()
     let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: player.manifest.shareID, control: control)
@@ -411,6 +412,12 @@ final class ListenerPlayerTests: XCTestCase {
 
   private var clock = Date(timeIntervalSince1970: 1_000)
   private var refusedWhileStopped = 0
+  private var timers: [() -> Void] = []
+  private func runTimers() {
+    let due = timers
+    timers = []
+    due.forEach { $0() }
+  }
 
   private func playingRecoveryPlayer() async throws
     -> (ListenerPlayer, ListenTogetherCoordinatorBridge, RecoveryCoordinatorControl, () -> [LocalPlaybackEvent]) {
@@ -424,6 +431,10 @@ final class ListenerPlayerTests: XCTestCase {
 
   // MARK: Option 1 (Becky, build 6 fix round 1): the group never waits for one listener's interruption
 
+  // Fix round 2 (F4): a real coordinator suppresses commands during the local suspension and re-issues
+  // the group's state only after it ends, asynchronously. These tests never deliver a command while
+  // stopped here, and deliver the "reapplied" state by hand afterwards.
+
   func testAnInterruptionStopsOnlyThisPhoneAndItRejoinsAtTheGroupsCurrentPlace() async throws {
     let (player, bridge, control, events) = try await playingRecoveryPlayer()
     defer { bridge.invalidate(); player.stop() }
@@ -433,16 +444,74 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertEqual(control.activeHolds, 0, "nobody waits")
     XCTAssertEqual(control.localHolds, 1, "the coordinator stops driving this phone only")
     XCTAssertTrue(events().isEmpty, "the others hear nothing")
-    clock = clock.addingTimeInterval(3)
+    var progress: [TimeInterval] = []
+    player.onProgressChanged = { time, _ in progress.append(time) }
+    let stoppedAt = player.bookTime
     player.handleInterruption(.ended, shouldResume: true)
     XCTAssertNil(player.localStop)
     XCTAssertEqual(control.localHolds, 0)
-    XCTAssertEqual(control.reapplications, 1, "the coordinator brings it to the group's state")
-    XCTAssertEqual(player.bookTime, 5, accuracy: 0.05, "the group's place now, not where it stopped")
-    XCTAssertTrue(player.isPlayingForGroup)
+    XCTAssertEqual(control.reapplications, 1, "the coordinator is asked for the group's state")
+    XCTAssertFalse(player.isPlayingForGroup, "no audio before the group's own state arrives")
+    XCTAssertEqual(player.bookTime, stoppedAt, accuracy: 0.01)
+    XCTAssertTrue(progress.isEmpty, "no progress saved from a cached place")
+    bridge.handlePlay(itemTime: 5, rate: 1)   // the reapplied state, delivered later
+    XCTAssertEqual(player.bookTime, 5, accuracy: 0.05)
     try await AudioFixture.waitUntil(player: player.player) { player.isPlaying }
     XCTAssertTrue(control.rates.isEmpty, "never sends Play or Pause to the group")
     XCTAssertTrue(events().isEmpty)
+  }
+
+  func testRejoiningUsesTheGroupsStateNotTheLastPlaceSeenBeforeAGroupSeek() async throws {
+    let (player, bridge, _, _) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    bridge.handleSeek(itemTime: 8)            // the group moved on from 2 before the interruption
+    player.handleInterruption(.began, shouldResume: false)
+    clock = clock.addingTimeInterval(1)
+    player.handleInterruption(.ended, shouldResume: true)
+    XCTAssertGreaterThan(player.bookTime, 7.5, "never back to the old play's place (2 s + elapsed)")
+    XCTAssertFalse(player.isPlayingForGroup)
+    bridge.handlePlay(itemTime: 9, rate: 1)
+    XCTAssertEqual(player.bookTime, 9, accuracy: 0.05)
+    XCTAssertTrue(player.isPlayingForGroup)
+  }
+
+  func testPlayWhileStoppedHereStartsAGroupThatPausedMeanwhile() async throws {
+    let (player, bridge, control, events) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.activateSession = { true }
+    player.handleInterruption(.began, shouldResume: false)
+    // The group paused meanwhile; the suspended coordinator never told this phone.
+    player.userTogglePlay()
+    XCTAssertFalse(player.isPlayingForGroup, "waits for the group's state")
+    XCTAssertTrue(events().isEmpty)
+    bridge.handlePause(itemTime: 6)            // the reapplied state: paused at 6
+    XCTAssertEqual(events(), [.played(at: 6, rate: 1)], "Play starts the paused group, as any Play does")
+    XCTAssertEqual(control.rates, [1])
+    XCTAssertTrue(player.isPlayingForGroup)
+  }
+
+  func testTheInterruptionEndingWhileTheGroupPausedMeanwhileStaysPaused() async throws {
+    let (player, bridge, control, events) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.activateSession = { true }
+    player.handleInterruption(.began, shouldResume: false)
+    player.handleInterruption(.ended, shouldResume: true)
+    bridge.handlePause(itemTime: 6)
+    XCTAssertFalse(player.isPlayingForGroup, "never restarts a group that paused")
+    XCTAssertTrue(events().isEmpty)
+    XCTAssertTrue(control.rates.isEmpty)
+  }
+
+  func testARejoinThatGetsNoGroupStateAsksForPlayAgain() async throws {
+    let (player, bridge, control, _) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.activateSession = { true }
+    player.handleInterruption(.began, shouldResume: false)
+    player.handleInterruption(.ended, shouldResume: true)
+    XCTAssertNil(player.localStop)
+    runTimers()
+    XCTAssertEqual(player.localStop, .needsPlay, "visible again: Play tries once more")
+    XCTAssertEqual(control.localHolds, 1)
   }
 
   func testAMissingEndNeverHoldsTheGroupAndPlayWorksOnceIOSAllows() async throws {
@@ -451,9 +520,7 @@ final class ListenerPlayerTests: XCTestCase {
     var activation = false
     player.activateSession = { activation }
     player.handleInterruption(.began, shouldResume: false)
-    // The group plays on; no `.ended` ever comes (another app kept the audio).
-    bridge.handlePlay(itemTime: 6, rate: 1)
-    bridge.handlePause(itemTime: 6, shouldBuffer: true)
+    // No `.ended` ever comes (another app kept the audio). The suspended coordinator sends nothing.
     XCTAssertEqual(control.activeHolds, 0, "never a wait for this phone")
     XCTAssertFalse(player.isPlaying)
     player.userTogglePlay()
@@ -462,12 +529,12 @@ final class ListenerPlayerTests: XCTestCase {
     player.userSkip(by: 30)
     XCTAssertEqual(refusedWhileStopped, 2, "a skip would move the group for a phone that isn't listening")
     activation = true
-    clock = clock.addingTimeInterval(2)
     player.userTogglePlay()
     XCTAssertNil(player.localStop)
-    XCTAssertEqual(player.bookTime, 8, accuracy: 0.05)
-    XCTAssertTrue(events().isEmpty, "rejoining sends nothing")
     XCTAssertEqual(control.reapplications, 1)
+    bridge.handlePlay(itemTime: 8, rate: 1)
+    XCTAssertEqual(player.bookTime, 8, accuracy: 0.05)
+    XCTAssertTrue(events().isEmpty, "rejoining a playing group sends nothing")
   }
 
   func testAStaleInterruptionFromASuspendedAppIsIgnored() async throws {
@@ -487,12 +554,13 @@ final class ListenerPlayerTests: XCTestCase {
     player.handleInterruption(.began, shouldResume: false)
     XCTAssertNil(player.localStop, "nothing is missed while the group is paused")
     XCTAssertEqual(control.localHolds, 0)
-    bridge.handlePlay(itemTime: 2, rate: 1)
+    bridge.handlePlay(itemTime: 2, rate: 1)   // arrives before this phone is suspended
     XCTAssertEqual(player.localStop, .interrupted, "now the others listen on without this phone")
     XCTAssertEqual(control.activeHolds, 0)
     XCTAssertFalse(player.isPlayingForGroup)
     player.handleInterruption(.ended, shouldResume: true)
     XCTAssertNil(player.localStop)
+    bridge.handlePlay(itemTime: 3, rate: 1)
     XCTAssertTrue(player.isPlayingForGroup)
   }
 
@@ -507,6 +575,7 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertFalse(player.isPlaying)
     player.userTogglePlay()
     XCTAssertNil(player.localStop)
+    bridge.handlePlay(itemTime: 4, rate: 1)
     try await AudioFixture.waitUntil(player: player.player) { player.isPlaying }
     XCTAssertTrue(control.rates.isEmpty)
     XCTAssertTrue(events().isEmpty)
@@ -521,10 +590,11 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertTrue(events().isEmpty, "nothing sent: the group plays on")
     player.handleInterruption(.ended, shouldResume: true)
     XCTAssertEqual(player.localStop, .needsPlay, "Pause is respected")
-    bridge.handlePlay(itemTime: 4, rate: 1)
     XCTAssertFalse(player.isPlayingForGroup)
     player.userTogglePlay()
     XCTAssertNil(player.localStop)
+    bridge.handlePlay(itemTime: 4, rate: 1)
+    XCTAssertTrue(player.isPlayingForGroup)
     XCTAssertTrue(control.rates.isEmpty)
   }
 
@@ -536,11 +606,10 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertEqual(player.localStop, .needsPlay)
     XCTAssertTrue(events().isEmpty, "no pause for the others")
     XCTAssertEqual(control.activeHolds, 0)
-    bridge.handlePlay(itemTime: 3, rate: 1)
-    try await AudioFixture.waitUntil(player: player.player) { player.isReady(at: 3) }
     XCTAssertFalse(player.isPlaying, "never through the speaker unasked")
-    clock = clock.addingTimeInterval(4)
     player.userTogglePlay()
+    XCTAssertFalse(player.isPlayingForGroup, "waits for the group's state")
+    bridge.handlePlay(itemTime: 7, rate: 1)
     XCTAssertEqual(player.bookTime, 7, accuracy: 0.05, "rejoins at the group's current place")
     try await AudioFixture.waitUntil(player: player.player) { player.isPlaying }
     XCTAssertTrue(events().isEmpty)
@@ -580,6 +649,21 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertEqual(control.reapplications, 0)
     XCTAssertNil(player.player.currentItem)
     XCTAssertFalse(player.isPlaying)
+  }
+
+  // MARK: Own copy saving at a file change (fix round 2, F3)
+
+  func testTheSavedPlaceUsesTheItemTheQueueIsReallyPlaying() async throws {
+    let player = ListenerPlayer(manifest: threePieces())
+    defer { player.stop() }
+    player.pieceArrived(index: 0, url: try makePiece(0))
+    player.pieceArrived(index: 1, url: try makePiece(1))
+    player.applySeek(to: 9)
+    try await AudioFixture.waitUntil(player: player.player) { player.isReady(at: 9) }
+    player.player.advanceToNextItem()          // the queue moved on; `queueAdvanced()` hasn't run yet
+    player.itemTimeProvider = { CMTime(seconds: 0.5, preferredTimescale: 600) }
+    XCTAssertEqual(player.fileIndexForSaving, 1)
+    XCTAssertEqual(player.positionForSaving, 10.5, accuracy: 0.01, "file 1's clock on file 1, not file 0")
   }
 
   func testPlayPressedTwiceBeforeTheAudioStartsIsSentOnce() throws {

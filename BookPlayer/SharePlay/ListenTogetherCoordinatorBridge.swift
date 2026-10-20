@@ -181,9 +181,22 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   /// The group waits for this device to be ready to play (decoder, seek, buffering), for at most
   /// `readinessLimit`: then the group carries on and the coordinator brings this device back to the
   /// group's place when it is ready (M3; no wait is unbounded). Never while stopped here.
+  /// The file is here and only preparation is left (fix round 2, F2): a wait begun for the missing piece
+  /// becomes this bounded one, so the limit always applies.
   func waitForReadiness() {
-    guard !isInvalidated, target != nil, endReadinessSuspension == nil, endStallSuspension == nil,
-      endLocalStop == nil else { return }
+    guard !isInvalidated, target != nil, endLocalStop == nil else { return }
+    if let piece = endStallSuspension {
+      endStallSuspension = nil
+      if endReadinessSuspension == nil { startReadinessWait() }
+      Self.logger.info("Listen Together: the awaited piece is here; the wait is now bounded")
+      piece()
+      return
+    }
+    guard endReadinessSuspension == nil else { return }
+    startReadinessWait()
+  }
+
+  private func startReadinessWait() {
     Self.logger.info("Listen Together: waiting for this device to be ready")
     endReadinessSuspension = control.beginStallSuspension()
     readinessGeneration += 1

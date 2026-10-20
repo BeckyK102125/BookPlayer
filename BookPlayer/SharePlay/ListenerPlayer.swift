@@ -107,7 +107,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The group's own intent, from its commands: playing (with the last play's place, speed and time)
   /// or paused. Kept while this device is stopped here, so it can rejoin at the group's current place.
   private(set) var groupIsPlaying = false
-  private var lastGroupPlay: (time: TimeInterval, rate: Float, at: Date)?
+  /// Rejoining after a local stop (fix round 2, F4): nothing plays and nothing is saved until the
+  /// coordinator's own play or pause for the group's current state arrives. `playIfPaused`: Play was
+  /// pressed, so a paused group is started from there, as any Play would.
+  private var pendingRejoin: (playIfPaused: Bool, generation: Int)?
+  private var rejoinGeneration = 0
+  /// If no group command arrives this long after a rejoin, this phone shows "Press Play" again.
+  static let rejoinCommandLimit: TimeInterval = 3
   /// Test seams: the clock, the audio session activation and the short delays.
   var now: () -> Date = Date.init
   var activateSession: (() -> Bool)?
@@ -243,8 +249,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       let item = player.currentItem, item.status == .readyToPlay,
       pieceIndexByItem[ObjectIdentifier(item)] == piece.index
     else { return false }
+    if let readinessGate, !readinessGate() { return false }
     return timeline.isReady(at: bookTime)
   }
+
+  /// Test seam (F2): while it returns false, the player never counts as prepared (a decoder or seek
+  /// that never finishes).
+  var readinessGate: (() -> Bool)?
 
   // MARK: Remote commands (never reported back)
 
@@ -252,7 +263,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     guard !isStopped else { return }
     self.rate = rate
     groupIsPlaying = true
-    lastGroupPlay = (bookTime, rate, now())
+    pendingRejoin = nil
     awaitingGroupPlayback = false
     if isAudioInterrupted || requiresUserResume {
       // Option 1: the group plays on without this device. Keep the place current silently; never
@@ -279,11 +290,24 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func applyPause(at bookTime: TimeInterval, shouldBuffer: Bool) {
     guard !isStopped else { return }
+    var playsAfterPause = false
     if !shouldBuffer {
       groupIsPlaying = false
       // The group paused: this device misses nothing now. (An interruption or headphone removal still
       // keeps it from playing by itself later.)
       endLocalStop()
+      if let rejoin = pendingRejoin {
+        pendingRejoin = nil
+        playsAfterPause = rejoin.playIfPaused
+      }
+    }
+    defer {
+      if playsAfterPause {
+        // Play was pressed while stopped here and the group turns out to be paused: start it, as Play does.
+        Self.logger.info("Listen Together: rejoined a paused group; Play starts it")
+        subject.send(.played(at: self.bookTime, rate: rate))
+        applyPlay(at: self.bookTime, rate: rate)
+      }
     }
     if localStop != nil { return }
     awaitingGroupPlayback = shouldBuffer
@@ -301,7 +325,6 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func applySeek(to bookTime: TimeInterval) {
     guard !isStopped else { return }
     if localStop != nil {
-      if groupIsPlaying { lastGroupPlay = (bookTime, rate, now()) }
       load(at: bookTime, requestIfMissing: false)
       return
     }
@@ -383,12 +406,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       }
       isAudioInterrupted = false
       requiresUserResume = false
-      if groupIsPlaying {
-        // The group plays on: join it where it is now. Nothing is sent; the others hear nothing.
-        rejoin()
+      if localStop != nil {
+        // The coordinator stopped driving this phone: join the group in whatever state it is in now
+        // (its cached state may be stale, F4). Nothing is sent unless the group turns out paused.
+        rejoin(playIfPaused: true)
         return
       }
-      endLocalStop()
     }
     // Idempotent (M2): Play pressed again before the audio has started sends nothing more.
     if wantsPlayback {
@@ -730,11 +753,17 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// During a seek the AVPlayer clock still belongs to the old position.
   var positionForSaving: TimeInterval { isSeeking ? bookTime : currentPosition }
   var fileIndexForSaving: Int? {
-    isSeeking ? timeline.location(for: bookTime)?.piece.index : loadedPieceIndex
+    isSeeking ? timeline.location(for: bookTime)?.piece.index : (currentItemPieceIndex ?? loadedPieceIndex)
+  }
+
+  /// The piece of the item the queue is really playing (fix round 2, F3): `AVQueuePlayer` can move on
+  /// before `queueAdvanced()` has updated `loadedPieceIndex`, and the clock is the new item's then.
+  private var currentItemPieceIndex: Int? {
+    player.currentItem.flatMap { pieceIndexByItem[ObjectIdentifier($0)] }
   }
 
   private var currentPosition: TimeInterval {
-    guard player.currentItem != nil, let index = loadedPieceIndex,
+    guard player.currentItem != nil, let index = currentItemPieceIndex ?? loadedPieceIndex,
       let piece = timeline.pieces.first(where: { $0.index == index })
     else { return bookTime }
     let time = itemTimeProvider?() ?? player.currentTime()
@@ -790,7 +819,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
       // Nothing was missed (the group was paused): a later group Play plays here as usual.
       guard localStop != nil else { return }
       if shouldResume, !requiresUserResume {
-        if !rejoin() { localStop = .needsPlay; requiresUserResume = true }
+        if !rejoin(playIfPaused: false) { localStop = .needsPlay; requiresUserResume = true }
       } else {
         requiresUserResume = true
         localStop = .needsPlay
@@ -832,24 +861,35 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     onLocalStopEnded?()
   }
 
-  /// Back with the group, at its current place: ends the local stop (the coordinator then issues the
-  /// group's current state), and plays at once from the group's estimated place, which that command
-  /// corrects. Returns false if the audio can't start yet.
+  /// Back with the group (fix round 2, F4): ends the local stop, so the coordinator issues the group's
+  /// current state, and waits for that command before any audio or saved progress: no cached place
+  /// or play state is used. If nothing arrives within `rejoinCommandLimit`, "Press Play" shows again.
+  /// Returns false if the audio can't start yet.
   @discardableResult
-  private func rejoin() -> Bool {
+  private func rejoin(playIfPaused: Bool) -> Bool {
     guard activate() else {
       onActionWhileStoppedHere?()
       return false
     }
     isAudioInterrupted = false
     requiresUserResume = false
+    rejoinGeneration += 1
+    let generation = rejoinGeneration
+    pendingRejoin = (playIfPaused, generation)
+    Self.logger.info("Listen Together: rejoining; waiting for the group's current state")
     endLocalStop()
-    guard groupIsPlaying, let last = lastGroupPlay else { return true }
-    let elapsed = max(0, now().timeIntervalSince(last.at))
-    let estimate = min(manifest.duration, last.time + elapsed * Double(last.rate))
-    Self.logger.info("Listen Together: rejoining the group at about \(estimate, privacy: .public)")
-    applyPlay(at: estimate, rate: last.rate)
+    schedule(Self.rejoinCommandLimit) { [weak self] in
+      MainActor.assumeIsolated { self?.rejoinCommandMissing(generation) }
+    }
     return true
+  }
+
+  private func rejoinCommandMissing(_ generation: Int) {
+    guard !isStopped, let pending = pendingRejoin, pending.generation == generation else { return }
+    Self.logger.info("Listen Together: no group state after rejoining; Play tries again")
+    pendingRejoin = nil
+    requiresUserResume = true
+    beginLocalStop()
   }
 
   private func playbackStateChanged() {

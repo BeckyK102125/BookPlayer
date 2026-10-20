@@ -1437,3 +1437,31 @@ Report: build6-fix-round-1-report.md. Commits (parent 8ed9a541): 531f89ea, c3408
   `-only-testing:BookPlayerTests/<Class>` for the 33 SharePlay classes (TSan: `-enableThreadSanitizer YES` on both).
 - Results: SharePlay run 1 "Executed 669 tests, with 0 failures", run 2 669/0; full suite (-only-testing:BookPlayerTests)
   "Executed 1245 tests, with 0 failures" ** TEST EXECUTE SUCCEEDED **; TSan x3 on the 33 classes: 669/0 each, 0 DEADLYSIGNAL, 0 "WARNING: ThreadSanitizer", 0 restarts.
+
+## 2026-10-20 — build 6 fix round 2: Codex review 2026-10-19, F2-F4 (branch listen-together-build6, parent c42b02e3)
+Review: .superpowers/sdd/2026-10-10-shareplay-listen-together/codex-review-2026-10-19.md (read-only, against 531f89ea plus the
+fix-round-1 working tree). F1 and F5 were already addressed by c3408e85. F2-F4 were all still present at c42b02e3.
+- F2: the piece wait was never turned into the bounded readiness wait once the file arrived (`waitForReadiness` returned while
+  `endStallSuspension` existed), so a decoder or seek that never finished held the group forever. Now `waitForReadiness`
+  converts an existing piece wait (the readiness wait begins first, so there is no gap). The bridge's and the player's timers
+  run on the session clock (`scheduleSessionTimer`). Test: ReliableSending
+  testAnArrivedPieceThatNeverGetsReadyHoldsTheGroupOnlyForTheLimit (missing piece, then it arrives, then readiness is
+  gated off with the new `readinessGate` seam, then 9 s: one wait, then 10 s: none).
+- F3: `positionForSaving`/`fileIndexForSaving` used the stale `loadedPieceIndex` with the new item's clock when the queue
+  had moved on before `queueAdvanced()` ran (a whole file back on Leave/End). Now both use the current item's own piece
+  (`pieceIndexByItem`). Tests: ListenerPlayer testTheSavedPlaceUsesTheItemTheQueueIsReallyPlaying; OwnCopy
+  testLeavingAtAFileChangeSavesThePlaceInTheNewFile (advanceToNextItem without queueAdvanced, then leave() saves 10.5, not 0.5).
+- F4: rejoin played at once from a cached estimate (the last play time plus elapsed time), which could be stale after a group seek, or with the group
+  paused meanwhile, and it saved progress from it. Now rejoin only ends the local suspension and asks for reapplication.
+  Nothing plays or is saved until the coordinator's play or pause arrives. Pressing Play while stopped, when the group turns
+  out paused, starts it (`.played`) as any Play does; an interruption ending on its own never does. If no command arrives
+  within 3 s (`rejoinCommandLimit`), "Press Play" shows again. `lastGroupPlay` was removed; `groupIsPlaying` no longer decides
+  the rejoin. Tests deliver the reapplied state by hand after the rejoin (no command while suspended): rejoin at the group's
+  place, group seek before the interruption, group paused meanwhile with Play pressed, ended on its own while paused, no
+  command means Press Play; the earlier Option 1 tests were changed the same way.
+- Not run red first (7-10 min builds); each new test asserts behaviour the old code could not produce (open wait after the
+  limit; 0.5 instead of 10.5; immediate play before the command).
+- Results (simulator 98A8CF98, default DerivedData): SharePlay classes "Executed 676 tests, with 0 failures". Full suite: the
+  first attempt died at launch ("Early unexpected exit, operation never finished bootstrapping", no tests ran, right after a
+  TSan build had replaced the binaries); after a rebuild "Executed 1252 tests, with 0 failures" ** TEST EXECUTE SUCCEEDED **.
+  TSan x3 on the 33 classes: 676/0 each, 0 DEADLYSIGNAL, 0 "WARNING: ThreadSanitizer", 0 restarts.

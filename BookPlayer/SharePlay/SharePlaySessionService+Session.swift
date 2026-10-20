@@ -499,6 +499,12 @@ extension SharePlaySessionService {
     for (index, url) in arrivedFiles.sorted(by: { $0.key < $1.key }) { player.pieceArrived(index: index, url: url) }
     let bridge = ListenTogetherCoordinatorBridge(
       target: player, shareID: manifest.shareID, role: .listener, control: coordinatorControlFactory?())
+    // The readiness bound and the player's short delays run on the session clock (tests drive it).
+    let sessionSchedule: (TimeInterval, @escaping () -> Void) -> Void = { [weak self] delay, work in
+      self?.scheduleSessionTimer(.milliseconds(Int((delay * 1000).rounded()))) { work() }
+    }
+    bridge.schedule = sessionSchedule
+    player.schedule = sessionSchedule
     player.onNeedsPiece = { [weak self] index in self?.listenerNeedsPiece(index) }
     // Path 3: whenever the player is at an arrived piece again (a placement, load, seek or play), a
     // stall that is no longer needed ends, so the group never waits for a piece nobody needs.

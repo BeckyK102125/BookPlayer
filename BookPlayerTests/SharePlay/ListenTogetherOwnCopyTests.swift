@@ -141,6 +141,30 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertEqual(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments?.time, 17)
   }
 
+  /// Fix round 2 (F3): Leave right as the queue moves from file 1 to file 2, before the queue's own
+  /// bookkeeping has run: the saved place is in file 2 (never file 2's clock on file 1, a file back).
+  func testLeavingAtAFileChangeSavesThePlaceInTheNewFile() async throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let first = try makeLibraryFile(), second = try makeLibraryFile()
+    let size = { (url: URL) in (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 1 }
+    let copy = ListenTogetherOwnCopy(relativePath: "two-files", files: [
+      SourceFile(url: first, bookStart: 0, duration: 10, byteSize: size(first)),
+      SourceFile(url: second, bookStart: 10, duration: 10, byteSize: size(second))
+    ], chapters: [], duration: 20)
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    let listener = try XCTUnwrap(service.listener)
+    service.bridge?.handleSeek(itemTime: 9)
+    try await AudioFixture.waitUntil(player: listener.player) { listener.isReady(at: 9) }
+    XCTAssertEqual(listener.queuedPieceIndex, 1)
+    listener.player.advanceToNextItem()
+    listener.itemTimeProvider = { CMTime(seconds: 0.5, preferredTimescale: 600) }
+    service.leave()
+    let saved = try XCTUnwrap(library.updatePlaybackTimeRelativePathTimeDateScheduleSaveReceivedArguments)
+    XCTAssertEqual(saved.time, 10.5, accuracy: 0.05)
+    XCTAssertFalse(saved.scheduleSave)
+  }
+
   func testOwnCopyFlushesOnRemoteEndAndDisconnect() async throws {
     for event in [TransportEvent.message(.sessionEnding), .invalidated] {
       let library = LibraryServiceProtocolMock()

@@ -17,8 +17,8 @@ translations, upstream own-copy-only branch.
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - `develop` at 3515e742 (build 5 = TestFlight 5.22.2 (5), plus notes).
 - `listen-together-build6` (local, not pushed): e2428f4b + 8ed9a541 (Codex snapshots, audited), then fix
-  round 1: 531f89ea TSan crash, c3408e85 Option 1 + audit 2, bd56544d decisions A-D + audit 1, this commit
-  (guide, context, Notes). Clean after the commit except the untracked `review.md` (external Codex review;
+  round 1: 531f89ea TSan crash, c3408e85 Option 1 + audit 2, bd56544d decisions A-D + audit 1, c42b02e3 docs;
+  fix round 2 (Codex review 2026-10-19 F2-F4) = this commit. Clean after the commit except the untracked `review.md` (external Codex review;
   never commit it).
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
 
@@ -46,16 +46,17 @@ translations, upstream own-copy-only branch.
   ends this phone's piece/readiness waits, refuses new ones; nothing sent. Status + Play value + Zoom caption,
   one announcement: "Listen Together will continue when the interruption ends." / "Stopped on this iPhone.
   Press Play to rejoin the others." `.ended`+shouldResume rejoins; otherwise needsPlay. Play tries the session
-  (refusal says the status again, max every 3 s); rejoin = end suspension + reapply + play at the estimated
-  group time (last group play + elapsed x rate), corrected by the coordinator. Skips refused while stopped.
+  (refusal says the status again, max every 3 s); rejoin = end suspension + reapply, then NOTHING plays or is
+  saved until the coordinator's own play/pause arrives (fix round 2, F4; Play on a group that paused meanwhile
+  starts it); no command within 3 s -> "Press Play" again. Skips refused while stopped.
 - Sharer's own interruption: unchanged, a plain group pause/play (no suspension, so nobody is held; anyone's
   Play resumes). Announced as "Another listener paused" / status "Paused by another listener".
-- Waits: piece waits (unbounded by design: the book is still arriving), readiness waits bounded to 10 s
-  (`readinessLimit`), sharer hold bounded by the 60 s grace, local stop blocks nobody. Waits < 1 s and
+- Waits: piece waits (unbounded by design: the book is still arriving; once the file is here the wait becomes
+  the bounded readiness wait, F2), readiness waits bounded to 10 s (`readinessLimit`, session clock), sharer hold bounded by the 60 s grace, local stop blocks nobody. Waits < 1 s and
   `.noItemToPlay` never stall the group.
 - TSan crash fix: no suspension on a coordinator that is not connected to a session; every suspension in
   `ListenTogetherSuspensionLedger` (ends once; coordinator kept alive until it reports no suspension, 1-10 s).
-- Own copy: progress saved once a second; bookmark (D); finishing together marks it finished; teardown
+- Own copy: the saved place uses the item the queue really plays (F3, file changes); progress saved once a second; bookmark (D); finishing together marks it finished; teardown
   re-looks the copy up and skips restoring a gone/moved/converted/failed copy.
 - Leave texts: last listener (roster <= 2) gets "ends for everyone" in confirmations and hint; others get
   the Control Center sentence (C). Invitation and Settings footer say the place follows the group.
@@ -65,8 +66,9 @@ translations, upstream own-copy-only branch.
 - See Notes.md 2026-10-19 for the full commands. Simulator 98A8CF98-8142-4710-AD5E-5419F782752C, default
   DerivedData, scheme BookPlayer, plan "Unit Tests".
 - Before: TSan on OwnCopy + SessionService tests crashed twice per run in figTimelineCoordinator_endSuspensionOnQueue.
-- After: SharePlay classes (33) run 1 669/0, run 2 669/0; full suite 1245/0 ** TEST EXECUTE SUCCEEDED **; TSan on the 33 classes x3:
-  669/0 each, 0 crashes, 0 ThreadSanitizer warnings.
+- Fix round 1: SharePlay 669/0 x2; full 1245/0; TSan 669/0 x3, 0 crashes, 0 warnings.
+- Fix round 2: SharePlay 676/0; full 1252/0 ** TEST EXECUTE SUCCEEDED ** (first attempt died at
+  launch before any test, "Early unexpected exit", rerun after a rebuild); TSan 676/0 x3, 0 crashes, 0 warnings.
 
 ## Local environment gotchas
 - Xcode 27 here, CI uses 26.4. Wait for the FINAL ** TEST SUCCEEDED/FAILED **; log to a file and poll.
@@ -99,7 +101,7 @@ Capture both Console logs filtered on "Listen Together:".
 ## Known limitations
 - Streamed books and video cannot be shared. Chunk fallback throughput unmeasured.
 - A piece that never arrives keeps the group waiting (retries every 30 s); this is the piece-wait design.
-- Rejoin position is an estimate until the coordinator's re-issued command arrives (device check 1).
+- Rejoin waits for the coordinator's re-issued command (device check 1: how fast it arrives; 3 s fallback).
 - Last-listener detection uses the roster count (<= 2 = sharer + me); before the roster arrives a listener
   sees the last-listener text.
 - New strings are English in every lproj; mark for translation before release.
