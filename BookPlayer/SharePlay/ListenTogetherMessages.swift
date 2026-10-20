@@ -42,6 +42,9 @@ enum ListenTogetherUserMessage: Hashable {
   /// Build 5: the group paused because listeners left (P1-P4). `isSharer`: the sharer (who paused it,
   /// is spoken to and notified when away) or a remaining listener (status and one announcement).
   case pausedBecauseSomeoneLeft(ListenTogetherPauseCause, isSharer: Bool)
+  /// Decision B, sharer (fix round 3, a11y M4): the same pause, plus that Listen Together ends if nobody
+  /// is back within a minute, in the announcement and the notification too.
+  case pausedWaitingForListeners(ListenTogetherPauseCause)
   /// An alert shown elsewhere (E18: "Couldn't open sharing", "You need your own copy"…): only spoken
   /// here, with `key` so the same alert is never queued twice.
   case alertShownElsewhere(text: String, key: String)
@@ -62,7 +65,8 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
       .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart:
       return .alert
-    case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft, .stoppedHere:
+    case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft, .stoppedHere,
+      .pausedWaitingForListeners:
       return .status
     case .sharerBack:
       return .announcement
@@ -90,6 +94,8 @@ enum ListenTogetherUserMessage: Hashable {
     case .waitingForBook: return "listen_together_waiting_download".localized
     case .stoppedHere(let stop): return stop.text
     case .pausedBecauseSomeoneLeft(let cause, _): return cause.text
+    case .pausedWaitingForListeners(let cause):
+      return cause.text + " " + "listen_together_waiting_for_listeners_detail".localized
     case .alertShownElsewhere(let text, _): return text
     }
   }
@@ -113,7 +119,8 @@ enum ListenTogetherUserMessage: Hashable {
     case .waitingForBook: return "waitingForBook"
     case .stoppedHere(.interrupted): return "stoppedHereInterrupted"
     case .stoppedHere(.needsPlay): return "stoppedHereNeedsPlay"
-    case .pausedBecauseSomeoneLeft: return Self.pauseKey
+    case .stoppedHere(.rejoining): return "stoppedHereRejoining"
+    case .pausedBecauseSomeoneLeft, .pausedWaitingForListeners: return Self.pauseKey
     case .alertShownElsewhere(_, let key): return key
     }
   }
@@ -128,6 +135,8 @@ enum ListenTogetherUserMessage: Hashable {
       return true
     case .sharerBack, .waitingForBook, .stoppedHere:
       return false
+    case .pausedWaitingForListeners:
+      return true
     case .pausedBecauseSomeoneLeft(_, let isSharer):
       // The sharer's book stopped without their action; remaining listeners are told by the status.
       return isSharer
@@ -140,9 +149,15 @@ enum ListenTogetherUserMessage: Hashable {
   /// announcement; without one, the announcement waits for the return (a11y guidance 1.5). Both roles
   /// (fix round 1, a11y I1): a remaining listener with the phone locked also hears why the book stopped.
   var notifiesWhenAway: Bool {
-    if case .pausedBecauseSomeoneLeft = self { return true }
-    return false
+    switch self {
+    case .pausedBecauseSomeoneLeft, .pausedWaitingForListeners, .stoppedHere(.needsPlay): return true
+    default: return false
+    }
   }
+
+  /// Fix round 3 (a11y I1): never said while away (the call or alarm is in front; the status stays for
+  /// the return and the sound coming back is the cue).
+  var isSilentWhenAway: Bool { self == .stoppedHere(.interrupted) }
 
   /// The session ended because of someone else, or could not run at all.
   var isEnding: Bool {
@@ -382,7 +397,9 @@ final class ListenTogetherMessageDelivery: ObservableObject {
         plan.keepsAlertAfterNotification = !context.isLocked && !context.isVoiceOverRunning
       }
     case .status:
-      if message.notifiesWhenAway, context.isAway {
+      if message.isSilentWhenAway, context.isAway {
+        // Nothing now.
+      } else if message.notifiesWhenAway, context.isAway {
         // 1.5: no announcement from the background (unreliable, and it would repeat the notification).
         plan.notifiesWhenAway = true
       } else {
@@ -566,7 +583,12 @@ final class ListenTogetherMessageDelivery: ObservableObject {
   /// Notification Center once it is no longer true (the group plays again or the session ends). An
   /// ending's notification, which replaced it, is never removed.
   func removePauseNotificationIfShown() {
-    guard lastNotifiedKey == ListenTogetherUserMessage.pauseKey else { return }
+    removeNotificationIfShown(key: ListenTogetherUserMessage.pauseKey)
+  }
+
+  /// Removes the delivered notification if it was posted for `key` (it would tell of something over).
+  func removeNotificationIfShown(key: String) {
+    guard lastNotifiedKey == key else { return }
     lastNotifiedKey = nil
     removeNotification()
   }

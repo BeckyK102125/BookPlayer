@@ -522,7 +522,7 @@ final class ListenTogetherGroupPauseTests: XCTestCase {
     transport.emit(.participantsChanged(count: 1, ids: [me]))
     await waitUntil { service.pauseCause != nil }
     XCTAssertEqual(service.pauseCause, ListenTogetherPauseCause(count: 2, lostConnection: false, departedIDs: [a, b]))
-    XCTAssertEqual(posted, ["Paused. 2 people left Listen Together."])
+    XCTAssertEqual(posted, ["Paused. 2 people left Listen Together. If nobody is back within a minute, Listen Together ends."])
     XCTAssertTrue(service.isWaitingForListeners)
     XCTAssertTrue(service.isInSession)
     XCTAssertFalse(transport.ended)
@@ -1268,7 +1268,7 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     posted = []
     transport.emit(.participantsChanged(count: 1, ids: [me]))
     await waitUntil { service.pauseCause != nil }
-    XCTAssertEqual(posted, [p2], "one message: the pause")
+    XCTAssertEqual(posted, [p2 + " If nobody is back within a minute, Listen Together ends."], "one message: the pause, with the minute (a11y M4)")
     XCTAssertEqual(groupPausedCount(transport), 1)
     XCTAssertTrue(service.isWaitingForListeners)
     let line = ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)
@@ -1303,6 +1303,60 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     XCTAssertNotNil(service.pauseCause, "the pause stays until someone plays")
     await waitUntil { Set(self.system.ended) == Set(self.system.begun) }
     XCTAssertEqual(Set(system.ended), Set(system.begun), "the wait's background task ended")
+  }
+
+  /// Fix round 3 (a11y M4): the minute is in the spoken pause sentence too.
+  func testTheWaitsMinuteIsInThePauseAnnouncement() async {
+    let (service, transport) = await makeSharer(listeners: [a])
+    posted = []
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.pauseCause != nil }
+    XCTAssertEqual(posted, [p2 + " If nobody is back within a minute, Listen Together ends."])
+  }
+
+  /// Code M6: the last listener's leaving message arriving after the roster drop ends it at once.
+  func testALateLeavingMessageEndsAtOnce() async {
+    let (service, transport) = await makeSharer(listeners: [a])
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.isWaitingForListeners }
+    transport.emit(.listenerLeaving(id: a))
+    await waitUntil { self.endCount(transport) == 1 }
+    XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
+  }
+
+  /// Code M7: the minute ends while someone new is still being confirmed: one more confirmation
+  /// window, then it ends; never open with nobody listening.
+  func testTheWaitEndingDuringAConfirmationIsStillBounded() async {
+    let (service, transport) = await makeSharer(listeners: [a])
+    service.isOwnersOnlySession = true
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.isWaitingForListeners }
+    timers.advance(by: .seconds(58))
+    transport.emit(.participantsChanged(count: 2, ids: [me, b]))   // b arrives; confirmed only after 4 s
+    await waitUntil { service.rosterIDs.contains(self.b) }
+    timers.advance(by: .seconds(2))
+    await settle()
+    XCTAssertTrue(service.isInSession, "b still has its confirmation window")
+    XCTAssertEqual(endCount(transport), 0)
+    transport.emit(.participantDeclined(id: b))
+    await waitUntil { self.endCount(transport) == 1 }
+    XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
+  }
+
+  func testTheWaitEndingDuringAConfirmationEndsAfterItEvenWithoutAnswer() async {
+    let (service, transport) = await makeSharer(listeners: [a])
+    service.isOwnersOnlySession = true
+    service.schedule = { _, _ in }    // b's confirmation never runs (the app is suspended)
+    transport.emit(.participantsChanged(count: 1, ids: [me]))
+    await waitUntil { service.isWaitingForListeners }
+    transport.emit(.participantsChanged(count: 2, ids: [me, b]))
+    await waitUntil { service.rosterIDs.contains(self.b) }
+    timers.advance(by: .seconds(60))
+    await settle()
+    XCTAssertTrue(service.isInSession)
+    timers.advance(by: SharePlaySessionService.joinConfirmationDelay + .seconds(1))
+    await waitUntil { self.endCount(transport) == 1 }
+    XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
   }
 
   func testTheWaitEndsAtOnceIfIOSTakesTheBackgroundTimeBack() async {
@@ -1405,7 +1459,7 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     posted = []
     transport.emit(.participantsChanged(count: 1, ids: [me]))
     await waitUntil { service.isWaitingForListeners }
-    XCTAssertEqual(posted, [ListenTogetherAnnouncements.left()])
+    XCTAssertEqual(posted, [ListenTogetherAnnouncements.left() + ". If nobody is back within a minute, Listen Together ends."])
     XCTAssertEqual(
       ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.detail,
       "If nobody is back within a minute, Listen Together ends.")

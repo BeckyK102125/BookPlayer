@@ -253,6 +253,50 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertEqual(library.createBookmarkAtRelativePathUuidTypeCallsCount, 1, "once per session")
   }
 
+  /// Fix round 3 (code I3): joining the same share again (after a drop) adds no second bookmark.
+  func testJoiningTheSameShareAgainAddsNoSecondBookmark() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let copy = try ownCopy(of: makeLibraryFile())
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: 300)
+    library.createBookmarkAtRelativePathUuidTypeReturnValue = SimpleBookmark(
+      time: 300, note: nil, type: .user, relativePath: copy.relativePath, uuid: "uuid-1")
+    let share = UUID()
+    service.startListening(with: OwnCopyTransport(), shareID: share, ownCopy: copy)
+    service.bridge?.handleSeek(itemTime: 4)
+    service.leave()
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: 200)
+    service.startListening(with: OwnCopyTransport(), shareID: share, ownCopy: copy)
+    service.bridge?.handleSeek(itemTime: 5)
+    XCTAssertEqual(library.createBookmarkAtRelativePathUuidTypeCallsCount, 1)
+  }
+
+  func testAnExistingBookmarkWithTheNameAtThatPlaceIsNotDuplicated() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let copy = try ownCopy(of: makeLibraryFile())
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: 300)
+    library.getBookmarksOfRelativePathReturnValue = [SimpleBookmark(
+      time: 300, note: "Your place before Listen Together", type: .user, relativePath: copy.relativePath, uuid: "uuid-1")]
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    service.bridge?.handleSeek(itemTime: 4)
+    XCTAssertFalse(library.createBookmarkAtRelativePathUuidTypeCalled)
+  }
+
+  /// Code M8: with the copy loaded in the regular player, its own (newer) place is the one kept.
+  func testTheBookmarkUsesTheLoadedPlayersPlace() throws {
+    let library = LibraryServiceProtocolMock()
+    let service = makeService(progressLibrary: library)
+    let manager = try XCTUnwrap(service.playerManager as? PlayerManagerProtocolMock)
+    let url = try makeLibraryFile(), copy = try ownCopy(of: url)
+    library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, at: 100)
+    manager.currentItem = PlayableItem.stub(currentTime: 300, duration: 10, fileURL: url)
+    manager.stopClosure = { [weak manager] in manager?.currentItem = nil }
+    service.startListening(with: OwnCopyTransport(), shareID: UUID(), ownCopy: copy)
+    service.bridge?.handleSeek(itemTime: 4)
+    XCTAssertEqual(library.createBookmarkAtRelativePathUuidTypeReceivedArguments?.time, 300)
+  }
+
   func testAnOwnPlaceNearTheGroupGetsNoBookmark() throws {
     let library = LibraryServiceProtocolMock()
     let service = makeService(progressLibrary: library)
@@ -462,8 +506,10 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     listener.userSkip(by: 30)
     XCTAssertEqual(posted.count, 2, "at most once per 3 seconds")
     listener.handleInterruption(.ended, shouldResume: true)
+    XCTAssertEqual(service.listenerLocalStop, .rejoining, "shown while the group's state comes (a11y M2)")
+    service.bridge?.handlePlay(itemTime: 9, rate: 1)
     XCTAssertNil(service.listenerLocalStop)
-    XCTAssertEqual(posted.count, 2, "nothing more when the sound comes back")
+    XCTAssertEqual(posted.count, 2, "nothing more when the sound comes back, nor for Rejoining")
     XCTAssertEqual(transport.sent.count, sentBefore, "nothing is sent to the others")
   }
 

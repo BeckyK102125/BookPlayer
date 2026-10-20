@@ -530,6 +530,111 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertNil(ListenTogetherStatus.waitingCaption(conditions), "Play is not held: it rejoins")
   }
 
+  /// Fix round 3 (a11y I1): away, "Press Play" is one notification (else said on the return) and
+  /// "will continue" is never said from the background.
+  func testStoppedHereAwayFollowsTheAwayRules() {
+    let away = ListenTogetherDeliveryContext(appState: .background, isLocked: true, isVoiceOverRunning: true)
+    let interrupted = ListenTogetherMessageDelivery.plan(for: .stoppedHere(.interrupted), context: away)
+    XCTAssertFalse(interrupted.announces)
+    XCTAssertFalse(interrupted.notifiesWhenAway)
+    XCTAssertFalse(interrupted.speaksNow)
+    let needsPlay = ListenTogetherMessageDelivery.plan(for: .stoppedHere(.needsPlay), context: away)
+    XCTAssertFalse(needsPlay.announces, "no announcement from the background")
+    XCTAssertTrue(needsPlay.notifiesWhenAway)
+    XCTAssertTrue(ListenTogetherMessageDelivery.plan(for: .stoppedHere(.needsPlay), context: Self.active).announces)
+  }
+
+  /// Fix round 3 (a11y I2, M4): the row says why with the player closed.
+  func testTheRowSaysStoppedHereAndTheListenersWait() {
+    let snapshot = ListenTogetherRow.ListenerSnapshot(title: "Moby", isPlaying: false, isWaiting: false)
+    let listening = ListenTogetherState.listening(participants: 3, downloaded: 1)
+    func row(_ stop: ListenTogetherLocalStop?) -> String? {
+      ListenTogetherRow.value(
+        state: listening, joinedTitle: nil, listener: snapshot, sharerTitle: nil,
+        pauseCause: ListenTogetherPauseCause(count: 1, lostConnection: false, departedIDs: []), localStop: stop)
+    }
+    XCTAssertEqual(row(.needsPlay), "stopped on this iPhone, press Play to rejoin, Moby")
+    XCTAssertEqual(row(.interrupted), "stopped by an interruption, Moby")
+    XCTAssertEqual(row(.rejoining), "rejoining the others, Moby")
+    XCTAssertEqual(
+      ListenTogetherRow.value(
+        state: .sharing(participants: 1), joinedTitle: nil, listener: nil, sharerTitle: "Moby",
+        pauseCause: ListenTogetherPauseCause(count: 1, lostConnection: true, departedIDs: []), isWaitingForListeners: true),
+      "paused, waiting a minute for listeners to come back, Moby")
+    XCTAssertEqual(
+      ListenTogetherUserMessage.pausedWaitingForListeners(
+        ListenTogetherPauseCause(count: 1, lostConnection: true, departedIDs: [])).text,
+      "Paused. Someone lost their connection to Listen Together. If nobody is back within a minute, Listen Together ends.")
+    XCTAssertTrue(ListenTogetherUserMessage.pausedWaitingForListeners(
+      ListenTogetherPauseCause(count: 1, lostConnection: true, departedIDs: [])).notifiesWhenAway)
+  }
+
+  /// Fix round 3 (a11y M5): before a roster has arrived the Leave texts claim neither case.
+  func testLeaveTextsWhileTheRosterIsUnknownAreNeutral() {
+    XCTAssertEqual(
+      ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: false, audience: .unknown),
+      "You will leave Listen Together on this iPhone. The book is deleted from this iPhone.")
+    XCTAssertEqual(
+      ListenTogetherSessionAction.leaveConfirmationMessage(usesOwnCopy: true, audience: .unknown),
+      "You will leave Listen Together on this iPhone. Your copy stays in your library.")
+    XCTAssertEqual(ListenTogetherSessionAction.leaveToPlayMessage(audience: .unknown),
+                   "You will leave Listen Together on this iPhone.")
+    XCTAssertEqual(
+      ListenTogetherSessionAction.action(for: .listening(participants: 1, downloaded: 1), audience: .unknown)?.hint,
+      "The book is deleted from this iPhone.")
+    XCTAssertEqual(
+      ListenTogetherSessionAction.action(
+        for: .listening(participants: 1, downloaded: 1), usesOwnCopy: true, audience: .unknown)?.hint,
+      "Your copy stays in your library.")
+  }
+
+  func testPressPlayWhileAwayIsSaidOnceOnTheReturnWithoutNotificationPermission() async {
+    let (service, _, _) = await startListeningWithManifest()
+    system.become(.background)
+    posted = []
+    service.setListenerLocalStop(.interrupted)
+    await waitUntil(timeout: 0.3) { false }
+    XCTAssertEqual(posted, [], "'will continue' is never said from the background")
+    service.setListenerLocalStop(.needsPlay)
+    await waitUntil { service.announcesStopWhenActive }
+    XCTAssertEqual(posted, [], "no announcement from the background")
+    system.become(.active)
+    await waitUntil { !self.posted.isEmpty }
+    XCTAssertEqual(posted, ["Stopped on this iPhone. Press Play to rejoin the others."], "once, on the return")
+    system.become(.background)
+    system.become(.active)
+    await waitUntil(timeout: 0.3) { false }
+    XCTAssertEqual(posted.count, 1)
+  }
+
+  func testRejoiningBeforeTheReturnSaysNothingThen() async {
+    let (service, _, _) = await startListeningWithManifest()
+    system.become(.background)
+    posted = []
+    service.setListenerLocalStop(.needsPlay)
+    await waitUntil { service.announcesStopWhenActive }
+    service.setListenerLocalStop(nil)
+    system.become(.active)
+    await waitUntil(timeout: 0.3) { false }
+    XCTAssertEqual(posted, [], "it is over: nothing said")
+  }
+
+  func testPressPlayWhileAwayIsANotificationWhenAllowed() async {
+    let (service, _, _) = await startListeningWithManifest()
+    var notified: [String] = []
+    var removed = 0
+    service.messages.postNotification = { _, body in notified.append(body); return true }
+    service.messages.removeNotification = { removed += 1 }
+    system.become(.background)
+    posted = []
+    service.setListenerLocalStop(.needsPlay)
+    await waitUntil { !notified.isEmpty }
+    XCTAssertEqual(notified, ["Stopped on this iPhone. Press Play to rejoin the others."])
+    XCTAssertEqual(posted, [])
+    service.setListenerLocalStop(.rejoining)
+    XCTAssertEqual(removed, 1, "removed once it is no longer true")
+  }
+
   func testWaitingForAPieceKeepsThePercentVisible() {
     let state = ListenTogetherState.listening(participants: 2, downloaded: 0.3)
     let conditions = ListenTogetherStatusConditions(isWaitingForPiece: true)

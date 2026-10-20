@@ -334,10 +334,16 @@ extension SharePlaySessionService {
     guard appState == .active else { return }
     if keepsScreenAwake { setKeepingScreenAwake(true) }
     retryWaiter.wake()
+    // Fix round 3 (a11y I1): "Press Play to rejoin" could not be notified while away: said once now,
+    // if this phone is still stopped.
+    if announcesStopWhenActive {
+      announcesStopWhenActive = false
+      if listenerLocalStop == .needsPlay { announcer.announce(ListenTogetherLocalStop.needsPlay.text) }
+    }
     // 1.5: no notification could be posted for the pause while away: said once now, if still paused.
     if announcesPauseWhenActive {
       announcesPauseWhenActive = false
-      if let pauseCause { announcer.announce(pauseCause.text) }
+      if let pauseCause { announcer.announce(pauseAnnouncement(for: pauseCause)) }
     }
   }
 
@@ -407,6 +413,8 @@ extension SharePlaySessionService {
     if let item = playerManager.currentItem, item.relativePath == ownCopy.relativePath {
       suspendedOwnItem = item
       playerManager.stop()
+      // Code M8: the loaded player's own place is newer than the library's saved one.
+      ownPlaceAtJoin = item.currentTime
     }
     transport.stopReceivingPieces()
     setOwnCopy(true)
@@ -464,12 +472,19 @@ extension SharePlaySessionService {
   private func keepOwnPlaceAsBookmarkIfFar(from groupPlace: TimeInterval, copy: ListenTogetherOwnCopy) {
     guard !ownPlaceBookmarkChecked else { return }
     ownPlaceBookmarkChecked = true
+    // Code I3: once per share (joining the same share again after a drop adds none), and never a
+    // second one with the same name at the same place.
+    guard let shareID, !bookmarkedShareIDs.contains(shareID) else { return }
     guard let library = progressLibrary, let old = ownPlaceAtJoin,
-      abs(old - groupPlace) > Self.ownPlaceBookmarkThreshold,
-      let item = library.getSimpleItem(with: copy.relativePath),
+      abs(old - groupPlace) > Self.ownPlaceBookmarkThreshold else { return }
+    bookmarkedShareIDs.insert(shareID)
+    let note = "listen_together_bookmark_place_before".localized
+    let existing = library.getBookmarks(of: .user, relativePath: copy.relativePath) ?? []
+    guard !existing.contains(where: { $0.note == note && abs($0.time - floor(old)) < 2 }) else { return }
+    guard let item = library.getSimpleItem(with: copy.relativePath),
       let bookmark = library.createBookmark(at: old, relativePath: copy.relativePath, uuid: item.uuid, type: .user)
     else { return }
-    library.addNote("listen_together_bookmark_place_before".localized, bookmark: bookmark)
+    library.addNote(note, bookmark: bookmark)
     Self.logger.info("Listen Together: kept the own copy's earlier place as a bookmark")
   }
 
@@ -564,9 +579,9 @@ extension SharePlaySessionService {
       .removeDuplicates()
       .sink { [weak self] playing in self?.setListenerPlaying(playing) }
       .store(in: &localEventsBag)
-    player.$localStop
+    player.$displayedStop
       .removeDuplicates()
-      .sink { [weak self] stop in self?.setListenerLocalStop(stop) }
+      .sink { [weak self] state in self?.setListenerLocalStop(state.stop, announces: state.announces) }
       .store(in: &localEventsBag)
     self.bridge = bridge
     setListener(player)
@@ -768,8 +783,9 @@ extension SharePlaySessionService {
   /// Option 1: Play can't start yet (the interruption goes on), or a skip was pressed while stopped
   /// here. The status already says why; it is said again at most once per 3 s.
   private func listenerActionWhileStoppedHere() {
-    guard let stop = listener?.localStop ?? (listenerLocalStop), stoppedHereToggleLimiter.allows(at: now())
-    else { return }
+    // Code/a11y M5: interrupted while the group is paused there is no stop status yet; say why anyway.
+    let stop = listener?.localStop ?? listenerLocalStop ?? .interrupted
+    guard stoppedHereToggleLimiter.allows(at: now()) else { return }
     announcer.announce(stop.text)
   }
 
@@ -1115,7 +1131,10 @@ extension SharePlaySessionService {
       if pauseCause == nil, sharerTarget?.isPlayingForGroup == true {
         pauseGroup(cause)
       } else {
-        announcer.announce(ListenTogetherAnnouncements.left())
+        // Decision B with the book already paused: the minute is said too (a11y M4).
+        announcer.announce(isWaitingForListeners
+          ? ListenTogetherAnnouncements.left() + ". " + "listen_together_waiting_for_listeners_detail".localized
+          : ListenTogetherAnnouncements.left())
       }
     case .listener:
       holdLeftAnnouncement(ids: ids)
@@ -1163,6 +1182,14 @@ extension SharePlaySessionService {
       leavingNotes[id] = now()
     } else {
       anonymousLeavingNotes.append(now())
+    }
+    // Code M6: the message came after the roster drop: the last listener left on purpose, so it ends now
+    // rather than after the minute.
+    if isWaitingForListeners, participantCount <= 1, !hasUnconfirmedArrivals,
+      id.map({ !rosterIDs.contains($0) }) ?? true {
+      Self.logger.info("Listen Together: the last listener's leaving message came after the drop; ending now")
+      cancelEveryoneLeftWait()
+      endBecauseEveryoneLeft()
     }
   }
 
@@ -1214,23 +1241,40 @@ extension SharePlaySessionService {
 
   private func everyoneLeftWaitEnded() {
     guard role == .sharer, isWaitingForListeners else { return }
-    cancelEveryoneLeftWait()
-    guard participantCount <= 1 else { return }
-    if hasUnconfirmedArrivals {
-      // Someone new is still being confirmed: their decline or leaving ends it.
-      isEndingAfterPendingJoin = true
+    guard participantCount <= 1 else {
+      cancelEveryoneLeftWait()
       return
     }
+    if hasUnconfirmedArrivals, !everyoneLeftWaitExtended {
+      // Someone new is still being confirmed: one more confirmation window, still under the wait's
+      // background task (code M7). Their decline or leaving ends it sooner; after it, it ends anyway.
+      everyoneLeftWaitExtended = true
+      isEndingAfterPendingJoin = true
+      let generation = everyoneLeftWaitGeneration
+      scheduleSessionTimer(Self.joinConfirmationDelay + .seconds(1)) { [weak self] in
+        guard let self, self.everyoneLeftWaitGeneration == generation else { return }
+        self.everyoneLeftWaitEnded()
+      }
+      return
+    }
+    cancelEveryoneLeftWait()
     Self.logger.info("Listen Together: nobody came back within a minute")
     endBecauseEveryoneLeft()
   }
 
   func cancelEveryoneLeftWait() {
     everyoneLeftWaitGeneration += 1
+    everyoneLeftWaitExtended = false
     setWaitingForListeners(false)
     let task = everyoneLeftWaitTask
     everyoneLeftWaitTask = nil
     task?.end()
+  }
+
+  /// The pause sentence as spoken: with the one-minute line while decision B's wait runs.
+  func pauseAnnouncement(for cause: ListenTogetherPauseCause) -> String {
+    isWaitingForListeners
+      ? ListenTogetherUserMessage.pausedWaitingForListeners(cause).text : cause.text
   }
 
   /// A pending arrival left or declined before confirmation. Do not strand the sharer alone.
@@ -1272,7 +1316,9 @@ extension SharePlaySessionService {
       finishOne()
     }
     playerManager.pause()
-    deliverPauseMessage(.pausedBecauseSomeoneLeft(cause, isSharer: true), onClose: finishOne)
+    let message: ListenTogetherUserMessage = isWaitingForListeners
+      ? .pausedWaitingForListeners(cause) : .pausedBecauseSomeoneLeft(cause, isSharer: true)
+    deliverPauseMessage(message, onClose: finishOne)
   }
 
   /// The pause message, both roles. Away without a notification: said on the return, if still paused,
@@ -1285,7 +1331,7 @@ extension SharePlaySessionService {
       onNotNotified: { [weak self] in
         guard let self, let pauseCause = self.pauseCause else { return }
         if self.appSystem.appState == .active {
-          self.announcer.announce(pauseCause.text)
+          self.announcer.announce(self.pauseAnnouncement(for: pauseCause))
         } else {
           self.announcesPauseWhenActive = true
         }

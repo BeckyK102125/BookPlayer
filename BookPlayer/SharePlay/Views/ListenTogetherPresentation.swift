@@ -265,7 +265,8 @@ struct ListenerGettingBookView: View {
           service: service, onRemovedWhileFocused: { isTitleFocused = true }, showsActionButton: false,
           onRequestLeave: onRequestLeave)
         // The screen's action: one control, full width, outside the status card.
-        if let action = ListenTogetherSessionAction.action(for: service.state, usesOwnCopy: service.isUsingOwnCopy) {
+        if let action = ListenTogetherSessionAction.action(
+      for: service.state, usesOwnCopy: service.isUsingOwnCopy, audience: service.leaveAudience) {
           ListenTogetherSessionButton(action: action, isFullWidth: true) { onRequestLeave() }
         }
       }

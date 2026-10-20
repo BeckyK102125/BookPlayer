@@ -237,7 +237,9 @@ struct ListenTogetherSessionAction: Equatable {
   /// Asks once before acting (End and Leave can't be undone).
   let confirms: Bool
 
-  static func action(for state: ListenTogetherState, usesOwnCopy: Bool = false) -> ListenTogetherSessionAction? {
+  static func action(
+    for state: ListenTogetherState, usesOwnCopy: Bool = false, audience: ListenTogetherLeaveAudience? = nil
+  ) -> ListenTogetherSessionAction? {
     switch state {
     case .preparing:
       return ListenTogetherSessionAction(
@@ -248,10 +250,8 @@ struct ListenTogetherSessionAction: Equatable {
         kind: .endForEveryone, label: "listen_together_end_button".localized,
         systemImage: "stop.circle", hint: "listen_together_end_hint_sharer".localized, confirms: true)
     case .listening:
-      let last = isLastListener(state)
-      let key = usesOwnCopy
-        ? (last ? "listen_together_leave_session_hint_own_copy_last" : "listen_together_leave_session_hint_own_copy")
-        : (last ? "listen_together_leave_session_hint_last" : "listen_together_leave_session_hint")
+      let key = (usesOwnCopy ? "listen_together_leave_session_hint_own_copy" : "listen_together_leave_session_hint")
+        + (audience ?? .init(state: state)).keySuffix
       return ListenTogetherSessionAction(
         kind: .leave, label: "listen_together_leave_session_button".localized,
         systemImage: "rectangle.portrait.and.arrow.right",
@@ -279,14 +279,40 @@ struct ListenTogetherSessionAction: Equatable {
   /// SharePlay stays on until closed in Control Center (decision C); for the last listener, that Listen
   /// Together ends for everyone.
   static func leaveConfirmationMessage(usesOwnCopy: Bool, isLastListener: Bool = false) -> String {
-    let key = usesOwnCopy
-      ? (isLastListener ? "listen_together_leave_confirm_message_own_copy_last" : "listen_together_leave_confirm_message_own_copy")
-      : (isLastListener ? "listen_together_leave_confirm_message_last" : "listen_together_leave_confirm_message")
-    return key.localized
+    leaveConfirmationMessage(usesOwnCopy: usesOwnCopy, audience: isLastListener ? .lastListener : .othersRemain)
   }
 
-  /// "Leave Listen Together to play this book?": the same two cases.
+  static func leaveConfirmationMessage(usesOwnCopy: Bool, audience: ListenTogetherLeaveAudience) -> String {
+    ((usesOwnCopy ? "listen_together_leave_confirm_message_own_copy" : "listen_together_leave_confirm_message")
+      + audience.keySuffix).localized
+  }
+
+  /// "Leave Listen Together to play this book?": the same cases.
   static func leaveToPlayMessage(isLastListener: Bool) -> String {
-    (isLastListener ? "listen_together_leave_to_play_message_last" : "listen_together_leave_to_play_message").localized
+    leaveToPlayMessage(audience: isLastListener ? .lastListener : .othersRemain)
+  }
+
+  static func leaveToPlayMessage(audience: ListenTogetherLeaveAudience) -> String {
+    ("listen_together_leave_to_play_message" + audience.keySuffix).localized
+  }
+}
+
+/// Who is left when this listener leaves (fix round 3, a11y M5): others, nobody (the last listener),
+/// or not known yet (no roster has arrived): then the wording claims neither.
+enum ListenTogetherLeaveAudience: Equatable {
+  case othersRemain
+  case lastListener
+  case unknown
+
+  init(state: ListenTogetherState) {
+    self = ListenTogetherSessionAction.isLastListener(state) ? .lastListener : .othersRemain
+  }
+
+  var keySuffix: String {
+    switch self {
+    case .othersRemain: return ""
+    case .lastListener: return "_last"
+    case .unknown: return "_unknown"
+    }
   }
 }

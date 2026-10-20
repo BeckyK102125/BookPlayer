@@ -372,11 +372,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Decision B: how long the sharer waits for a vanished last listener before ending for everyone.
   static let everyoneLeftWait: Duration = .seconds(60)
   var everyoneLeftWaitGeneration = 0
+  var everyoneLeftWaitExtended = false
   /// Holds the app awake for the wait; if iOS takes the time back first, Listen Together ends then.
   var everyoneLeftWaitTask: ListenTogetherBackgroundTask?
   /// Decision D: the own copy's place when this listener joined, and whether it was checked.
   var ownPlaceAtJoin: TimeInterval?
   var ownPlaceBookmarkChecked = false
+  /// Code I3: shares whose earlier place was already kept as a bookmark (for the app's lifetime).
+  var bookmarkedShareIDs = Set<UUID>()
   var ownCopyTypeAtJoin: SimpleItemType?
   /// Decision D: a place this far from the group's is kept as a bookmark before it follows the group.
   static let ownPlaceBookmarkThreshold: TimeInterval = 30
@@ -463,6 +466,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   }
 
   var isInSession: Bool { role != nil }
+  /// Listener: who stays when this phone leaves; unknown until a roster has arrived (a11y M5).
+  var leaveAudience: ListenTogetherLeaveAudience {
+    guard role == .listener, hasParticipantBaseline else { return .unknown }
+    return ListenTogetherLeaveAudience(state: state)
+  }
   /// True while this device listens to someone else's share (from Join until the session ends).
   var isListenerSession: Bool { role == .listener }
 
@@ -483,12 +491,30 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     isListenerPlaying = value
     if !value { listenerStoppedPlaying() }
   }
-  func setListenerLocalStop(_ value: ListenTogetherLocalStop?) {
+  /// One announcement per change of reason; nothing when it ends (the sound comes back), for
+  /// "Rejoining", or for a change the person made (`announces` false). Away (a11y I1): "Press Play"
+  /// is one notification (existing permission), else said on the return if still stopped; "will
+  /// continue" is never said from the background (the call or alarm is in front).
+  func setListenerLocalStop(_ value: ListenTogetherLocalStop?, announces: Bool = true) {
     guard listenerLocalStop != value else { return }
+    let old = listenerLocalStop
     listenerLocalStop = value
-    // One announcement per change of reason; nothing when it ends (the sound comes back).
-    if let value { messages.deliver(.stoppedHere(value)) }
+    if old == .needsPlay, value != .needsPlay {
+      announcesStopWhenActive = false
+      messages.removeNotificationIfShown(key: ListenTogetherUserMessage.stoppedHere(.needsPlay).key)
+    }
+    guard let value, value != .rejoining, announces else { return }
+    messages.deliver(.stoppedHere(value), onNotNotified: { [weak self] in
+      guard let self, self.listenerLocalStop == value else { return }
+      if self.appSystem.appState == .active {
+        self.announcer.announce(value.text)
+      } else {
+        self.announcesStopWhenActive = true
+      }
+    })
   }
+  /// The "Press Play" notification could not be posted while away (a11y I1).
+  var announcesStopWhenActive = false
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
   func setListenerJoining(_ value: Bool) { if isListenerJoining != value { isListenerJoining = value } }
@@ -1268,7 +1294,11 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     awaitingAnonymousInStep = 0
     hasInStepSinceArm = false
     isListenerPlaying = false
+    if listenerLocalStop == .needsPlay {
+      messages.removeNotificationIfShown(key: ListenTogetherUserMessage.stoppedHere(.needsPlay).key)
+    }
     listenerLocalStop = nil
+    announcesStopWhenActive = false
     stoppedHereToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
     isPausedByOther = false
     someoneDeclined = false

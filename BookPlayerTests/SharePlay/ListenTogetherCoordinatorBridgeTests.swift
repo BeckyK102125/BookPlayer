@@ -16,6 +16,10 @@ private final class FakePlaybackTarget: ListenTogetherPlaybackTarget {
   func applyPause(at bookTime: TimeInterval) { log.append("pause \(Int(bookTime))") }
   func applySeek(to bookTime: TimeInterval) { log.append("seek \(Int(bookTime))") }
   func applyRate(_ rate: Float) { log.append("rate \(rate)") }
+  var holdsGroupForReadiness = true
+  var fileIsHere = true
+  func readinessWaitTimedOut() { holdsGroupForReadiness = false }
+  func hasFile(at bookTime: TimeInterval) -> Bool { fileIsHere }
 }
 
 @MainActor
@@ -287,6 +291,32 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     XCTAssertEqual(control.suspensionsEnded, 1)
     timers.forEach { $0() }
     XCTAssertEqual(control.suspensionsEnded, 1, "ended exactly once")
+  }
+
+  func testAnItemThatTimedOutOnceNeverHoldsTheGroupAgain() {
+    let (bridge, target, control) = makeBridge(ready: false)
+    var timers: [() -> Void] = []
+    bridge.schedule = { timers.append($1) }
+    bridge.waitForReadiness()
+    timers.forEach { $0() }
+    XCTAssertEqual(control.suspensionsEnded, 1)
+    XCTAssertFalse(target.holdsGroupForReadiness, "the target is told")
+    bridge.waitForReadiness()
+    bridge.handlePause(itemTime: 3, shouldBuffer: true)
+    XCTAssertEqual(control.suspensionsBegun, 1, "code M1: at most one 10 s hold per item")
+  }
+
+  func testAPieceWaitIsOnlyConvertedOnceTheFileIsHere() {
+    let (bridge, target, control) = makeBridge(ready: false)
+    bridge.waitForPiece()
+    target.fileIsHere = false
+    bridge.waitForReadiness()
+    XCTAssertEqual(control.suspensionsBegun, 1)
+    XCTAssertEqual(control.suspensionsEnded, 0, "code M2: a still-missing piece keeps its wait")
+    target.fileIsHere = true
+    bridge.waitForReadiness()
+    XCTAssertEqual(control.suspensionsBegun, 2)
+    XCTAssertEqual(control.suspensionsEnded, 1, "converted to the bounded wait")
   }
 
   func testStoppingHereEndsThisPhonesWaitsAndNeverMakesTheGroupWait() {

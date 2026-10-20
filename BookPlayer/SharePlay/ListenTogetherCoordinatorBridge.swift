@@ -184,15 +184,21 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   /// The file is here and only preparation is left (fix round 2, F2): a wait begun for the missing piece
   /// becomes this bounded one, so the limit always applies.
   func waitForReadiness() {
-    guard !isInvalidated, target != nil, endLocalStop == nil else { return }
+    guard !isInvalidated, let target, endLocalStop == nil else { return }
     if let piece = endStallSuspension {
+      // Code M2: only once the file is really here; a piece that is still missing keeps its wait.
+      guard target.hasFile(at: target.bookTime) else { return }
       endStallSuspension = nil
-      if endReadinessSuspension == nil { startReadinessWait() }
+      if endReadinessSuspension == nil, target.holdsGroupForReadiness { startReadinessWait() }
       Self.logger.info("Listen Together: the awaited piece is here; the wait is now bounded")
       piece()
       return
     }
     guard endReadinessSuspension == nil else { return }
+    guard target.holdsGroupForReadiness else {
+      Self.logger.info("Listen Together: this item already timed out once; the group is not held again")
+      return
+    }
     startReadinessWait()
   }
 
@@ -206,6 +212,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
         guard let self, self.readinessGeneration == generation, let end = self.endReadinessSuspension else { return }
         Self.logger.info("Listen Together: not ready within the limit; the group carries on")
         self.endReadinessSuspension = nil
+        self.target?.readinessWaitTimedOut()
         end()
       }
     }
@@ -220,8 +227,6 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     readiness?()
   }
 
-  /// True while this device is stopped here (Option 1).
-  var isStoppedHere: Bool { endLocalStop != nil }
 
   /// The person sharing is missing: the group waits (one suspension, kept apart from piece stalls).
   func holdForSharer() {
@@ -441,12 +446,18 @@ private final class DelegatingCoordinatorControl: ListenTogetherCoordinatorContr
   }
 
   func beginStallSuspension() -> () -> Void {
-    guard isConnectedToSession else { return {} }
+    guard isConnectedToSession else {
+      ListenTogetherCoordinatorBridge.logger.info("Listen Together: no group session; no stall suspension")
+      return {}
+    }
     return suspensions.track(coordinator.beginSuspension(for: .stallRecovery))
   }
 
   func beginLocalSuspension() -> () -> Void {
-    guard isConnectedToSession else { return {} }
+    guard isConnectedToSession else {
+      ListenTogetherCoordinatorBridge.logger.info("Listen Together: no group session; no local suspension")
+      return {}
+    }
     return suspensions.track(coordinator.beginSuspension(for: .audioSessionInterrupted))
   }
 

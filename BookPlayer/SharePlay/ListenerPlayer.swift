@@ -12,14 +12,25 @@ enum ListenTogetherLocalStop: Equatable {
   /// The headphones were removed, the interruption ended without permission to resume, or Pause was
   /// pressed meanwhile: Play rejoins the group at its current place.
   case needsPlay
+  /// Fix round 3 (a11y M2): back with the group, waiting (up to 3 s) for its current state. Shown, never
+  /// announced (the sound coming back is the cue).
+  case rejoining
 
   /// The persistent status (and its one announcement).
   var text: String {
     switch self {
     case .interrupted: return "listen_together_interrupted_here".localized
     case .needsPlay: return "listen_together_stopped_here".localized
+    case .rejoining: return "listen_together_rejoining".localized
     }
   }
+}
+
+/// What the status shows about a local stop, and whether that change is announced (fix round 3: a
+/// change caused by the person's own Pause is not, a11y M3).
+struct ListenTogetherLocalStopState: Equatable {
+  var stop: ListenTogetherLocalStop?
+  var announces = true
 }
 
 /// The listener's own player. It plays received pieces on the shared "book time" timeline. The next
@@ -75,7 +86,19 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The last piece played to its end (the book is finished).
   var onReachedEndOfBook: (() -> Void)?
   /// Why this listener is stopped while the group plays on; nil when it isn't.
-  @Published private(set) var localStop: ListenTogetherLocalStop?
+  @Published private(set) var localStop: ListenTogetherLocalStop? {
+    didSet { if localStop != oldValue { updateDisplayedStop() } }
+  }
+  /// The status to show for a local stop, including the rejoin window (`.rejoining`).
+  @Published private(set) var displayedStop = ListenTogetherLocalStopState()
+  private var nextStopChangeIsSilent = false
+  private func updateDisplayedStop() {
+    let stop = localStop ?? (pendingRejoin != nil ? .rejoining : nil)
+    let announces = !nextStopChangeIsSilent
+    nextStopChangeIsSilent = false
+    guard displayedStop.stop != stop else { return }
+    displayedStop = ListenTogetherLocalStopState(stop: stop, announces: announces)
+  }
   /// Shared book time and the actual source file; file durations can differ slightly between copies.
   var onProgressChanged: ((TimeInterval, Int) -> Void)?
   /// A received piece could not be played (its item failed): it was dropped and must come again.
@@ -110,7 +133,11 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// Rejoining after a local stop (fix round 2, F4): nothing plays and nothing is saved until the
   /// coordinator's own play or pause for the group's current state arrives. `playIfPaused`: Play was
   /// pressed, so a paused group is started from there, as any Play would.
-  private var pendingRejoin: (playIfPaused: Bool, generation: Int)?
+  private var pendingRejoin: (playIfPaused: Bool, generation: Int)? {
+    didSet { if (pendingRejoin == nil) != (oldValue == nil) { updateDisplayedStop() } }
+  }
+  /// True while back with the group and waiting for its current state (fix round 3, I1).
+  var isRejoining: Bool { pendingRejoin != nil }
   private var rejoinGeneration = 0
   /// If no group command arrives this long after a rejoin, this phone shows "Press Play" again.
   static let rejoinCommandLimit: TimeInterval = 3
@@ -253,6 +280,20 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     return timeline.isReady(at: bookTime)
   }
 
+  /// Code M1: the item whose readiness wait timed out (cleared once it is ready).
+  private var readinessTimedOutItem: ObjectIdentifier?
+  var holdsGroupForReadiness: Bool {
+    guard let item = player.currentItem else { return true }
+    return readinessTimedOutItem != ObjectIdentifier(item)
+  }
+  func readinessWaitTimedOut() {
+    readinessTimedOutItem = player.currentItem.map(ObjectIdentifier.init)
+  }
+  func hasFile(at bookTime: TimeInterval) -> Bool {
+    guard let piece = timeline.location(for: bookTime)?.piece else { return false }
+    return timeline.url(forPiece: piece.index) != nil
+  }
+
   /// Test seam (F2): while it returns false, the player never counts as prepared (a decoder or seek
   /// that never finishes).
   var readinessGate: (() -> Bool)?
@@ -291,6 +332,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func applyPause(at bookTime: TimeInterval, shouldBuffer: Bool) {
     guard !isStopped else { return }
     var playsAfterPause = false
+    if shouldBuffer, pendingRejoin != nil {
+      // Code M3: a buffering pause is the group's state too (it means to play once everyone is ready).
+      pendingRejoin = nil
+    }
     if !shouldBuffer {
       groupIsPlaying = false
       // The group paused: this device misses nothing now. (An interruption or headphone removal still
@@ -375,9 +420,21 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     guard !isStopped else { return }
     if localStop != nil || isAudioInterrupted {
       // Stopped here already (Option 1): Pause keeps it that way, so the interruption ending doesn't
-      // start it by itself; nothing is sent, and the others hear nothing.
+      // start it by itself; nothing is sent, and the others hear nothing. The status changes silently:
+      // the person did it (a11y M3).
       requiresUserResume = true
-      if localStop != nil { localStop = .needsPlay }
+      if localStop != nil, localStop != .needsPlay {
+        nextStopChangeIsSilent = true
+        localStop = .needsPlay
+      }
+      return
+    }
+    if pendingRejoin != nil {
+      // Fix round 3 (I1): Pause during the rejoin window cancels the rejoin and pauses the group.
+      Self.logger.info("Listen Together: Pause while rejoining; pausing the group")
+      pendingRejoin = nil
+      wantsPlayback = false
+      subject.send(.paused(at: bookTime))
       return
     }
     // A repeated Pause is a no-op, but a silent player with pending recovery still needs cancellation.
@@ -397,6 +454,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     if isHeldForSharer { onToggleWhileHeldForSharer?(); return }
     if isJoiningGroup { onActionWhileJoining?(); return }
     if isWaitingForPiece, isHeldWhilePlaying { onToggleWhileWaiting?(); return }
+    if let pending = pendingRejoin {
+      // Fix round 3 (I1): already rejoining. Nothing is loaded, played, saved or sent from the cached
+      // place; the press only means "start the group if it turns out to be paused".
+      pendingRejoin = (true, pending.generation)
+      return
+    }
     if isAudioInterrupted || requiresUserResume || localStop != nil {
       // Play works as soon as iOS lets the audio start again (Option 1).
       guard activate() else {
@@ -426,7 +489,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func userJump(to target: TimeInterval) {
     guard !isStopped else { return }
-    if localStop != nil {
+    if localStop != nil || pendingRejoin != nil {
       // A skip from here would move the group for a device that isn't listening.
       onActionWhileStoppedHere?()
       return
@@ -443,6 +506,11 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func userSetRate(_ newRate: Float) {
     guard !isStopped else { return }
+    if pendingRejoin != nil {
+      // Fix round 3 (I1): no speed proposal from the cached state while rejoining.
+      onActionWhileStoppedHere?()
+      return
+    }
     if isJoiningGroup {
       onActionWhileJoining?()
       return
@@ -475,6 +543,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     onBufferingNeeded = nil
     onPositionReady = nil
     onReachedEndOfBook = nil
+    pendingRejoin = nil
     localStop = nil
     bufferingGeneration += 1
     player.pause()
@@ -867,10 +936,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// Returns false if the audio can't start yet.
   @discardableResult
   private func rejoin(playIfPaused: Bool) -> Bool {
-    guard activate() else {
-      onActionWhileStoppedHere?()
-      return false
-    }
+    // A failed activation is reported by the caller: a press says the status again, the automatic
+    // rejoin changes it to "Press Play" (one announcement, a11y M1).
+    guard activate() else { return false }
     isAudioInterrupted = false
     requiresUserResume = false
     rejoinGeneration += 1
@@ -922,6 +990,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   private func positionBecameReady() {
     guard isReady(at: bookTime) else { return }
+    readinessTimedOutItem = nil
     onPositionReady?()
     resumeIfReady()
   }

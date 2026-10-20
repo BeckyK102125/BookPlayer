@@ -41,7 +41,8 @@ struct ListenTogetherBanner: View {
   }
 
   private var sessionAction: ListenTogetherSessionAction? {
-    guard let action = ListenTogetherSessionAction.action(for: service.state, usesOwnCopy: service.isUsingOwnCopy),
+    guard let action = ListenTogetherSessionAction.action(
+      for: service.state, usesOwnCopy: service.isUsingOwnCopy, audience: service.leaveAudience),
       ListenTogetherSessionAction.isOffered(action.kind, hasHostLeave: onRequestLeave != nil)
     else { return nil }
     return action
@@ -248,7 +249,7 @@ struct ListenTogetherLeaveConfirmation: ViewModifier {
       } message: {
         Text(ListenTogetherSessionAction.leaveConfirmationMessage(
           usesOwnCopy: service.isUsingOwnCopy,
-          isLastListener: ListenTogetherSessionAction.isLastListener(service.state)))
+          audience: service.leaveAudience))
       }
   }
 }

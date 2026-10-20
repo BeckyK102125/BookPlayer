@@ -29,10 +29,19 @@ protocol ListenTogetherPlaybackTarget: AnyObject {
   var isPlayingForGroup: Bool { get }
   /// This device's place may be asserted to the group (sharer only; never while another book plays).
   var canAssertPlace: Bool { get }
+  /// Code M1 (fix round 3): false once a readiness wait timed out for the current item, until it has
+  /// been ready once: the group is held at most once per item.
+  var holdsGroupForReadiness: Bool { get }
+  func readinessWaitTimedOut()
+  /// Code M2: the file for `bookTime` is here (only preparation can be left).
+  func hasFile(at bookTime: TimeInterval) -> Bool
 }
 
 extension ListenTogetherPlaybackTarget {
   func applyPause(at bookTime: TimeInterval, shouldBuffer: Bool) { applyPause(at: bookTime) }
   var isPlayingForGroup: Bool { isPlaying }
   var canAssertPlace: Bool { true }
+  var holdsGroupForReadiness: Bool { true }
+  func readinessWaitTimedOut() {}
+  func hasFile(at bookTime: TimeInterval) -> Bool { true }
 }

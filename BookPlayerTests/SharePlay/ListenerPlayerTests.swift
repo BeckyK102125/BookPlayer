@@ -397,6 +397,8 @@ final class ListenerPlayerTests: XCTestCase {
     player.player.volume = 0
     player.now = { [unowned self] in self.clock }
     player.schedule = { [unowned self] _, work in self.timers.append(work) }
+    // Code M12: these tests never activate the shared audio session.
+    player.activateSession = { true }
     player.pieceArrived(index: 0, url: try makePiece(0))
     let control = RecoveryCoordinatorControl()
     let bridge = ListenTogetherCoordinatorBridge(target: player, shareID: player.manifest.shareID, control: control)
@@ -512,6 +514,99 @@ final class ListenerPlayerTests: XCTestCase {
     runTimers()
     XCTAssertEqual(player.localStop, .needsPlay, "visible again: Play tries once more")
     XCTAssertEqual(control.localHolds, 1)
+  }
+
+  // MARK: Fix round 3: the rejoin window (code I1, M3, M4; a11y M1-M3)
+
+  /// Stopped by an interruption that then ended: the phone is waiting for the group's state.
+  private func rejoiningPlayer() async throws
+    -> (ListenerPlayer, ListenTogetherCoordinatorBridge, RecoveryCoordinatorControl, () -> [LocalPlaybackEvent], () -> Int) {
+    let (player, bridge, control, events) = try await playingRecoveryPlayer()
+    player.handleInterruption(.began, shouldResume: false)
+    player.handleInterruption(.ended, shouldResume: true)
+    var progress = 0
+    player.onProgressChanged = { _, _ in progress += 1 }
+    XCTAssertTrue(player.isRejoining)
+    return (player, bridge, control, events, { progress })
+  }
+
+  func testPlayWhileRejoiningLoadsSavesAndSendsNothing() async throws {
+    let (player, bridge, control, events, progress) = try await rejoiningPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    let item = player.player.currentItem
+    player.userTogglePlay()
+    player.userPlay()
+    XCTAssertTrue(events().isEmpty, "nothing sent from the cached place")
+    XCTAssertEqual(progress(), 0, "nothing saved")
+    XCTAssertTrue(player.player.currentItem === item, "nothing loaded")
+    XCTAssertFalse(player.isPlayingForGroup)
+    bridge.handlePause(itemTime: 6)   // the group's state: paused; the press means "start it"
+    XCTAssertEqual(events(), [.played(at: 6, rate: 1)])
+    XCTAssertEqual(control.rates, [1])
+  }
+
+  func testSkipsAndSpeedWhileRejoiningAreRefused() async throws {
+    let (player, bridge, control, events, _) = try await rejoiningPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.userSkip(by: 30)
+    player.userJump(to: 1)
+    player.userSetRate(1.5)
+    XCTAssertEqual(refusedWhileStopped, 3, "each says why")
+    XCTAssertTrue(events().isEmpty, "the group is never moved from the cached place")
+    XCTAssertTrue(control.rates.isEmpty)
+  }
+
+  func testPauseWhileRejoiningCancelsItAndPausesTheGroup() async throws {
+    let (player, bridge, control, events, _) = try await rejoiningPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.userPause()
+    XCTAssertFalse(player.isRejoining)
+    XCTAssertEqual(control.rates, [0], "the group pauses")
+    XCTAssertEqual(events().count, 1)
+    bridge.handlePlay(itemTime: 6, rate: 1)   // the pause overtaken by an older play: plays normally
+    XCTAssertTrue(player.isPlayingForGroup)
+    runTimers()
+    XCTAssertNil(player.localStop, "no 'Press Play' after a cancelled rejoin")
+  }
+
+  func testTheRejoinWindowKeepsAStatus() async throws {
+    let (player, bridge, _, _, _) = try await rejoiningPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    XCTAssertEqual(player.displayedStop.stop, .rejoining, "visible while waiting (a11y M2)")
+    bridge.handlePlay(itemTime: 6, rate: 1)
+    XCTAssertNil(player.displayedStop.stop)
+  }
+
+  func testABufferingPauseIsTheGroupsStateToo() async throws {
+    let (player, bridge, _, _, _) = try await rejoiningPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    bridge.handlePause(itemTime: 6, shouldBuffer: true)
+    XCTAssertFalse(player.isRejoining)
+    runTimers()
+    XCTAssertNil(player.localStop, "code M3: never dropped to Press Play after the group's state came")
+    bridge.handlePlay(itemTime: 6, rate: 1)
+    XCTAssertTrue(player.isPlayingForGroup)
+  }
+
+  func testAFailedAutomaticRejoinGivesOneCorrectStatus() async throws {
+    let (player, bridge, _, _) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.activateSession = { false }
+    player.handleInterruption(.began, shouldResume: false)
+    player.handleInterruption(.ended, shouldResume: true)
+    XCTAssertEqual(player.localStop, .needsPlay)
+    XCTAssertEqual(refusedWhileStopped, 0, "a11y M1: no 'will continue' before 'Press Play'")
+    XCTAssertTrue(player.displayedStop.announces)
+  }
+
+  func testOwnPauseDuringAnInterruptionChangesTheStatusSilently() async throws {
+    let (player, bridge, _, _) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.handleInterruption(.began, shouldResume: false)
+    XCTAssertEqual(player.displayedStop, ListenTogetherLocalStopState(stop: .interrupted, announces: true))
+    player.userPause()
+    XCTAssertEqual(player.displayedStop, ListenTogetherLocalStopState(stop: .needsPlay, announces: false),
+                   "a11y M3: the person's own action is not announced")
   }
 
   func testAMissingEndNeverHoldsTheGroupAndPlayWorksOnceIOSAllows() async throws {
