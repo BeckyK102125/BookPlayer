@@ -306,6 +306,32 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     return (service, transport, listener, url)
   }
 
+  /// Option 1 (I4, R41): an interrupted listener sees and hears why, once; nothing reaches the others.
+  func testAnInterruptionShowsWhyOnThisPhoneOnlyAndIsSaidOnce() throws {
+    let timers = ManualScheduler(), control = RecordingCoordinatorControl()
+    let (service, transport, listener, _) = try startOwnCopySession(timers: timers, control: control)
+    listener.activateSession = { true }
+    service.bridge?.handlePlay(itemTime: 1, rate: 1)
+    posted = []
+    let sentBefore = transport.sent.count
+    listener.handleInterruption(.began, shouldResume: false)
+    listener.handleInterruption(.began, shouldResume: false)
+    let text = "Listen Together will continue when the interruption ends."
+    XCTAssertEqual(service.listenerLocalStop, .interrupted)
+    XCTAssertEqual(service.statusConditions.localStop, .interrupted)
+    XCTAssertEqual(ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text, text)
+    XCTAssertEqual(posted, [text], "said once")
+    XCTAssertEqual(control.openSuspensions, 0, "the group never waits for it")
+    listener.userSkip(by: 30)
+    XCTAssertEqual(posted, [text, text], "a press that can't work says why again")
+    listener.userSkip(by: 30)
+    XCTAssertEqual(posted.count, 2, "at most once per 3 seconds")
+    listener.handleInterruption(.ended, shouldResume: true)
+    XCTAssertNil(service.listenerLocalStop)
+    XCTAssertEqual(posted.count, 2, "nothing more when the sound comes back")
+    XCTAssertEqual(transport.sent.count, sentBefore, "nothing is sent to the others")
+  }
+
   func testAFailedOwnFileIsArmedAgainAndNeverSaysWaitingForTheBook() throws {
     let timers = ManualScheduler(), control = RecordingCoordinatorControl()
     let (service, transport, listener, url) = try startOwnCopySession(timers: timers, control: control)

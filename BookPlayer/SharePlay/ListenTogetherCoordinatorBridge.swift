@@ -9,14 +9,22 @@ import GroupActivities
 protocol ListenTogetherCoordinatorControlling: AnyObject {
   func coordinateRateChange(to rate: Float)
   func coordinateSeek(to bookTime: TimeInterval)
-  /// Begins a stall-recovery suspension and returns a closure that ends it.
+  /// Begins a stall-recovery suspension (the others wait) and returns a closure that ends it.
   func beginStallSuspension() -> () -> Void
+  /// Begins a suspension for this device only (`.audioSessionInterrupted`: nobody waits; the
+  /// coordinator brings this device back to the group when it ends) and returns a closure that ends it.
+  func beginLocalSuspension() -> () -> Void
   /// Makes `identifier` the current item. With a `time`, proposes that the item is at `time` moving
   /// at `rate` (0 when paused). With nil, the coordinator assumes the item is paused at zero: that is a
   /// proposal too, not "no proposal" (Apple's documentation).
   func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float)
   /// Asks the coordinator to issue the group's current state for the item again, as commands.
   func reapplyCurrentItemState()
+}
+
+extension ListenTogetherCoordinatorControlling {
+  /// Test doubles that don't model local suspensions: nothing to begin.
+  func beginLocalSuspension() -> () -> Void { {} }
 }
 
 /// Syncs one abstract "book time" timeline across a SharePlay session by routing
@@ -32,7 +40,17 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   private var endStallSuspension: (() -> Void)?
   /// A second suspension while a listener waits for the person sharing (addendum 3, decision 9).
   private var endSharerHold: (() -> Void)?
-  private var endInterruptionHold: (() -> Void)?
+  /// Decoder/seek readiness (not a missing piece): bounded by `readinessLimit` (M3).
+  private var endReadinessSuspension: (() -> Void)?
+  private var readinessGeneration = 0
+  /// Option 1: this listener is stopped here while the group plays on (a local suspension only).
+  private var endLocalStop: (() -> Void)?
+  /// The longest the group waits for one device to become ready to play (buffering, decoding).
+  static let readinessLimit: TimeInterval = 10
+  /// Test seam for the readiness limit.
+  var schedule: (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+  }
   private var disposeBag = Set<AnyCancellable>()
   private var isInvalidated = false
   private let role: SharePlaySessionService.Role
@@ -134,25 +152,63 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     onGroupTimingKnown?(time)
   }
 
-  /// Begins a `.stallRecovery` suspension if not already suspended.
+  /// Begins a `.stallRecovery` suspension if not already suspended. Never while this device is stopped
+  /// here (Option 1): the group doesn't wait for a device that isn't listening.
   func waitForPiece() {
-    guard !isInvalidated, let target, endStallSuspension == nil else { return }
+    guard !isInvalidated, let target, endStallSuspension == nil, endLocalStop == nil else { return }
     Self.logger.info("Listen Together: stall begin at \(target.bookTime, privacy: .public)")
     endStallSuspension = control.beginStallSuspension()
+    // A readiness wait from an earlier load is replaced by this one (begun first: no gap for the group).
+    if let readiness = endReadinessSuspension {
+      endReadinessSuspension = nil
+      readinessGeneration += 1
+      readiness()
+    }
   }
 
   /// Ends the stall suspension if the target is now ready at its current position. Called after any
   /// piece placement, load, seek or play (path 3), so no stall outlives its reason.
   func pieceBecameAvailable() {
-    guard let end = endStallSuspension else { return }
+    guard endStallSuspension != nil || endReadinessSuspension != nil else { return }
     if let target, !target.isReady(at: target.bookTime) {
       Self.logger.info("Listen Together: still not ready at \(target.bookTime, privacy: .public)")
       return
     }
     Self.logger.info("Listen Together: stall end")
-    endStallSuspension = nil
-    end()
+    endStalls()
   }
+
+  /// The group waits for this device to be ready to play (decoder, seek, buffering), for at most
+  /// `readinessLimit`: then the group carries on and the coordinator brings this device back to the
+  /// group's place when it is ready (M3; no wait is unbounded). Never while stopped here.
+  func waitForReadiness() {
+    guard !isInvalidated, target != nil, endReadinessSuspension == nil, endStallSuspension == nil,
+      endLocalStop == nil else { return }
+    Self.logger.info("Listen Together: waiting for this device to be ready")
+    endReadinessSuspension = control.beginStallSuspension()
+    readinessGeneration += 1
+    let generation = readinessGeneration
+    schedule(Self.readinessLimit) { [weak self] in
+      MainActor.assumeIsolated {
+        guard let self, self.readinessGeneration == generation, let end = self.endReadinessSuspension else { return }
+        Self.logger.info("Listen Together: not ready within the limit; the group carries on")
+        self.endReadinessSuspension = nil
+        end()
+      }
+    }
+  }
+
+  private func endStalls() {
+    let piece = endStallSuspension, readiness = endReadinessSuspension
+    endStallSuspension = nil
+    endReadinessSuspension = nil
+    readinessGeneration += 1
+    piece?()
+    readiness?()
+  }
+
+  /// True while this device is stopped here (Option 1).
+  var isStoppedHere: Bool { endLocalStop != nil }
 
   /// The person sharing is missing: the group waits (one suspension, kept apart from piece stalls).
   func holdForSharer() {
@@ -169,25 +225,30 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     end()
   }
 
-  /// Audio interruption holds are independent of missing pieces and sharer absence.
-  func holdForInterruption() {
-    guard !isInvalidated, endInterruptionHold == nil else { return }
-    endInterruptionHold = control.beginStallSuspension()
+  /// Option 1: this listener stopped here (an audio interruption, headphones removed). The group plays
+  /// on: any wait this device held for the group ends, and a local suspension (which makes nobody
+  /// wait) keeps the coordinator from driving this device until it rejoins.
+  func beginLocalStop() {
+    guard !isInvalidated, endLocalStop == nil else { return }
+    Self.logger.info("Listen Together: stopped on this device; the group plays on")
+    endStalls()
+    endLocalStop = control.beginLocalSuspension()
   }
 
-  func releaseInterruptionHold() {
-    guard !isInvalidated, let end = endInterruptionHold else { return }
-    endInterruptionHold = nil
+  /// The local stop is over: the coordinator brings this device back to the group's current state.
+  func endLocalStopAndRejoin() {
+    guard !isInvalidated, let end = endLocalStop else { return }
+    Self.logger.info("Listen Together: back with the group")
+    endLocalStop = nil
     end()
     reapplyCurrentItemState()
   }
 
   func invalidate() {
     isInvalidated = true
-    endInterruptionHold?()
-    endInterruptionHold = nil
-    endStallSuspension?()
-    endStallSuspension = nil
+    endLocalStop?()
+    endLocalStop = nil
+    endStalls()
     endSharerHold?()
     endSharerHold = nil
     disposeBag.removeAll()
@@ -225,8 +286,10 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     return target.isReady(at: target.bookTime)
   }
 
+  /// A coordinator command asked this device to buffer: a missing piece already holds its own wait
+  /// (from the load); otherwise the wait is for readiness, and bounded.
   private func waitIfNotReady() {
-    if handleBuffering() { pieceBecameAvailable() } else { waitForPiece() }
+    if handleBuffering() { pieceBecameAvailable() } else { waitForReadiness() }
   }
 
   // MARK: Local changes -> coordinator
@@ -243,9 +306,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
     case .paused:
       // A deliberate Pause must reach the group, even when local preparation is suspended.
       // Clear the hold first; commands proposed during a suspension affect only this device.
-      let end = endStallSuspension
-      endStallSuspension = nil
-      end?()
+      endStalls()
       control.coordinateRateChange(to: 0)
     case .seeked(let to, _):
       control.coordinateSeek(to: to)
@@ -371,6 +432,11 @@ private final class DelegatingCoordinatorControl: ListenTogetherCoordinatorContr
     return suspensions.track(coordinator.beginSuspension(for: .stallRecovery))
   }
 
+  func beginLocalSuspension() -> () -> Void {
+    guard isConnectedToSession else { return {} }
+    return suspensions.track(coordinator.beginSuspension(for: .audioSessionInterrupted))
+  }
+
   func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float) {
     var timebase: CMTimebase?
     if let time, time.isFinite {
@@ -459,7 +525,7 @@ extension ListenTogetherCoordinatorBridge: AVPlaybackCoordinatorPlaybackControlD
   ) {
     let matches = bufferingCommand.expectedCurrentItemIdentifier == itemIdentifier
     Self.onMainInOrder {
-      if matches, !self.handleBuffering() { self.waitForPiece() }
+      if matches, !self.handleBuffering() { self.waitForReadiness() }
       completionHandler()
     }
   }

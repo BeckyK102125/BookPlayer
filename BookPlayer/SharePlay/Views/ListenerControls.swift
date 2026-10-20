@@ -130,7 +130,7 @@ struct ListenerTransportRow: View {
         listener.userTogglePlay()
       }
       // "Waiting for the book" / "Waiting for the person sharing": why Play does nothing.
-      .accessibilityValue(ListenTogetherStatus.waitingCaption(service.statusConditions) ?? "")
+      .accessibilityValue(ListenTogetherStatus.listenerPlayValue(service.statusConditions) ?? "")
       .accessibilityAddTraits(.startsMediaSession)
       .animation(reduceMotion ? nil : .default, value: listener.isPlaying)
       button(systemName: "goforward.30", label: ListenerSkip.forwardLabel, identifier: "listenTogether.skipForward") {

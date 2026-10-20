@@ -193,8 +193,14 @@ final class ListenTogetherRemoteCommands {
       // Idempotent: a repeated Play must not pause.
       if !listener.isPlaying { listener.userPlay() }
     case .pause:
-      // Pause must cancel pending recovery even while audio is temporarily stopped.
-      listener.userPause()
+      // M1: one rule for every control. While the group waits for this phone's piece, Pause does what
+      // the in-app button and the AirPods toggle do (nothing for the group; the reason is said).
+      // Otherwise it pauses, also while stopped here (it then stays stopped until Play).
+      if listener.isWaitingForPiece, listener.refusesUserActions {
+        listener.userTogglePlay()
+      } else {
+        listener.userPause()
+      }
     case .skipForward:
       listener.userSkip(by: Self.skipInterval)
     case .skipBackward:

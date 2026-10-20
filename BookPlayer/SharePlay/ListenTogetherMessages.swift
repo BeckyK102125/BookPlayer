@@ -37,6 +37,8 @@ enum ListenTogetherUserMessage: Hashable {
   case retryingSend
   /// Listener: the group waits for this device's piece (E6).
   case waitingForBook
+  /// Listener (Option 1): stopped on this phone while the group plays on.
+  case stoppedHere(ListenTogetherLocalStop)
   /// Build 5: the group paused because listeners left (P1-P4). `isSharer`: the sharer (who paused it,
   /// is spoken to and notified when away) or a remaining listener (status and one announcement).
   case pausedBecauseSomeoneLeft(ListenTogetherPauseCause, isSharer: Bool)
@@ -60,7 +62,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
       .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart:
       return .alert
-    case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft:
+    case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft, .stoppedHere:
       return .status
     case .sharerBack:
       return .announcement
@@ -86,6 +88,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerBack: return "listen_together_sharer_back".localized
     case .retryingSend: return "listen_together_send_failed".localized
     case .waitingForBook: return "listen_together_waiting_download".localized
+    case .stoppedHere(let stop): return stop.text
     case .pausedBecauseSomeoneLeft(let cause, _): return cause.text
     case .alertShownElsewhere(let text, _): return text
     }
@@ -108,6 +111,8 @@ enum ListenTogetherUserMessage: Hashable {
     case .sharerBack: return "sharerBack"
     case .retryingSend: return "retryingSend"
     case .waitingForBook: return "waitingForBook"
+    case .stoppedHere(.interrupted): return "stoppedHereInterrupted"
+    case .stoppedHere(.needsPlay): return "stoppedHereNeedsPlay"
     case .pausedBecauseSomeoneLeft: return Self.pauseKey
     case .alertShownElsewhere(_, let key): return key
     }
@@ -121,7 +126,7 @@ enum ListenTogetherUserMessage: Hashable {
       .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart, .waitingForSharer,
       .retryingSend, .alertShownElsewhere:
       return true
-    case .sharerBack, .waitingForBook:
+    case .sharerBack, .waitingForBook, .stoppedHere:
       return false
     case .pausedBecauseSomeoneLeft(_, let isSharer):
       // The sharer's book stopped without their action; remaining listeners are told by the status.

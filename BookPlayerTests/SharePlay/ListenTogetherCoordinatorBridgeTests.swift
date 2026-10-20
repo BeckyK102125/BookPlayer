@@ -42,6 +42,13 @@ private final class FakeCoordinatorControl: ListenTogetherCoordinatorControlling
     transitions.append(Transition(identifier: identifier, time: time, rate: rate))
   }
   func reapplyCurrentItemState() { log.append("reapply") }
+  var localBegun = 0
+  var localEnded = 0
+  func beginLocalSuspension() -> () -> Void {
+    localBegun += 1
+    log.append("local")
+    return { [weak self] in self?.localEnded += 1 }
+  }
 }
 
 @MainActor
@@ -254,6 +261,51 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     bridge.waitForPiece()
     bridge.handlePlay(itemTime: 5, rate: 1)
     XCTAssertEqual(control.suspensionsEnded, 2)
+  }
+
+  // MARK: Build 6 fix round 1: Option 1 and bounded waits
+
+  func testAReadinessWaitIsBoundedAndTheGroupCarriesOn() {
+    let (bridge, _, control) = makeBridge(ready: false)
+    var timers: [(TimeInterval, () -> Void)] = []
+    bridge.schedule = { timers.append(($0, $1)) }
+    bridge.waitForReadiness()
+    bridge.waitForReadiness()
+    XCTAssertEqual(control.suspensionsBegun, 1)
+    XCTAssertEqual(timers.map(\.0), [ListenTogetherCoordinatorBridge.readinessLimit])
+    timers[0].1()
+    XCTAssertEqual(control.suspensionsEnded, 1, "never an unbounded wait for one phone's decoder")
+  }
+
+  func testAReadinessWaitEndsWhenReadyAndItsLimitThenDoesNothing() {
+    let (bridge, target, control) = makeBridge(ready: false)
+    var timers: [() -> Void] = []
+    bridge.schedule = { timers.append($1) }
+    bridge.waitForReadiness()
+    target.ready = true
+    bridge.pieceBecameAvailable()
+    XCTAssertEqual(control.suspensionsEnded, 1)
+    timers.forEach { $0() }
+    XCTAssertEqual(control.suspensionsEnded, 1, "ended exactly once")
+  }
+
+  func testStoppingHereEndsThisPhonesWaitsAndNeverMakesTheGroupWait() {
+    let (bridge, _, control) = makeBridge(ready: false)
+    bridge.start(session: nil)
+    bridge.waitForPiece()
+    bridge.beginLocalStop()
+    XCTAssertEqual(control.suspensionsEnded, 1, "the group no longer waits for this phone")
+    XCTAssertEqual(control.localBegun, 1)
+    bridge.waitForPiece()
+    bridge.waitForReadiness()
+    bridge.handlePause(itemTime: 3, shouldBuffer: true)
+    XCTAssertEqual(control.suspensionsBegun, 1, "no wait while stopped here")
+    bridge.endLocalStopAndRejoin()
+    XCTAssertEqual(control.localEnded, 1)
+    XCTAssertEqual(control.log.last, "reapply", "the coordinator brings this phone to the group's state")
+    bridge.beginLocalStop()
+    bridge.invalidate()
+    XCTAssertEqual(control.localEnded, 2, "teardown ends it")
   }
 
   func testWaitingForTheSharerIsItsOwnSuspension() {

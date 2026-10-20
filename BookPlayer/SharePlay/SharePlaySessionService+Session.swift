@@ -465,9 +465,14 @@ extension SharePlaySessionService {
     // Path 3: whenever the player is at an arrived piece again (a placement, load, seek or play), a
     // stall that is no longer needed ends, so the group never waits for a piece nobody needs.
     player.onPositionReady = { [weak self] in self?.listenerPositionReady() }
-    player.onBufferingNeeded = { [weak bridge] in bridge?.waitForPiece() }
-    player.onInterruptionBegan = { [weak bridge] in bridge?.holdForInterruption() }
-    player.onInterruptionEnded = { [weak bridge] in bridge?.releaseInterruptionHold() }
+    player.onBufferingNeeded = { [weak bridge] in bridge?.waitForReadiness() }
+    player.onPieceWaitReopened = { [weak bridge] in bridge?.waitForPiece() }
+    // Option 1 (Becky, build 6 fix round 1): an interruption or headphone removal stops this phone
+    // only; the group plays on, and this phone rejoins at the group's current place.
+    player.onLocalStopBegan = { [weak bridge] in bridge?.beginLocalStop() }
+    player.onLocalStopEnded = { [weak bridge] in bridge?.endLocalStopAndRejoin() }
+    player.onActionWhileStoppedHere = { [weak self] in self?.listenerActionWhileStoppedHere() }
+    player.onReachedEndOfBook = { [weak self] in self?.listenerReachedEndOfBook() }
     player.onPieceFailed = { [weak self] index in self?.listenerPieceFailed(index) }
     // Play or pause while the group waits for this device's piece: nothing is sent; say why.
     player.onToggleWhileWaiting = { [weak self] in
@@ -496,7 +501,7 @@ extension SharePlaySessionService {
     }
     bridge.onGroupTimingKnown = { [weak self, weak player] time in
       player?.isJoiningGroup = false
-      self?.listenerFoundPlace(at: time, playing: player?.isPlaying == true)
+      self?.listenerFoundPlace(at: time, playing: player?.isPlayingForGroup == true)
     }
     bridge.onGroupTime = { [weak self] time in self?.reportInStep(at: time) }
     player.onProgressChanged = { [weak self] time, index in
@@ -514,6 +519,10 @@ extension SharePlaySessionService {
     player.$isPlaying
       .removeDuplicates()
       .sink { [weak self] playing in self?.setListenerPlaying(playing) }
+      .store(in: &localEventsBag)
+    player.$localStop
+      .removeDuplicates()
+      .sink { [weak self] stop in self?.setListenerLocalStop(stop) }
       .store(in: &localEventsBag)
     self.bridge = bridge
     setListener(player)
@@ -710,6 +719,21 @@ extension SharePlaySessionService {
     stopReceivingBeforeLeaving(transport)
     tearDown(reason: .ownCopyFailed, leaveTransport: false)
     if let transport { leaveTellingTheSharer(transport) }
+  }
+
+  /// Option 1: Play can't start yet (the interruption goes on), or a skip was pressed while stopped
+  /// here. The status already says why; it is said again at most once per 3 s.
+  private func listenerActionWhileStoppedHere() {
+    guard let stop = listener?.localStop ?? (listenerLocalStop), stoppedHereToggleLimiter.allows(at: now())
+    else { return }
+    announcer.announce(stop.text)
+  }
+
+  /// The group finished the book together: an own copy is marked finished like normal playback (M6).
+  private func listenerReachedEndOfBook() {
+    guard role == .listener, isUsingOwnCopy, let copy = progressOwnCopy else { return }
+    Self.logger.info("Listen Together: the book was finished together; marking the own copy finished")
+    progressLibrary?.markAsFinished(flag: true, relativePath: copy.relativePath)
   }
 
   private func listenerPositionReady() {
@@ -1455,7 +1479,7 @@ extension SharePlaySessionService {
       tearDown(reason: .sharerLeft)
       return
     }
-    let needsSharer = listener.map { $0.isPlaying || $0.isWaitingForPiece } ?? true
+    let needsSharer = listener.map { $0.isPlayingForGroup || $0.isWaitingForPiece } ?? true
     if !needsSharer {
       // Paused with nothing awaited: a sharer who paused and locked the phone is fine.
       lastSharerContact = now

@@ -26,7 +26,7 @@ final class ListenTogetherMessagesTests: XCTestCase {
 
   private static let allMessages: [Message] = [
     .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .everyoneLeft, .unavailable, .didntStart,
-    .waitingForSharer, .sharerBack, .retryingSend, .waitingForBook,
+    .waitingForSharer, .sharerBack, .retryingSend, .waitingForBook, .stoppedHere(.interrupted), .stoppedHere(.needsPlay),
     .alertShownElsewhere(text: "Couldn't open sharing", key: "needsFaceTime"),
   ]
 
@@ -505,6 +505,29 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertEqual(line.detail, "If they are not back within a minute, Listen Together ends.")
     XCTAssertEqual(line.spoken, "Waiting for the person sharing. If they are not back within a minute, Listen Together ends.")
     XCTAssertEqual(ListenTogetherStatus.waitingCaption(conditions), "Waiting for the person sharing")
+  }
+
+  /// Option 1 (I4, R41): a listener stopped on this phone sees why, near the controls, until it
+  /// changes; VoiceOver hears it once; nothing is spoken by the setting (it isn't an error).
+  func testStoppedHereIsAPersistentStatusAnnouncedOnce() {
+    let interrupted = Message.stoppedHere(.interrupted), needsPlay = Message.stoppedHere(.needsPlay)
+    XCTAssertEqual(interrupted.text, "Listen Together will continue when the interruption ends.")
+    XCTAssertEqual(needsPlay.text, "Stopped on this iPhone. Press Play to rejoin the others.")
+    for message in [interrupted, needsPlay] {
+      XCTAssertEqual(message.kind, .status)
+      XCTAssertFalse(message.speaks)
+      XCTAssertFalse(message.isEnding)
+      XCTAssertTrue(ListenTogetherMessageDelivery.plan(for: message, context: Self.active).announces)
+    }
+    XCTAssertNotEqual(interrupted.key, needsPlay.key)
+    let state = ListenTogetherState.listening(participants: 3, downloaded: 1)
+    let conditions = ListenTogetherStatusConditions(pauseCause: nil, localStop: .interrupted)
+    let line = try! XCTUnwrap(ListenTogetherStatus.line(for: state, conditions: conditions))
+    XCTAssertEqual(line.text, interrupted.text)
+    XCTAssertEqual(line.detail, ListenTogetherStatus.visibleText(for: state))
+    XCTAssertEqual(ListenTogetherStatus.listenerCaption(conditions), interrupted.text, "under the controls (Zoom)")
+    XCTAssertEqual(ListenTogetherStatus.listenerPlayValue(conditions), interrupted.text, "the Play button's value")
+    XCTAssertNil(ListenTogetherStatus.waitingCaption(conditions), "Play is not held: it rejoins")
   }
 
   func testWaitingForAPieceKeepsThePercentVisible() {

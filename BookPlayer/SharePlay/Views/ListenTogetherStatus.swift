@@ -20,6 +20,10 @@ struct ListenTogetherStatusConditions: Equatable {
   var isJoiningSlow = false
   /// Build 5: the group paused because listeners left, until someone plays (both roles).
   var pauseCause: ListenTogetherPauseCause?
+  /// Listener (Option 1): stopped on this phone while the group plays on.
+  var localStop: ListenTogetherLocalStop?
+  /// Sharer (decision B): the last listener vanished; Listen Together ends if nobody is back in a minute.
+  var isWaitingForListeners = false
 }
 
 /// One status line in the banner: a first line, an optional second line, what VoiceOver reads and the
@@ -104,6 +108,11 @@ enum ListenTogetherStatus {
         let detail = "listen_together_waiting_for_sharer_detail".localized
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, detail), icon: .hourglass)
       }
+      if let stop = conditions.localStop {
+        // Option 1: why this phone is silent while the others listen on.
+        let text = stop.text
+        return ListenTogetherStatusLine(text: text, detail: base, spoken: joined(text, baseSpoken), icon: .paused)
+      }
       if let cause = conditions.pauseCause {
         let text = cause.text
         return ListenTogetherStatusLine(text: text, detail: base, spoken: joined(text, baseSpoken), icon: .paused)
@@ -138,7 +147,9 @@ enum ListenTogetherStatus {
         return ListenTogetherStatusLine(text: text, detail: base, spoken: joined(text, baseSpoken), icon: .shareplay)
       }
     case .sharing:
-      let declined = conditions.someoneDeclined ? "listen_together_declined_no_copy".localized : nil
+      let declined = conditions.isWaitingForListeners
+        ? "listen_together_waiting_for_listeners_detail".localized
+        : (conditions.someoneDeclined ? "listen_together_declined_no_copy".localized : nil)
       if let cause = conditions.pauseCause {
         let text = cause.text
         let detail = declined ?? base
@@ -170,11 +181,17 @@ enum ListenTogetherStatus {
     return nil
   }
 
+  /// The listener's Play button value: why playback is held, or why this phone is stopped while the
+  /// group plays on (Option 1; Play then rejoins).
+  static func listenerPlayValue(_ conditions: ListenTogetherStatusConditions) -> String? {
+    waitingCaption(conditions) ?? conditions.localStop?.text
+  }
+
   /// The caption under a listener's play controls (Zoom): why playback is held, else (fix round 1,
   /// a11y M4) why the group paused because someone left. Hidden from VoiceOver; unlike `waitingCaption`
   /// it is never the Play value (Play works; the banner and row carry the pause for VoiceOver).
   static func listenerCaption(_ conditions: ListenTogetherStatusConditions) -> String? {
-    waitingCaption(conditions) ?? conditions.pauseCause?.text
+    waitingCaption(conditions) ?? conditions.localStop?.text ?? conditions.pauseCause?.text
   }
 
   /// Build 5 (1.4): the sharer's reason under the play controls (Zoom) and the play button's value:

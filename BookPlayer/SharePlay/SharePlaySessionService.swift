@@ -105,6 +105,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// Build 5: the group paused because listeners left (both roles), until someone plays. Shown as a
   /// status, the sharer's caption under Play and the row value; announced once per pause episode.
   @Published private(set) var pauseCause: ListenTogetherPauseCause?
+  /// Listener (Option 1): stopped on this phone while the group plays on (an interruption, headphones
+  /// removed). Persistent status near the controls, announced once per change.
+  @Published private(set) var listenerLocalStop: ListenTogetherLocalStop?
 
   /// What the status line needs besides the state.
   var statusConditions: ListenTogetherStatusConditions {
@@ -115,7 +118,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       someoneDeclined: someoneDeclined,
       isJoiningGroup: isListenerJoining,
       isJoiningSlow: isListenerJoiningSlow,
-      pauseCause: pauseCause)
+      pauseCause: pauseCause,
+      localStop: listenerLocalStop)
   }
 
   /// Every alert, announcement and spoken message goes through here (guidance A.2).
@@ -246,6 +250,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var waitingToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
   /// Play pressed while the person sharing is missing: "Waiting for the person sharing" at most every 2 s.
   var sharerWaitToggleLimiter = ListenTogetherRepeatLimiter(interval: 2)
+  /// A press that can't work while stopped here (Option 1): the status said again at most once per 3 s.
+  var stoppedHereToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
   /// A control pressed while finding the place: said at most once per 3 s (like the waiting message).
   var joiningToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
   /// Listener: a press was refused while finding the place ("Ready. Play works now." afterwards, M3).
@@ -458,6 +464,12 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     guard isListenerPlaying != value else { return }
     isListenerPlaying = value
     if !value { listenerStoppedPlaying() }
+  }
+  func setListenerLocalStop(_ value: ListenTogetherLocalStop?) {
+    guard listenerLocalStop != value else { return }
+    listenerLocalStop = value
+    // One announcement per change of reason; nothing when it ends (the sound comes back).
+    if let value { messages.deliver(.stoppedHere(value)) }
   }
   func setPausedByOther(_ value: Bool) { if isPausedByOther != value { isPausedByOther = value } }
   func setSomeoneDeclined(_ value: Bool) { if someoneDeclined != value { someoneDeclined = value } }
@@ -1230,6 +1242,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     awaitingAnonymousInStep = 0
     hasInStepSinceArm = false
     isListenerPlaying = false
+    listenerLocalStop = nil
+    stoppedHereToggleLimiter = ListenTogetherRepeatLimiter(interval: 3)
     isPausedByOther = false
     someoneDeclined = false
     if pauseCause != nil { messages.removePauseNotificationIfShown() }

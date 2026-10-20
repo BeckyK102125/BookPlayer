@@ -3,6 +3,25 @@ import BookPlayerKit
 import Combine
 import Foundation
 
+/// Why this listener is stopped while the group plays on (build 6 fix round 1, Becky's Option 1: the
+/// group never waits for one listener's audio interruption).
+enum ListenTogetherLocalStop: Equatable {
+  /// A call, Siri, an alarm or another app took the audio: playback continues here, at the group's
+  /// current place, when the interruption ends.
+  case interrupted
+  /// The headphones were removed, the interruption ended without permission to resume, or Pause was
+  /// pressed meanwhile: Play rejoins the group at its current place.
+  case needsPlay
+
+  /// The persistent status (and its one announcement).
+  var text: String {
+    switch self {
+    case .interrupted: return "listen_together_interrupted_here".localized
+    case .needsPlay: return "listen_together_stopped_here".localized
+    }
+  }
+}
+
 /// The listener's own player. It plays received pieces on the shared "book time" timeline. The next
 /// piece, once it has arrived, is queued behind the current one (`AVQueuePlayer`), so playback runs on
 /// across piece boundaries without a gap (addendum 3, decision 4). Remote commands (`apply*`) are never
@@ -37,10 +56,26 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
   /// is no longer needed can end (path 3).
   var onPositionReady: (() -> Void)?
-  /// Decoder/seek readiness and system interruptions are separate from missing file transfers.
+  /// Decoder/seek readiness: the group waits a bounded time for this device (separate from missing
+  /// file transfers).
   var onBufferingNeeded: (() -> Void)?
-  var onInterruptionBegan: (() -> Void)?
-  var onInterruptionEnded: (() -> Void)?
+  /// Play for a piece that is still missing after its wait was released (an explicit Pause): the
+  /// group waits for the piece again.
+  var onPieceWaitReopened: (() -> Void)?
+  /// Option 1: this listener stopped here while the group plays on (`localStop` became non-nil). The
+  /// bridge makes the coordinator stop sending this device the group's commands, without making
+  /// anyone wait.
+  var onLocalStopBegan: (() -> Void)?
+  /// The local stop is over (rejoined, or the group paused meanwhile): the coordinator brings this
+  /// device back to the group's current state.
+  var onLocalStopEnded: (() -> Void)?
+  /// A press did nothing because playback can't start here yet (the interruption goes on), or a skip
+  /// was pressed while stopped here: the service says why.
+  var onActionWhileStoppedHere: (() -> Void)?
+  /// The last piece played to its end (the book is finished).
+  var onReachedEndOfBook: (() -> Void)?
+  /// Why this listener is stopped while the group plays on; nil when it isn't.
+  @Published private(set) var localStop: ListenTogetherLocalStop?
   /// Shared book time and the actual source file; file durations can differ slightly between copies.
   var onProgressChanged: ((TimeInterval, Int) -> Void)?
   /// A received piece could not be played (its item failed): it was dropped and must come again.
@@ -68,8 +103,24 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   private var isStopped = false
   private var isAudioInterrupted = false
   private var requiresUserResume = false
-  private var hasInterruptionHold = false
   private var wantsPlayback = false
+  /// The group's own intent, from its commands: playing (with the last play's place, speed and time)
+  /// or paused. Kept while this device is stopped here, so it can rejoin at the group's current place.
+  private(set) var groupIsPlaying = false
+  private var lastGroupPlay: (time: TimeInterval, rate: Float, at: Date)?
+  /// Test seams: the clock, the audio session activation and the short delays.
+  var now: () -> Date = Date.init
+  var activateSession: (() -> Bool)?
+  var schedule: (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+  }
+  /// A wait to play shorter than this is not reported (the whole group would stall for it, M3).
+  static let bufferingGrace: TimeInterval = 1
+  private var bufferingGeneration = 0
+  /// An interrupted seek (`finished == false`) is tried again this many times before the file counts as
+  /// failed (I2).
+  static let seekRetryLimit = 2
+  private var seekRetries = 0
   /// The coordinator paused for buffering; preserve intent for an explicit cancellation, but do
   /// not let local readiness alone resume playback while other participants are still waiting.
   private var awaitingGroupPlayback = false
@@ -140,22 +191,25 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
         let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
           .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
         MainActor.assumeIsolated {
-          guard let self, !self.isStopped, reason == .oldDeviceUnavailable else { return }
-          Self.logger.info("Listen Together: listener audio route removed; requiring explicit Play")
-          self.userPause(requiringUserResume: true)
+          guard let self, reason == .oldDeviceUnavailable else { return }
+          self.audioRouteRemoved()
         }
       }
       .store(in: &disposeBag)
     NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
       .receive(on: DispatchQueue.main)
       .sink { [weak self] note in
-        let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
+        let info = note.userInfo
+        let type = (info?[AVAudioSessionInterruptionTypeKey] as? UInt)
           .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
         let options = AVAudioSession.InterruptionOptions(
-          rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+          rawValue: info?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+        // A stale `.began` delivered when a suspended app runs again (no `.ended` follows).
+        let wasSuspended = (info?[AVAudioSessionInterruptionReasonKey] as? UInt)
+          == AVAudioSession.InterruptionReason.appWasSuspended.rawValue
         MainActor.assumeIsolated {
           guard let self, let type else { return }
-          self.handleInterruption(type, shouldResume: options.contains(.shouldResume))
+          self.handleInterruption(type, shouldResume: options.contains(.shouldResume), wasSuspended: wasSuspended)
         }
       }
       .store(in: &disposeBag)
@@ -197,7 +251,17 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func applyPlay(at bookTime: TimeInterval, rate: Float) {
     guard !isStopped else { return }
     self.rate = rate
+    groupIsPlaying = true
+    lastGroupPlay = (bookTime, rate, now())
     awaitingGroupPlayback = false
+    if isAudioInterrupted || requiresUserResume {
+      // Option 1: the group plays on without this device. Keep the place current silently; never
+      // ask for a piece or make anyone wait for one from here.
+      wantsPlayback = false
+      beginLocalStop()
+      load(at: bookTime, requestIfMissing: false)
+      return
+    }
     wantsPlayback = true
     isHeldWhilePlaying = true
     if load(at: bookTime) {
@@ -205,7 +269,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     } else {
       // A preceding explicit Pause may have released the wait for this same missing file.
       // Reopen the hold without repeating the deduplicated transfer request.
-      onBufferingNeeded?()
+      onPieceWaitReopened?()
     }
   }
 
@@ -215,6 +279,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func applyPause(at bookTime: TimeInterval, shouldBuffer: Bool) {
     guard !isStopped else { return }
+    if !shouldBuffer {
+      groupIsPlaying = false
+      // The group paused: this device misses nothing now. (An interruption or headphone removal still
+      // keeps it from playing by itself later.)
+      endLocalStop()
+    }
+    if localStop != nil { return }
     awaitingGroupPlayback = shouldBuffer
     wantsPlayback = false
     player.pause()
@@ -229,6 +300,11 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func applySeek(to bookTime: TimeInterval) {
     guard !isStopped else { return }
+    if localStop != nil {
+      if groupIsPlaying { lastGroupPlay = (bookTime, rate, now()) }
+      load(at: bookTime, requestIfMissing: false)
+      return
+    }
     isHeldWhilePlaying = wantsPlayback
     if load(at: bookTime) { resumeIfReady() }
   }
@@ -238,7 +314,8 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func applyRate(_ newRate: Float) {
     guard !isStopped else { return }
     rate = newRate
-    if isPlaying { player.rate = newRate }
+    // Setting the rate of a paused AVPlayer would start it; only a running player takes it (M2).
+    if player.rate != 0 { player.rate = newRate }
   }
 
   // MARK: Local user actions (reported)
@@ -268,14 +345,20 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     }
     // Match the displayed control. A pending or blocked Play is not audible playback, and a
     // fresh Play after headphone removal must clear the explicit-resume requirement.
-    if isPlaying && !requiresUserResume { userPause() } else { userPlay() }
+    if isPlaying && localStop == nil { userPause() } else { userPlay() }
   }
 
-  func userPause(requiringUserResume: Bool = false) {
+  func userPause() {
     guard !isStopped else { return }
-    requiresUserResume = requiresUserResume || requiringUserResume || isAudioInterrupted || hasInterruptionHold
+    if localStop != nil || isAudioInterrupted {
+      // Stopped here already (Option 1): Pause keeps it that way, so the interruption ending doesn't
+      // start it by itself; nothing is sent, and the others hear nothing.
+      requiresUserResume = true
+      if localStop != nil { localStop = .needsPlay }
+      return
+    }
     // A repeated Pause is a no-op, but a silent player with pending recovery still needs cancellation.
-    guard wantsPlayback || awaitingGroupPlayback || isPlaying || hasInterruptionHold else { return }
+    guard wantsPlayback || awaitingGroupPlayback || isPlaying else { return }
     wantsPlayback = false
     awaitingGroupPlayback = false
     isHeldWhilePlaying = false
@@ -283,18 +366,35 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     player.pause()
     isPlaying = false
     bookTime = position
-    // Release our temporary hold before proposing a deliberate pause to the group.
-    releaseInterruptionHold()
     subject.send(.paused(at: position))
   }
 
   func userPlay() {
-    guard !isStopped, !isAudioInterrupted else { return }
+    guard !isStopped else { return }
     if isHeldForSharer { onToggleWhileHeldForSharer?(); return }
     if isJoiningGroup { onActionWhileJoining?(); return }
     if isWaitingForPiece, isHeldWhilePlaying { onToggleWhileWaiting?(); return }
-    requiresUserResume = false
-    releaseInterruptionHold()
+    if isAudioInterrupted || requiresUserResume || localStop != nil {
+      // Play works as soon as iOS lets the audio start again (Option 1).
+      guard activate() else {
+        Self.logger.info("Listen Together: Play while interrupted; the audio can't start yet")
+        onActionWhileStoppedHere?()
+        return
+      }
+      isAudioInterrupted = false
+      requiresUserResume = false
+      if groupIsPlaying {
+        // The group plays on: join it where it is now. Nothing is sent; the others hear nothing.
+        rejoin()
+        return
+      }
+      endLocalStop()
+    }
+    // Idempotent (M2): Play pressed again before the audio has started sends nothing more.
+    if wantsPlayback {
+      resumeIfReady()
+      return
+    }
     subject.send(.played(at: bookTime, rate: rate))
     applyPlay(at: bookTime, rate: rate)
   }
@@ -302,7 +402,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   func userSkip(by seconds: TimeInterval) { userJump(to: bookTime + seconds) }
 
   func userJump(to target: TimeInterval) {
-    guard !isStopped, !isAudioInterrupted else { return }
+    guard !isStopped else { return }
+    if localStop != nil {
+      // A skip from here would move the group for a device that isn't listening.
+      onActionWhileStoppedHere?()
+      return
+    }
     if isJoiningGroup {
       onActionWhileJoining?()
       return
@@ -342,11 +447,13 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     seekGeneration += 1
     pendingSeekOffset = nil
     disposeBag.removeAll()
-    onInterruptionBegan = nil
-    onInterruptionEnded = nil
+    onLocalStopBegan = nil
+    onLocalStopEnded = nil
     onBufferingNeeded = nil
     onPositionReady = nil
-    hasInterruptionHold = false
+    onReachedEndOfBook = nil
+    localStop = nil
+    bufferingGeneration += 1
     player.pause()
     player.removeAllItems()
     forgetItems(keeping: [])
@@ -390,6 +497,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     self.bookTime = bookTime
     onProgressChanged?(bookTime, piece.index)
     seekGeneration += 1
+    seekRetries = 0
     pendingSeekOffset = nil
     isSeeking = false
     isBuffering = false
@@ -430,18 +538,39 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     let generation = seekGeneration
     player.seek(to: CMTime(seconds: offset, preferredTimescale: 600),
                 toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak item] finished in
-      Task { @MainActor in
-        guard let self, !self.isStopped, self.seekGeneration == generation,
-          let item, self.player.currentItem === item else { return }
-        guard finished else {
-          self.itemFailed(item)
-          return
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          guard let self, let item else { return }
+          self.seekCompleted(finished: finished, generation: generation, item: item, offset: offset)
         }
-        self.isSeeking = false
-        self.positionBecameReady()
       }
     }
   }
+
+  /// A seek finished. Internal for tests. `finished == false` means it was interrupted (another seek,
+  /// or something else in AVFoundation), not that the file is broken (I2): the same seek is tried again
+  /// a couple of times; real failures come as a failed item status or a failed-to-end notification.
+  func seekCompleted(finished: Bool, generation: Int, item: AVPlayerItem, offset: TimeInterval) {
+    guard !isStopped, seekGeneration == generation, player.currentItem === item else { return }
+    guard finished else {
+      guard seekRetries < Self.seekRetryLimit else {
+        Self.logger.error("Listen Together: a seek kept being interrupted; treating the file as failed")
+        itemFailed(item)
+        return
+      }
+      seekRetries += 1
+      Self.logger.info("Listen Together: a seek was interrupted; trying it again")
+      pendingSeekOffset = offset
+      seekWhenReady()
+      return
+    }
+    seekRetries = 0
+    isSeeking = false
+    positionBecameReady()
+  }
+
+  /// The current seek's generation (tests).
+  var currentSeekGeneration: Int { seekGeneration }
 
   private func makeItem(url: URL, index: Int) -> AVPlayerItem {
     let item = AVPlayerItem(url: url)
@@ -537,9 +666,21 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     onPieceFailed?(index)
   }
 
-  private func itemFailed(_ item: AVPlayerItem) {
+  /// Internal for tests (the failure arriving before the queue's own bookkeeping, I3).
+  func itemFailed(_ item: AVPlayerItem) {
     let id = ObjectIdentifier(item)
     guard !isStopped, let index = pieceIndexByItem[id] else { return }
+    // I3: AVQueuePlayer may already have moved on to the queued piece before its KVO callback ran.
+    // Account for that first, so a failure of the piece that already played out is not charged to
+    // the healthy next one (and its queue is not torn down).
+    queueAdvanced()
+    if player.currentItem !== item, index != queuedPieceIndex, index != loadedPieceIndex {
+      Self.logger.error(
+        "Listen Together: piece \(index, privacy: .public) failed after it played out; the next piece plays on")
+      pieceIndexByItem.removeValue(forKey: id)
+      itemObservations.removeValue(forKey: id)
+      return
+    }
     // AVQueuePlayer may have advanced before our queued KVO callbacks. Snapshot the failed item's
     // position before removing it, rather than attributing its clock to the preceding file.
     let isCurrent = player.currentItem === item
@@ -608,6 +749,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     guard let index = loadedPieceIndex, let next = timeline.piece(after: index) else {
       wantsPlayback = false
       isPlaying = false
+      if loadedPieceIndex != nil { onReachedEndOfBook?() }
       return
     }
     // A missing next piece pauses us locally; the service decides what to tell the others.
@@ -620,58 +762,122 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     }
   }
 
-  private func handleInterruption(_ type: AVAudioSession.InterruptionType, shouldResume: Bool) {
+  /// An audio interruption (Option 1). Internal for tests. The group never waits for it: this device
+  /// stops here; it rejoins at the group's current place when the interruption ends (with permission
+  /// to resume) or when Play is pressed. A stale `.began` from a suspended app is ignored.
+  func handleInterruption(_ type: AVAudioSession.InterruptionType, shouldResume: Bool, wasSuspended: Bool = false) {
     guard !isStopped else { return }
     switch type {
     case .began:
+      guard !wasSuspended else {
+        Self.logger.info("Listen Together: ignoring a stale interruption (the app was suspended)")
+        return
+      }
       guard !isAudioInterrupted else { return }
-      Self.logger.info("Listen Together: listener audio interrupted; holding the group")
+      let wasPlayingForGroup = wantsPlayback || awaitingGroupPlayback || groupIsPlaying
+      Self.logger.info("Listen Together: listener audio interrupted (group playing=\(wasPlayingForGroup, privacy: .public)); the group plays on")
       bookTime = positionForSaving
       isAudioInterrupted = true
       sessionConfigured = false
       player.pause()
       isPlaying = false
-      if !hasInterruptionHold {
-        hasInterruptionHold = true
-        onInterruptionBegan?()
-      }
+      if wasPlayingForGroup { beginLocalStop() }
     case .ended:
       guard isAudioInterrupted else { return }
       isAudioInterrupted = false
-      requiresUserResume = requiresUserResume || !shouldResume
-      Self.logger.info("Listen Together: listener interruption ended; requires Play=\(self.requiresUserResume, privacy: .public)")
-      if !requiresUserResume {
-        // Release the hold and adopt the group's current state. Never propose an unconditional Play.
-        wantsPlayback = false
-        releaseInterruptionHold()
+      Self.logger.info(
+        "Listen Together: listener interruption ended (resume=\(shouldResume, privacy: .public), stopped here=\(self.localStop != nil, privacy: .public))")
+      // Nothing was missed (the group was paused): a later group Play plays here as usual.
+      guard localStop != nil else { return }
+      if shouldResume, !requiresUserResume {
+        if !rejoin() { localStop = .needsPlay; requiresUserResume = true }
       } else {
-        wantsPlayback = false
+        requiresUserResume = true
+        localStop = .needsPlay
       }
     @unknown default:
       break
     }
   }
 
-  private func releaseInterruptionHold() {
-    guard hasInterruptionHold else { return }
-    hasInterruptionHold = false
-    onInterruptionEnded?()
+  /// The headphones (or another output) went away (Option 1): stop here, never through the speaker
+  /// unasked; Play rejoins the group at its current place. The others hear nothing. Internal for tests.
+  func audioRouteRemoved() {
+    guard !isStopped else { return }
+    requiresUserResume = true
+    guard wantsPlayback || awaitingGroupPlayback || groupIsPlaying else { return }
+    Self.logger.info("Listen Together: listener audio route removed; stopped here until Play")
+    bookTime = positionForSaving
+    player.pause()
+    isPlaying = false
+    beginLocalStop()
+  }
+
+  /// This device stops while the group plays on.
+  private func beginLocalStop() {
+    wantsPlayback = false
+    awaitingGroupPlayback = false
+    isHeldWhilePlaying = false
+    isBuffering = false
+    bufferingGeneration += 1
+    let kind: ListenTogetherLocalStop = isAudioInterrupted && !requiresUserResume ? .interrupted : .needsPlay
+    let isNew = localStop == nil
+    if localStop != kind { localStop = kind }
+    if isNew { onLocalStopBegan?() }
+  }
+
+  private func endLocalStop() {
+    guard localStop != nil else { return }
+    localStop = nil
+    onLocalStopEnded?()
+  }
+
+  /// Back with the group, at its current place: ends the local stop (the coordinator then issues the
+  /// group's current state), and plays at once from the group's estimated place, which that command
+  /// corrects. Returns false if the audio can't start yet.
+  @discardableResult
+  private func rejoin() -> Bool {
+    guard activate() else {
+      onActionWhileStoppedHere?()
+      return false
+    }
+    isAudioInterrupted = false
+    requiresUserResume = false
+    endLocalStop()
+    guard groupIsPlaying, let last = lastGroupPlay else { return true }
+    let elapsed = max(0, now().timeIntervalSince(last.at))
+    let estimate = min(manifest.duration, last.time + elapsed * Double(last.rate))
+    Self.logger.info("Listen Together: rejoining the group at about \(estimate, privacy: .public)")
+    applyPlay(at: estimate, rate: last.rate)
+    return true
   }
 
   private func playbackStateChanged() {
     guard !isStopped else { return }
     queueAdvanced()
     let status = player.timeControlStatus
-    isPlaying = status == .playing && !isAudioInterrupted && !requiresUserResume
+    isPlaying = status == .playing && !isAudioInterrupted && !requiresUserResume && localStop == nil
     Self.logger.debug("Listen Together: listener playback state=\(status.rawValue, privacy: .public)")
-    if status == .waitingToPlayAtSpecifiedRate, !isSeeking, wantsPlayback, !isBuffering {
-      isBuffering = true
-      onBufferingNeeded?()
-      if let item = player.currentItem, item.isPlaybackLikelyToKeepUp || item.isPlaybackBufferFull {
-        isBuffering = false
-        positionBecameReady()
-      }
+    // M3: the end of the queue is not buffering, and a short wait (a file boundary) is not reported:
+    // only a wait that lasts `bufferingGrace` makes the group wait (and the bridge bounds that too).
+    guard status == .waitingToPlayAtSpecifiedRate, player.reasonForWaitingToPlay != .noItemToPlay,
+      !isSeeking, wantsPlayback, !isBuffering else { return }
+    bufferingGeneration += 1
+    let generation = bufferingGeneration
+    schedule(Self.bufferingGrace) { [weak self] in
+      MainActor.assumeIsolated { self?.bufferingGraceEnded(generation) }
     }
+  }
+
+  /// Still waiting to play after the grace: the group waits for this device (bounded by the bridge).
+  func bufferingGraceEnded(_ generation: Int) {
+    guard !isStopped, generation == bufferingGeneration, wantsPlayback, !isSeeking, !isBuffering,
+      player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+      player.reasonForWaitingToPlay != .noItemToPlay
+    else { return }
+    if let item = player.currentItem, item.isPlaybackLikelyToKeepUp || item.isPlaybackBufferFull { return }
+    isBuffering = true
+    onBufferingNeeded?()
   }
 
   private func positionBecameReady() {
@@ -681,9 +887,14 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   }
 
   private func resumeIfReady() {
-    guard !isStopped, wantsPlayback, !isAudioInterrupted, !requiresUserResume,
-      !isHeldForSharer, isReady(at: bookTime), activateSessionIfNeeded() else { return }
+    guard !isStopped, wantsPlayback, !isAudioInterrupted, !requiresUserResume, localStop == nil,
+      !isHeldForSharer, isReady(at: bookTime), activate() else { return }
     player.playImmediately(atRate: rate)
+  }
+
+  private func activate() -> Bool {
+    if let activateSession { return activateSession() }
+    return activateSessionIfNeeded()
   }
 
   private func activateSessionIfNeeded() -> Bool {

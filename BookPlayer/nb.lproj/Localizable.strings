@@ -630,3 +630,5 @@ Vi jobber hardt for å gi deg en sømløs opplevelse. Hvis mulig, kontakt oss p�
 "listen_together_row_value_sharer_quiet" = "can't reach the person sharing, %@";
 "listen_together_row_value_sharing_retrying" = "couldn't send part of the book, trying again, %@";
 "listen_together_own_copy_unplayable" = "Your copy of this book can't be played right now. You left Listen Together.";
+"listen_together_interrupted_here" = "Listen Together will continue when the interruption ends.";
+"listen_together_stopped_here" = "Stopped on this iPhone. Press Play to rejoin the others.";

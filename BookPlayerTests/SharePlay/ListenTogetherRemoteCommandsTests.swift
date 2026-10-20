@@ -100,17 +100,21 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
 
   // MARK: Routing
 
-  func testPauseCancelsSilentPendingPlaybackOnce() {
+  /// Audit 2 M1: one rule for every control. While the group waits for this phone's piece, the lock
+  /// screen's Pause does what the in-app button and the AirPods toggle do: nothing for the group, and
+  /// the reason is said.
+  func testLockScreenPauseWhileTheGroupWaitsForThisPhonesPieceIsRefusedLikeTheOtherControls() {
     let listener = startListening(at: 40)
     defer { listener.stop() }
+    var refused = 0
+    listener.onToggleWhileWaiting = { refused += 1 }
     listener.applyPlay(at: 40, rate: 1)
     XCTAssertFalse(listener.isPlaying)
+    XCTAssertTrue(listener.isWaitingForPiece)
+    _ = router.handle(.pause)
+    XCTAssertEqual(events, [], "the group is not paused for this phone's missing piece")
+    XCTAssertEqual(refused, 1, "the reason is said, as for the in-app button")
     XCTAssertTrue(listener.isPlayingForGroup)
-    _ = router.handle(.pause)
-    XCTAssertEqual(events, [.paused(at: 40)])
-    XCTAssertFalse(listener.isPlayingForGroup)
-    _ = router.handle(.pause)
-    XCTAssertEqual(events, [.paused(at: 40)])
     assertPlayerManagerUntouched()
   }
 
