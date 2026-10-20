@@ -273,3 +273,84 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
     XCTAssertEqual(control.suspensionsEnded, 3)
   }
 }
+
+/// Build 6 fix round 1 (the TSan crash in `figTimelineCoordinator_endSuspensionOnQueue`): every
+/// suspension ends exactly once, and its coordinator outlives the end until the end is processed.
+@MainActor
+final class ListenTogetherSuspensionLedgerTests: XCTestCase {
+  private final class Thing {}
+
+  private var ended: [ObjectIdentifier] = []
+  private var keptAlive: [[ObjectIdentifier]] = []
+
+  private func makeLedger(owner: AnyObject) -> ListenTogetherSuspensionLedger {
+    ListenTogetherSuspensionLedger(
+      owner: owner,
+      end: { [unowned self] in self.ended.append(ObjectIdentifier($0)) },
+      keepAliveAfterEnd: { [unowned self] in self.keptAlive.append($0.map(ObjectIdentifier.init)) })
+  }
+
+  func testEachSuspensionEndsExactlyOnceAndIsKeptAliveWithItsCoordinator() {
+    let coordinator = Thing(), first = Thing(), second = Thing()
+    let ledger = makeLedger(owner: coordinator)
+    let endFirst = ledger.track(first)
+    let endSecond = ledger.track(second)
+    XCTAssertEqual(ledger.activeCount, 2)
+    endFirst()
+    endFirst()
+    XCTAssertEqual(ended, [ObjectIdentifier(first)], "a second end is ignored")
+    XCTAssertEqual(keptAlive, [[ObjectIdentifier(coordinator), ObjectIdentifier(first)]])
+    ledger.endAll()
+    endSecond()
+    XCTAssertEqual(ended, [ObjectIdentifier(first), ObjectIdentifier(second)])
+    XCTAssertEqual(ledger.activeCount, 0)
+  }
+
+  func testAnOwnerReleasedWithoutInvalidateStillEndsItsSuspensions() {
+    let coordinator = Thing(), suspension = Thing()
+    var ledger: ListenTogetherSuspensionLedger? = makeLedger(owner: coordinator)
+    let end = ledger!.track(suspension)
+    ledger = nil
+    XCTAssertEqual(ended, [ObjectIdentifier(suspension)])
+    XCTAssertEqual(keptAlive, [[ObjectIdentifier(coordinator), ObjectIdentifier(suspension)]])
+    end()
+    XCTAssertEqual(ended.count, 1, "never ended twice")
+  }
+
+  func testKeepAliveHoldsUntilSettledAndAtLeastTheMinimum() {
+    var pending: [() -> Void] = []
+    var settled = false
+    weak var weakThing: Thing?
+    do {
+      let thing = Thing()
+      weakThing = thing
+      ListenTogetherKeepAlive.hold(
+        [thing], minimum: 1, maximum: 10, interval: 0.5, isSettled: { settled },
+        schedule: { _, work in pending.append(work) })
+    }
+    func step() { let work = pending.removeFirst(); work() }
+    step()   // 0 s
+    step()   // 0.5 s
+    XCTAssertNotNil(weakThing, "kept for the minimum")
+    settled = true
+    step()   // 1 s, settled
+    XCTAssertTrue(pending.isEmpty)
+    XCTAssertNil(weakThing, "released once settled")
+  }
+
+  func testKeepAliveGivesUpAtTheMaximum() {
+    var pending: [() -> Void] = []
+    weak var weakThing: Thing?
+    do {
+      let thing = Thing()
+      weakThing = thing
+      ListenTogetherKeepAlive.hold(
+        [thing], minimum: 1, maximum: 2, interval: 1, isSettled: { false },
+        schedule: { _, work in pending.append(work) })
+    }
+    var steps = 0
+    while !pending.isEmpty, steps < 10 { let work = pending.removeFirst(); work(); steps += 1 }
+    XCTAssertEqual(steps, 3)
+    XCTAssertNil(weakThing)
+  }
+}

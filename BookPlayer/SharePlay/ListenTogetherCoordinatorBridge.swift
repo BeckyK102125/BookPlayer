@@ -28,6 +28,7 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   nonisolated let itemIdentifier: String
   private var control: ListenTogetherCoordinatorControlling!
   private var realCoordinator: AVDelegatingPlaybackCoordinator?
+  private var realControl: DelegatingCoordinatorControl?
   private var endStallSuspension: (() -> Void)?
   /// A second suspension while a listener waits for the person sharing (addendum 3, decision 9).
   private var endSharerHold: (() -> Void)?
@@ -71,7 +72,9 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
       let coordinator = AVDelegatingPlaybackCoordinator(playbackControlDelegate: self)
       coordinator.suspensionReasonsThatTriggerWaiting = [.stallRecovery]
       self.realCoordinator = coordinator
-      self.control = DelegatingCoordinatorControl(coordinator: coordinator)
+      let control = DelegatingCoordinatorControl(coordinator: coordinator)
+      self.realControl = control
+      self.control = control
     }
     target.localEvents
       .sink { [weak self] event in self?.report(event) }
@@ -85,7 +88,10 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   func start(session: GroupSession<ListenTogetherActivity>?) {
     guard !isStarted, !isInvalidated, let target else { return }
     isStarted = true
-    if let session { realCoordinator?.coordinateWithSession(session) }
+    if let session {
+      realCoordinator?.coordinateWithSession(session)
+      realControl?.isConnectedToSession = true
+    }
     switch role {
     case .sharer:
       control.transitionToItem(
@@ -260,13 +266,96 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   }
 }
 
+/// Owns every suspension begun on one coordinator (build 6 fix round 1, the TSan crash).
+///
+/// `AVCoordinatedPlaybackSuspension.end()` only queues the end: CoreMedia finishes it later on its
+/// own queue (`figTimelineCoordinator_endSuspensionOnQueue`). Releasing the coordinator right after
+/// `end()` (teardown, or a test's service going away) let that queued block release a freed object
+/// (SEGV in `CFRelease`). So here:
+/// - each suspension ends exactly once, whichever closure or path asks first;
+/// - after an end, the coordinator and the suspension are handed to `keepAliveAfterEnd`, which keeps
+///   them alive until the coordinator has processed it;
+/// - anything still active when the ledger goes away (its owner was released without `invalidate`)
+///   is ended then, the same way, so no suspension outlives its owner unended.
+/// Used on the main thread only.
+final class ListenTogetherSuspensionLedger: @unchecked Sendable {
+  private var active: [Int: AnyObject] = [:]
+  private var nextID = 0
+  private let owner: AnyObject?
+  private let end: (AnyObject) -> Void
+  private let keepAliveAfterEnd: ([AnyObject]) -> Void
+
+  init(owner: AnyObject?, end: @escaping (AnyObject) -> Void, keepAliveAfterEnd: @escaping ([AnyObject]) -> Void) {
+    self.owner = owner
+    self.end = end
+    self.keepAliveAfterEnd = keepAliveAfterEnd
+  }
+
+  deinit { endAll() }
+
+  var activeCount: Int { active.count }
+
+  /// Tracks `suspension`; the returned closure ends it (once; later calls do nothing).
+  func track(_ suspension: AnyObject) -> () -> Void {
+    let id = nextID
+    nextID += 1
+    active[id] = suspension
+    return { [weak self] in self?.endSuspension(id) }
+  }
+
+  func endAll() {
+    for id in active.keys.sorted() { endSuspension(id) }
+  }
+
+  private func endSuspension(_ id: Int) {
+    guard let suspension = active.removeValue(forKey: id) else { return }
+    end(suspension)
+    keepAliveAfterEnd([owner, suspension].compactMap { $0 })
+  }
+}
+
+/// Keeps objects alive for a while on the main queue: at least `minimum`, then until `isSettled()` or
+/// `maximum`, checked every `interval`. `schedule` is a test seam.
+enum ListenTogetherKeepAlive {
+  static func hold(
+    _ objects: [AnyObject], minimum: TimeInterval = 1, maximum: TimeInterval = 10, interval: TimeInterval = 0.25,
+    isSettled: @escaping () -> Bool,
+    schedule: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+  ) {
+    var waited: TimeInterval = 0
+    func check() {
+      if waited >= maximum || (waited >= minimum && isSettled()) {
+        withExtendedLifetime(objects) {}
+        return
+      }
+      waited += interval
+      schedule(interval) { check() }
+    }
+    schedule(0) { check() }
+  }
+}
+
 /// Real coordinator adapter.
 @MainActor
 private final class DelegatingCoordinatorControl: ListenTogetherCoordinatorControlling {
   private let coordinator: AVDelegatingPlaybackCoordinator
+  private let suspensions: ListenTogetherSuspensionLedger
+  /// Suspensions only mean something to a coordinator connected to a group session. Ending one on a
+  /// coordinator that never was (tests; a session-less bridge) crashed inside CoreMedia
+  /// (`figTimelineCoordinator_endSuspensionOnQueue`, SEGV in `CFRelease`, build 6 fix round 1), so
+  /// none is begun then.
+  var isConnectedToSession = false
 
   init(coordinator: AVDelegatingPlaybackCoordinator) {
     self.coordinator = coordinator
+    self.suspensions = ListenTogetherSuspensionLedger(
+      owner: coordinator,
+      end: { ($0 as? AVCoordinatedPlaybackSuspension)?.end() },
+      keepAliveAfterEnd: { [weak coordinator] objects in
+        ListenTogetherKeepAlive.hold(objects, isSettled: { coordinator?.suspensionReasons.isEmpty ?? true })
+      })
   }
 
   func coordinateRateChange(to rate: Float) {
@@ -278,8 +367,8 @@ private final class DelegatingCoordinatorControl: ListenTogetherCoordinatorContr
   }
 
   func beginStallSuspension() -> () -> Void {
-    let suspension = coordinator.beginSuspension(for: .stallRecovery)
-    return { suspension.end() }
+    guard isConnectedToSession else { return {} }
+    return suspensions.track(coordinator.beginSuspension(for: .stallRecovery))
   }
 
   func transitionToItem(withIdentifier identifier: String?, proposingTime time: TimeInterval?, rate: Float) {
