@@ -39,6 +39,10 @@ enum ListenTogetherUserMessage: Hashable {
   case waitingForBook
   /// Listener (Option 1): stopped on this phone while the group plays on.
   case stoppedHere(ListenTogetherLocalStop)
+  /// Listener (option A): the person sharing has an interruption, or it ended and they must press Play.
+  case sharerInterruption(ListenTogetherSharerInterruption)
+  /// Sharer (option A): their own interruption keeps the group paused, or they must press Play.
+  case ownInterruption(ListenTogetherSharerInterruption)
   /// Build 5: the group paused because listeners left (P1-P4). `isSharer`: the sharer (who paused it,
   /// is spoken to and notified when away) or a remaining listener (status and one announcement).
   case pausedBecauseSomeoneLeft(ListenTogetherPauseCause, isSharer: Bool)
@@ -66,7 +70,7 @@ enum ListenTogetherUserMessage: Hashable {
       .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart:
       return .alert
     case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft, .stoppedHere,
-      .pausedWaitingForListeners:
+      .pausedWaitingForListeners, .sharerInterruption, .ownInterruption:
       return .status
     case .sharerBack:
       return .announcement
@@ -93,6 +97,10 @@ enum ListenTogetherUserMessage: Hashable {
     case .retryingSend: return "listen_together_send_failed".localized
     case .waitingForBook: return "listen_together_waiting_download".localized
     case .stoppedHere(let stop): return stop.text
+    case .sharerInterruption(.interrupted): return "listen_together_sharer_interrupted".localized
+    case .sharerInterruption(.needsPlay): return "listen_together_sharer_needs_play".localized
+    case .ownInterruption(.interrupted): return "listen_together_own_interruption".localized
+    case .ownInterruption(.needsPlay): return "listen_together_own_interruption_needs_play".localized
     case .pausedBecauseSomeoneLeft(let cause, _): return cause.text
     case .pausedWaitingForListeners(let cause):
       return cause.text + " " + "listen_together_waiting_for_listeners_detail".localized
@@ -120,6 +128,10 @@ enum ListenTogetherUserMessage: Hashable {
     case .stoppedHere(.interrupted): return "stoppedHereInterrupted"
     case .stoppedHere(.needsPlay): return "stoppedHereNeedsPlay"
     case .stoppedHere(.rejoining): return "stoppedHereRejoining"
+    case .sharerInterruption(.interrupted): return "sharerInterrupted"
+    case .sharerInterruption(.needsPlay): return "sharerNeedsPlay"
+    case .ownInterruption(.interrupted): return "ownInterruption"
+    case .ownInterruption(.needsPlay): return "ownInterruptionNeedsPlay"
     case .pausedBecauseSomeoneLeft, .pausedWaitingForListeners: return Self.pauseKey
     case .alertShownElsewhere(_, let key): return key
     }
@@ -133,7 +145,7 @@ enum ListenTogetherUserMessage: Hashable {
       .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart, .waitingForSharer,
       .retryingSend, .alertShownElsewhere:
       return true
-    case .sharerBack, .waitingForBook, .stoppedHere:
+    case .sharerBack, .waitingForBook, .stoppedHere, .sharerInterruption, .ownInterruption:
       return false
     case .pausedWaitingForListeners:
       return true
@@ -150,14 +162,16 @@ enum ListenTogetherUserMessage: Hashable {
   /// (fix round 1, a11y I1): a remaining listener with the phone locked also hears why the book stopped.
   var notifiesWhenAway: Bool {
     switch self {
-    case .pausedBecauseSomeoneLeft, .pausedWaitingForListeners, .stoppedHere(.needsPlay): return true
+    case .pausedBecauseSomeoneLeft, .pausedWaitingForListeners, .stoppedHere(.needsPlay), .sharerInterruption,
+      .ownInterruption(.needsPlay):
+      return true
     default: return false
     }
   }
 
   /// Fix round 3 (a11y I1): never said while away (the call or alarm is in front; the status stays for
   /// the return and the sound coming back is the cue).
-  var isSilentWhenAway: Bool { self == .stoppedHere(.interrupted) }
+  var isSilentWhenAway: Bool { self == .stoppedHere(.interrupted) || self == .ownInterruption(.interrupted) }
 
   /// The session ended because of someone else, or could not run at all.
   var isEnding: Bool {

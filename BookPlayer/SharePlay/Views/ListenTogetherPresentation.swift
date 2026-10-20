@@ -220,10 +220,10 @@ struct ListenTogetherListenerScreen: View {
   }
 }
 
-/// Shown between Join and the arrival of the book details. VoiceOver order: title (heading, first
+/// Shown between Join and the arrival of the book details. VoiceOver order: Done, title (heading, first
 /// focus), what happens next, status, then Leave Listen Together (full width under the status card, the
-/// screen's action). Two-finger Z closes the screen only, as on the player screen: the session and the
-/// download keep going and the Listen Together row brings it back.
+/// screen's action). Done and two-finger Z close the screen only, as on the player screen: the session
+/// and the download keep going and the Listen Together row brings it back.
 struct ListenerGettingBookView: View {
   @ObservedObject var service: SharePlaySessionService
   /// Leave Listen Together: asks through the listener screen.
@@ -237,6 +237,8 @@ struct ListenerGettingBookView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
+        // Closes the screen only, like the two-finger scrub; the download keeps going.
+        ListenTogetherDoneButton(action: onClose)
         Text(service.joinedTitle ?? "listen_together_title".localized)
           .bpFont(.titleLarge)
           .foregroundStyle(theme.primaryColor)

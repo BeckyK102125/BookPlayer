@@ -209,4 +209,57 @@ final class SharerPlaybackTargetTests: XCTestCase {
     speed.send(2)
     XCTAssertTrue(events.isEmpty)
   }
+
+  // MARK: Option A (Becky, 2026-10-20): the sharer's interruption keeps the group paused
+
+  func testAGroupPlayDuringTheSharersInterruptionNeverStartsItsAudio() {
+    let target = makeTarget()
+    mock.underlyingIsPlaying = true
+    target.handleInterruption(.began, shouldResume: false)
+    XCTAssertEqual(target.interruption, .interrupted)
+    target.applyPlay(at: 100, rate: 1)
+    target.applyPlay(at: 120, rate: 1)
+    XCTAssertEqual(mock.playCallsCount, 0, "PlayerManager.play() would fatalError if the session can't activate")
+    XCTAssertEqual(events, [.heldPaused(at: 100), .heldPaused(at: 100)], "the group is asked to stay paused")
+  }
+
+  func testTheInterruptionEndingWithPermissionResumesAGroupThatWasPlaying() {
+    let target = makeTarget()
+    mock.underlyingIsPlaying = true
+    target.handleInterruption(.began, shouldResume: false)
+    mock.underlyingIsPlaying = false   // the system paused it
+    target.handleInterruption(.ended, shouldResume: true)
+    XCTAssertNil(target.interruption)
+    XCTAssertEqual(mock.playCallsCount, 1, "the sharer resumes the group by itself")
+  }
+
+  func testTheInterruptionEndingWithoutPermissionWaitsForTheSharersPlay() {
+    let target = makeTarget()
+    mock.underlyingIsPlaying = true
+    target.handleInterruption(.began, shouldResume: false)
+    mock.underlyingIsPlaying = false
+    target.handleInterruption(.ended, shouldResume: false)
+    XCTAssertEqual(target.interruption, .needsPlay)
+    XCTAssertEqual(mock.playCallsCount, 0)
+    target.applyPlay(at: 100, rate: 1)
+    XCTAssertEqual(mock.playCallsCount, 0, "still never from the group")
+    playing.send(true)                 // the sharer pressed Play
+    XCTAssertNil(target.interruption)
+  }
+
+  func testAnInterruptionWhilePausedNeverResumesByItself() {
+    let target = makeTarget()
+    target.handleInterruption(.began, shouldResume: false)
+    target.handleInterruption(.ended, shouldResume: true)
+    XCTAssertEqual(target.interruption, .needsPlay, "the group was paused: the sharer decides")
+    XCTAssertEqual(mock.playCallsCount, 0)
+  }
+
+  func testAStaleInterruptionFromASuspendedAppIsIgnored() {
+    let target = makeTarget()
+    target.handleInterruption(.began, shouldResume: false, wasSuspended: true)
+    XCTAssertNil(target.interruption)
+    target.applyPlay(at: 100, rate: 1)
+    XCTAssertEqual(mock.playCallsCount, 1)
+  }
 }

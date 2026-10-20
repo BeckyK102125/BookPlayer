@@ -1498,3 +1498,52 @@ Brief: build6-fix-round-3.md. Reviews: build6-code-review-2026-10-20.md (I1-I3, 
   is set.
 - Results (sim 98A8CF98): SharePlay 698/0 twice; full suite "Executed 1274 tests, with 0 failures" ** TEST EXECUTE SUCCEEDED **;
   TSan x3 698/0 each, 0 DEADLYSIGNAL, 0 warnings, 0 restarts.
+
+## 2026-10-20 - Accessibility audit of the fork, fixes 1-4 (branch listen-together-build6, uncommitted)
+- Audit of every Listen Together screen plus the fork's edits to MainView, PlayerView, mini players. Findings reported
+  to Becky; she approved fixes 1-4 with a "Done" button.
+- 1 (serious, WCAG 2.1.1): the listener screen and "Getting the book" could only be closed with the VoiceOver
+  two-finger scrub; Zoom/Voice Control/Switch Control/keyboard users had only Leave. Added `ListenTogetherDoneButton`
+  (ListenerPlayerView.swift; top trailing, existing `done_title`, chevron.down, outline capsule in primary, 44 pt,
+  hint `listen_together_done_hint` added English to all 26 lproj) calling the same `onClose` as escape (R35 kept:
+  closes only). Guide lines for closing updated.
+- 2-4 (ListenerChaptersView): current-chapter checkmark link -> primary (1.4.11); duration secondary -> primary
+  (1.4.3); theme row background + plain list style via `applyListStyle` like the player's ChaptersView; Close button
+  in primary.
+- Not fixed (reported, parked): iOS 26.0 accessory sharer status is VoiceOver-only and static; accessory row Dynamic
+  Type cap without Large Content Viewer; MainView stack animation ignores Reduce Motion; Settings value VO-only.
+- Another session had uncommitted I2 work in the same checkout at the same time (SharerPlaybackTarget, service,
+  tests, 10 strings, guide); nothing committed here so the two aren't mixed.
+- Results (sim 98A8CF98, default DerivedData): build-for-testing EXIT 0, 0 errors (tree included the other session's
+  uncommitted I2 work). Row + Contrast + LeaveAlert + SharePlayMenu tests: 47/0 ** TEST EXECUTE SUCCEEDED **. A first
+  attempt ran at the same time as another session's test run on the same simulator and failed before any test ran
+  (no counts); the rerun alone passed. No device or VoiceOver/Zoom check yet.
+
+## 2026-10-20 — sharer interruption keeps the group paused (option A; branch listen-together-build6, parent 68941208)
+Becky's ruling on code I2: option A. The sharer's audio interruption is tracked in `SharerPlaybackTarget`
+(`interruption: ListenTogetherSharerInterruption?`; the target's own `AVAudioSession.interruptionNotification`
+observer; stale `appWasSuspended` ignored; PlayerManager.swift untouched).
+- While it is set, a group Play never calls `PlayerManager.play()`. It sends `.heldPaused` instead, which the bridge turns
+  into `coordinateRateChange(0)` after the command has completed; it is never sent as an action. `.ended` with
+  `shouldResume`, when the shared book was playing (playing, or stopped within the last 2 s): the target plays (only if
+  PlayerManager hasn't already). Otherwise `.needsPlay`, which the sharer's own Play clears (`handleIsPlaying(true)`).
+- The service relays it as `.sharerInterrupted` and `.sharerInterruptionEnded(resumed:)` (new `ListenTogetherMessage`
+  cases).
+- Listeners get the status, Play value, caption and row "The person sharing has an interruption. Listen Together will
+  continue when it ends.", announced once, or a notification when away. Play, skips and speed are refused
+  (`ListenerPlayer.isSharerInterrupted`) with that reason, at most every 3 s. Not resumed: "Paused. Waiting for the
+  person sharing to press Play." `.action(.resumed)` clears it.
+- The sharer's own status: "Paused for your interruption. Listen Together will continue when it ends." (never said away),
+  then "Press Play to continue Listen Together." (a notification when away).
+- a11y M8: the sharer's pause goes out as `RemoteAction.pausedBySharer`: "The person sharing paused" / "Paused by the
+  person sharing". It is held 1.5 s so a `.sharerInterrupted` right after is the only message.
+- Tests: SharerPlaybackTarget (play() never called while interrupted or waiting for Play; resume rules; while paused;
+  stale), service sharer (messages sent, statuses, no play()), listener (one message, refusals, no sends, needs-Play,
+  silent resume, row values, away plans, the named pause).
+- Results: SharePlay 709/0; full 1285/0 ** TEST EXECUTE SUCCEEDED **.
+- TSan: the first two runs ended with "Test crashed with signal term" (SIGTERM, no DEADLYSIGNAL, no TSan report, each in a
+  different test). At the time another Claude session was running `test-without-building` on the same simulator in this
+  checkout (an a11y check, load average 114). After it finished: TSan build plus one run, 709/0, 0 crashes, 0 warnings,
+  0 restarts.
+- Not done: late joiners during the sharer's interruption don't get the status (they would see "paused"). The listener's
+  roster-based last-listener check (code M10) is unchanged.

@@ -6,6 +6,8 @@ enum ListenTogetherAnnouncements {
     switch action {
     case .paused:
       return "listen_together_remote_paused".localized
+    case .pausedBySharer:
+      return "listen_together_remote_paused_by_sharer".localized
     case .resumed:
       return "listen_together_remote_resumed".localized
     case .skipped(let seconds):

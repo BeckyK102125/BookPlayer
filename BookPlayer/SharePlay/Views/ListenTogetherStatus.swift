@@ -24,6 +24,12 @@ struct ListenTogetherStatusConditions: Equatable {
   var localStop: ListenTogetherLocalStop?
   /// Sharer (decision B): the last listener vanished; Listen Together ends if nobody is back in a minute.
   var isWaitingForListeners = false
+  /// Option A. Listener: the person sharing has an interruption (or must press Play after it).
+  var sharerInterruption: ListenTogetherSharerInterruption?
+  /// Option A. Sharer: their own interruption.
+  var ownInterruption: ListenTogetherSharerInterruption?
+  /// a11y M8: the pause was the person sharing's ("Paused by the person sharing").
+  var isPausedBySharer = false
 }
 
 /// One status line in the banner: a first line, an optional second line, what VoiceOver reads and the
@@ -108,6 +114,11 @@ enum ListenTogetherStatus {
         let detail = "listen_together_waiting_for_sharer_detail".localized
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, detail), icon: .hourglass)
       }
+      if let interruption = conditions.sharerInterruption {
+        // Option A: why the group is paused and Play does nothing.
+        let text = ListenTogetherUserMessage.sharerInterruption(interruption).text
+        return ListenTogetherStatusLine(text: text, detail: base, spoken: joined(text, baseSpoken), icon: .paused)
+      }
       if let stop = conditions.localStop {
         // Option 1: why this phone is silent while the others listen on.
         let text = stop.text
@@ -143,10 +154,15 @@ enum ListenTogetherStatus {
         return ListenTogetherStatusLine(text: text, detail: nil, spoken: text, icon: .hourglass)
       }
       if conditions.isPausedByOther {
-        let text = "listen_together_status_paused_by_other".localized
+        let text = (conditions.isPausedBySharer
+          ? "listen_together_status_paused_by_sharer" : "listen_together_status_paused_by_other").localized
         return ListenTogetherStatusLine(text: text, detail: base, spoken: joined(text, baseSpoken), icon: .shareplay)
       }
     case .sharing:
+      if let own = conditions.ownInterruption {
+        let text = ListenTogetherUserMessage.ownInterruption(own).text
+        return ListenTogetherStatusLine(text: text, detail: base, spoken: joined(text, base), icon: .paused)
+      }
       let declined = conditions.isWaitingForListeners
         ? "listen_together_waiting_for_listeners_detail".localized
         : (conditions.someoneDeclined ? "listen_together_declined_no_copy".localized : nil)
@@ -160,7 +176,8 @@ enum ListenTogetherStatus {
         return ListenTogetherStatusLine(text: text, detail: declined, spoken: joined(text, declined), icon: .warning)
       }
       if conditions.isPausedByOther {
-        let text = "listen_together_status_paused_by_other".localized
+        let text = (conditions.isPausedBySharer
+          ? "listen_together_status_paused_by_sharer" : "listen_together_status_paused_by_other").localized
         let detail = declined ?? base
         return ListenTogetherStatusLine(text: text, detail: detail, spoken: joined(text, detail), icon: .shareplay)
       }
@@ -176,6 +193,9 @@ enum ListenTogetherStatus {
   /// playback isn't held.
   static func waitingCaption(_ conditions: ListenTogetherStatusConditions) -> String? {
     if conditions.isSharerGraceRunning { return "listen_together_waiting_for_sharer".localized }
+    if let interruption = conditions.sharerInterruption {
+      return ListenTogetherUserMessage.sharerInterruption(interruption).text
+    }
     if conditions.isWaitingForPiece { return "listen_together_waiting_download".localized }
     if conditions.isJoiningGroup { return "listen_together_finding_place".localized }
     return nil
@@ -201,6 +221,7 @@ enum ListenTogetherStatus {
     for state: ListenTogetherState, conditions: ListenTogetherStatusConditions
   ) -> String? {
     guard case .sharing = state else { return nil }
+    if let own = conditions.ownInterruption { return ListenTogetherUserMessage.ownInterruption(own).text }
     return conditions.pauseCause?.text
   }
 

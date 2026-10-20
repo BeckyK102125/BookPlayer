@@ -1359,6 +1359,40 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     XCTAssertEqual(service.state, .ended(reason: .everyoneLeft))
   }
 
+  // MARK: Option A: the sharer's own interruption
+
+  func testTheSharersInterruptionTellsListenersAndKeepsTheGroupPaused() async throws {
+    let (service, transport) = await makeSharer(listeners: [a])
+    let target = try XCTUnwrap(service.sharerTarget)
+    posted = []
+    target.handleInterruption(.began, shouldResume: false)
+    await waitUntil { transport.sent.contains(.sharerInterrupted) }
+    XCTAssertEqual(service.ownInterruption, .interrupted)
+    XCTAssertEqual(
+      ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text,
+      "Paused for your interruption. Listen Together will continue when it ends.")
+    service.bridge?.handlePlay(itemTime: 100, rate: 1)    // a listener's Play reaches the sharer
+    XCTAssertEqual(playerManager.playCallsCount, 0)
+    target.handleInterruption(.ended, shouldResume: false)
+    await waitUntil { transport.sent.contains(.sharerInterruptionEnded(resumed: false)) }
+    XCTAssertEqual(service.ownInterruption, .needsPlay)
+    XCTAssertEqual(
+      ListenTogetherStatus.sharerPauseCaption(for: service.state, conditions: service.statusConditions),
+      "Press Play to continue Listen Together.")
+    XCTAssertEqual(playerManager.playCallsCount, 0)
+  }
+
+  func testTheSharersInterruptionEndingWithPermissionResumesTheGroup() async throws {
+    let (service, transport) = await makeSharer(listeners: [a])
+    let target = try XCTUnwrap(service.sharerTarget)
+    target.handleInterruption(.began, shouldResume: false)
+    playerManager.underlyingIsPlaying = false
+    target.handleInterruption(.ended, shouldResume: true)
+    await waitUntil { transport.sent.contains(.sharerInterruptionEnded(resumed: true)) }
+    XCTAssertNil(service.ownInterruption)
+    XCTAssertEqual(playerManager.playCallsCount, 1)
+  }
+
   func testTheWaitEndsAtOnceIfIOSTakesTheBackgroundTimeBack() async {
     let (service, transport) = await makeSharer(listeners: [a])
     transport.emit(.participantsChanged(count: 1, ids: [me]))

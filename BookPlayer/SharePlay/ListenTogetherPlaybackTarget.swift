@@ -9,6 +9,9 @@ enum LocalPlaybackEvent: Equatable {
   /// Sharer only: a group time was ignored because the group has not yet been seen at the sharer's
   /// place (start-position fix D). The group is asked to seek to `at`. Never a message to others.
   case reasserted(at: TimeInterval)
+  /// Sharer only (option A): a group Play arrived during the sharer's interruption; the group is asked
+  /// to stay paused. Never a message to others (they are told by `.sharerInterrupted`).
+  case heldPaused(at: TimeInterval)
 }
 
 @MainActor

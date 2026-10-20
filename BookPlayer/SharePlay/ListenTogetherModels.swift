@@ -64,6 +64,8 @@ struct ListenTogetherPauseCause: Codable, Equatable, Hashable {
 
 enum RemoteAction: Codable, Equatable {
   case paused
+  /// The person sharing paused (a11y M8: named as such, not as "another listener").
+  case pausedBySharer
   case resumed
   case skipped(seconds: Int)
   case movedToChapter(title: String)
@@ -98,6 +100,11 @@ enum ListenTogetherMessage: Codable, Equatable {
   /// Sharer -> listeners (build 5): the group paused because someone left. Sent instead of
   /// `.action(.paused)` for that pause, so everyone reads the same sentence once.
   case groupPaused(ListenTogetherPauseCause)
+  /// Sharer -> listeners (option A): the sharer has an audio interruption; the group stays paused.
+  case sharerInterrupted
+  /// Sharer -> listeners: the interruption ended. `resumed`: the group plays again; otherwise it waits
+  /// for the sharer's Play.
+  case sharerInterruptionEnded(resumed: Bool)
 
   /// The kind of message, for logs (never its contents).
   var kind: String {
@@ -114,6 +121,8 @@ enum ListenTogetherMessage: Codable, Equatable {
     case .inStep: return "inStep"
     case .listenerLeaving: return "listenerLeaving"
     case .groupPaused: return "groupPaused"
+    case .sharerInterrupted: return "sharerInterrupted"
+    case .sharerInterruptionEnded: return "sharerInterruptionEnded"
     }
   }
 }

@@ -3,6 +3,14 @@ import BookPlayerKit
 import Combine
 import Foundation
 
+/// The person sharing has an audio interruption (Becky's option A, 2026-10-20): the group stays paused.
+enum ListenTogetherSharerInterruption: Equatable {
+  /// A call, Siri, an alarm or another app has the sharer's audio: the group continues when it ends.
+  case interrupted
+  /// It ended without permission to resume (or the book wasn't playing): the sharer presses Play.
+  case needsPlay
+}
+
 /// Drives the sharer's normal player through its protocol. PlayerManager itself is not modified.
 ///
 /// Start-position fix D (build 4): `PlayerManager.jumpTo` always saves the new time as the book's
@@ -51,6 +59,12 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   static let reassertInterval: TimeInterval = 3
 
   var localEvents: AnyPublisher<LocalPlaybackEvent, Never> { subject.eraseToAnyPublisher() }
+  /// Option A: the sharer's own audio interruption. While set, the group's play never reaches
+  /// `PlayerManager.play()` (whose session activation failure is a fatalError outside TestFlight).
+  @Published private(set) var interruption: ListenTogetherSharerInterruption?
+  /// The shared book was playing when it was interrupted (so it resumes the group when allowed).
+  private var resumesAfterInterruption = false
+  private var lastStoppedPlayingAt: Date?
   /// The shared book's place: the player's while it holds that book, else where the share started
   /// (never 0, or another book's time, just because the player holds something else).
   var bookTime: TimeInterval {
@@ -127,6 +141,23 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
     seekTimer = Timer.scheduledTimer(withTimeInterval: seekCheckInterval, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { if let self { self.checkForSeek(now: self.now()) } }
     }
+
+    NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] note in
+        let info = note.userInfo
+        let type = (info?[AVAudioSessionInterruptionTypeKey] as? UInt)
+          .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+        let options = AVAudioSession.InterruptionOptions(
+          rawValue: info?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+        let wasSuspended = (info?[AVAudioSessionInterruptionReasonKey] as? UInt)
+          == AVAudioSession.InterruptionReason.appWasSuspended.rawValue
+        MainActor.assumeIsolated {
+          guard let self, let type else { return }
+          self.handleInterruption(type, shouldResume: options.contains(.shouldResume), wasSuspended: wasSuspended)
+        }
+      }
+      .store(in: &disposeBag)
 
     // Upstream PlayerManager keeps playing when headphones disconnect. During a session that would
     // leave everyone else listening while this phone plays out loud, so pause (reported as local).
@@ -231,6 +262,12 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   }
 
   func applyPlay(at bookTime: TimeInterval, rate: Float) {
+    if interruption != nil {
+      // Option A: never start the sharer's audio during its interruption; the group stays paused.
+      Self.logger.info("Listen Together: group Play during the sharer's interruption; keeping the group paused")
+      subject.send(.heldPaused(at: self.bookTime))
+      return
+    }
     if abs(rate - playerManager.currentSpeed) > 0.001 {
       expectedRate = (rate, now())
       playerManager.setSpeed(rate)
@@ -293,7 +330,46 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
     playerManager.setSpeed(rate)
   }
 
+  /// The sharer's audio interruption (option A). Internal for tests. A stale `.began` from a suspended
+  /// app is ignored. `.ended` with permission resumes the group if it was playing; otherwise the
+  /// sharer is asked to press Play.
+  func handleInterruption(_ type: AVAudioSession.InterruptionType, shouldResume: Bool, wasSuspended: Bool = false) {
+    switch type {
+    case .began:
+      guard !wasSuspended else {
+        Self.logger.info("Listen Together: ignoring a stale sharer interruption (the app was suspended)")
+        return
+      }
+      guard interruption != .interrupted else { return }
+      let stoppedJustNow = lastStoppedPlayingAt.map { now().timeIntervalSince($0) < 2 } ?? false
+      resumesAfterInterruption = holdsSharedBook && (playerManager.isPlaying || stoppedJustNow)
+      Self.logger.info("Listen Together: the sharer is interrupted (was playing=\(self.resumesAfterInterruption, privacy: .public))")
+      interruption = .interrupted
+    case .ended:
+      guard interruption == .interrupted else { return }
+      if shouldResume, resumesAfterInterruption {
+        Self.logger.info("Listen Together: the sharer's interruption ended; resuming the group")
+        interruption = nil
+        resumesAfterInterruption = false
+        // PlayerManager may already have resumed by itself; its play is reported to the group as usual.
+        if !playerManager.isPlaying { playerManager.play() }
+      } else {
+        Self.logger.info("Listen Together: the sharer's interruption ended; waiting for the sharer's Play")
+        resumesAfterInterruption = false
+        interruption = .needsPlay
+      }
+    @unknown default:
+      break
+    }
+  }
+
   private func handleIsPlaying(_ playing: Bool) {
+    if !playing { lastStoppedPlayingAt = now() }
+    if playing, interruption != nil {
+      // The sharer's own audio plays again (their Play, or the system resumed it): it is over.
+      interruption = nil
+      resumesAfterInterruption = false
+    }
     let expected = expectedIsPlaying
     expectedIsPlaying = nil
     if let expected, expected.value == playing,

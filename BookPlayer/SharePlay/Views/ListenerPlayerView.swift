@@ -8,10 +8,10 @@ enum ListenerFocus: Hashable {
 }
 
 /// The listener's player during Listen Together, shown as a full-screen cover from MainView while
-/// `SharePlaySessionService.listener` exists. VoiceOver order: title (heading, first focus), author,
-/// chapter, status, End, position, skip back, play/pause, skip forward, chapters, speed.
-/// Two-finger Z closes the screen only (R35): the session keeps playing and the Listen Together row
-/// brings it back. Ending is only through the labelled End button.
+/// `SharePlaySessionService.listener` exists. VoiceOver order: Done, title (heading, first focus),
+/// author, chapter, status, End, position, skip back, play/pause, skip forward, chapters, speed.
+/// Done and two-finger Z close the screen only (R35): the session keeps playing and the Listen Together
+/// row brings it back. Ending is only through the labelled End button.
 struct ListenerPlayerView: View {
   let service: SharePlaySessionService
   /// Not observed here: its time ticks twice a second, so only the small subviews observe it.
@@ -36,6 +36,7 @@ struct ListenerPlayerView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
+        ListenTogetherDoneButton(action: onClose)
         ListenerHeaderView(listener: listener, focus: $focus)
         ListenTogetherBanner(service: service, onRequestLeave: onRequestLeave)
         ListenerPositionView(listener: listener)
@@ -84,6 +85,41 @@ struct ListenerPlayerView: View {
     Task {
       try? await Task.sleep(for: .milliseconds(400))
       focus = .chapter
+    }
+  }
+}
+
+/// Done, at the top trailing edge of the listener screens: closes the screen only, exactly like the
+/// two-finger scrub (R35), for everyone who can't use that gesture (Zoom, Voice Control, Switch Control,
+/// keyboard, no assistive technology). It never ends, leaves, pauses or starts anything. Same outline
+/// capsule as the session button (R40): primary colour (at least 6.40:1), 44 pt, Dynamic Type.
+struct ListenTogetherDoneButton: View {
+  let action: () -> Void
+  @EnvironmentObject private var theme: ThemeViewModel
+
+  var body: some View {
+    HStack {
+      Spacer(minLength: 0)
+      Button(action: action) {
+        Label {
+          Text("done_title".localized)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+          Image(systemName: "chevron.down").accessibilityHidden(true)
+        }
+        .bpFont(.body)
+        .foregroundStyle(theme.primaryColor)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(minWidth: 44, minHeight: 44)
+        .overlay(Capsule().stroke(theme.primaryColor, lineWidth: 1.5))
+        .contentShape(Capsule())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("done_title".localized)
+      .accessibilityHint("listen_together_done_hint".localized)
+      .accessibilityIdentifier("listenTogether.done")
     }
   }
 }

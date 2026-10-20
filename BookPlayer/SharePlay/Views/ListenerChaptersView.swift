@@ -21,8 +21,13 @@ struct ListenerChaptersView: View {
             row(chapter, isCurrent: index == currentIndex)
               .id(index)
               .accessibilityFocused($focusedIndex, equals: index)
+              // The theme's background, as the player's chapters list: primary text on the default row
+              // background drops below 4.5:1 in some themes (Sky dark).
+              .listRowBackground(theme.systemBackgroundColor)
           }
         }
+        .listStyle(.plain)
+        .applyListStyle(with: theme, background: theme.systemBackgroundColor)
         .task {
           guard let currentIndex else { return }
           proxy.scrollTo(currentIndex, anchor: .center)
@@ -36,6 +41,8 @@ struct ListenerChaptersView: View {
         ToolbarItem(placement: .cancellationAction) {
           Button("voiceover_close_button".localized) { dismiss() }
             .bpFont(.body)
+            // Primary (A5): on the theme background the system tint and link colour can fall below 3:1.
+            .foregroundStyle(theme.primaryColor)
         }
       }
     }
@@ -62,10 +69,12 @@ struct ListenerChaptersView: View {
           Text(TimeParser.formatTime(chapter.duration))
             .bpFont(.footnote)
             .monospacedDigit()
-            .foregroundStyle(theme.secondaryColor)
+            // Primary (A9): secondary is below 4.5:1 in most light themes.
+            .foregroundStyle(theme.primaryColor)
         }
         Image(systemName: "checkmark")
-          .foregroundStyle(theme.linkColor)
+          // Primary (A5): the only visual sign of the current chapter; link is below 3:1 in four variants.
+          .foregroundStyle(theme.primaryColor)
           .opacity(isCurrent ? 1 : 0)
           .accessibilityHidden(true)
       }

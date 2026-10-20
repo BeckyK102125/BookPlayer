@@ -55,6 +55,16 @@ extension SharePlaySessionService {
     // Connect first, then transition and assert the place (fix A).
     bridge.start(session: activeSession)
     observeLocalEvents(of: target)
+    var lastInterruption: ListenTogetherSharerInterruption?
+    target.$interruption
+      .removeDuplicates()
+      .dropFirst()
+      .sink { [weak self] value in
+        let old = lastInterruption
+        lastInterruption = value
+        self?.sharerInterruptionChanged(from: old, to: value)
+      }
+      .store(in: &localEventsBag)
     scheduleHeartbeat(on: transport)
     Self.logger.info("Listen Together: sharing started, ownersOnly=\(ownersOnly, privacy: .public)")
     return true
@@ -531,6 +541,8 @@ extension SharePlaySessionService {
     player.onLocalStopBegan = { [weak bridge] in bridge?.beginLocalStop() }
     player.onLocalStopEnded = { [weak bridge] in bridge?.endLocalStopAndRejoin() }
     player.onActionWhileStoppedHere = { [weak self] in self?.listenerActionWhileStoppedHere() }
+    player.isSharerInterrupted = listenerSharerInterruption != nil
+    player.onActionWhileSharerInterrupted = { [weak self] in self?.listenerActionWhileSharerInterrupted() }
     player.onReachedEndOfBook = { [weak self] in self?.listenerReachedEndOfBook() }
     player.onPieceFailed = { [weak self] index in self?.listenerPieceFailed(index) }
     // Play or pause while the group waits for this device's piece: nothing is sent; say why.
@@ -780,6 +792,37 @@ extension SharePlaySessionService {
     if let transport { leaveTellingTheSharer(transport) }
   }
 
+  /// a11y M8: "The person sharing paused", unless their interruption message follows within the hold.
+  private func holdSharerPauseAnnouncement() {
+    sharerPauseHoldGeneration += 1
+    let generation = sharerPauseHoldGeneration
+    schedule(Self.sharerPauseHold) { [weak self] in
+      guard let self, self.isInSession, self.sharerPauseHoldGeneration == generation,
+        self.listenerSharerInterruption == nil else { return }
+      self.announcer.announce(ListenTogetherAnnouncements.text(for: .pausedBySharer))
+    }
+  }
+
+  /// Option A: Play or a skip while the person sharing is interrupted does nothing; says why (3 s limit).
+  private func listenerActionWhileSharerInterrupted() {
+    guard let interruption = listenerSharerInterruption, sharerInterruptionToggleLimiter.allows(at: now()) else { return }
+    announcer.announce(ListenTogetherUserMessage.sharerInterruption(interruption).text)
+  }
+
+  /// Option A, sharer: the target's interruption changed. This phone's status, and the listeners' message.
+  private func sharerInterruptionChanged(
+    from old: ListenTogetherSharerInterruption?, to new: ListenTogetherSharerInterruption?
+  ) {
+    guard role == .sharer else { return }
+    setOwnInterruption(new)
+    switch (old, new) {
+    case (_, .interrupted): outbox?.yield(.sharerInterrupted)
+    case (.interrupted, nil): outbox?.yield(.sharerInterruptionEnded(resumed: true))
+    case (.interrupted, .needsPlay): outbox?.yield(.sharerInterruptionEnded(resumed: false))
+    default: break
+    }
+  }
+
   /// Option 1: Play can't start yet (the interruption goes on), or a skip was pressed while stopped
   /// here. The status already says why; it is said again at most once per 3 s.
   private func listenerActionWhileStoppedHere() {
@@ -907,13 +950,23 @@ extension SharePlaySessionService {
     case .attachmentReceived(let id, let url):
       attachmentReceived(id: id, url: url)
     case .message(.action(let action)):
-      announcer.announce(ListenTogetherAnnouncements.text(for: action))
+      if action == .pausedBySharer {
+        // a11y M8. Held briefly: if the sharer's interruption message follows, that is the one message.
+        holdSharerPauseAnnouncement()
+      } else {
+        announcer.announce(ListenTogetherAnnouncements.text(for: action))
+      }
       // E9: why the audio stopped, visible until the next play.
-      if action == .paused { setPausedByOther(true) }
+      if action == .paused || action == .pausedBySharer {
+        setPausedByOther(true)
+        setPausedBySharer(action == .pausedBySharer)
+      }
       if action == .resumed {
         setPausedByOther(false)
+        setPausedBySharer(false)
         // Build 5 (1.6): any play resumes for everyone and clears the pause status silently.
         clearPauseCause()
+        if role == .listener { setListenerSharerInterruption(nil) }
       }
       if let target = playbackTarget, let rate = Self.silentRate(for: action, target: target) {
         target.applyRate(rate)
@@ -951,6 +1004,16 @@ extension SharePlaySessionService {
       noteListenerLeaving(nil)
     case .message(.groupPaused(let cause)):
       groupPausedBySharer(cause)
+    case .message(.sharerInterrupted):
+      guard role == .listener else { return }
+      Self.logger.info("Listen Together: the person sharing has an interruption")
+      sharerPauseHoldGeneration += 1   // the held "The person sharing paused" is replaced
+      setListenerSharerInterruption(.interrupted)
+    case .message(.sharerInterruptionEnded(let resumed)):
+      guard role == .listener, listenerSharerInterruption != nil else { return }
+      Self.logger.info("Listen Together: the sharer's interruption ended (resumed=\(resumed, privacy: .public))")
+      // Resumed: the sound coming back is the cue (and the play clears it); else wait for their Play.
+      setListenerSharerInterruption(resumed ? nil : .needsPlay)
     }
   }
 
@@ -1541,7 +1604,9 @@ extension SharePlaySessionService {
   private func remoteAction(for event: LocalPlaybackEvent) -> RemoteAction? {
     switch event {
     case .played: return .resumed
-    case .paused: return .paused
+    // a11y M8: listeners say "The person sharing paused", not "Another listener paused".
+    case .paused: return role == .sharer ? .pausedBySharer : .paused
+    case .heldPaused: return nil   // listeners are told by `.sharerInterrupted`
     case .rateChanged(let rate): return .speedChanged(rate: rate)
     case .reasserted: return nil   // the sharer's own place, asserted to the coordinator only
     case .seeked(let to, let from):

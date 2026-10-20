@@ -326,6 +326,15 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
       // Clear the hold first; commands proposed during a suspension affect only this device.
       endStalls()
       control.coordinateRateChange(to: 0)
+    case .heldPaused:
+      // Sent from inside a play command: proposed after it has completed (FIFO main queue), like
+      // `.reasserted`.
+      DispatchQueue.main.async { [weak self] in
+        MainActor.assumeIsolated {
+          guard let self, !self.isInvalidated else { return }
+          self.control.coordinateRateChange(to: 0)
+        }
+      }
     case .seeked(let to, _):
       control.coordinateSeek(to: to)
     case .rateChanged(let rate):

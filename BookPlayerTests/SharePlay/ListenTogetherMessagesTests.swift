@@ -27,6 +27,8 @@ final class ListenTogetherMessagesTests: XCTestCase {
   private static let allMessages: [Message] = [
     .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .everyoneLeft, .unavailable, .didntStart,
     .waitingForSharer, .sharerBack, .retryingSend, .waitingForBook, .stoppedHere(.interrupted), .stoppedHere(.needsPlay),
+    .sharerInterruption(.interrupted), .sharerInterruption(.needsPlay), .ownInterruption(.interrupted),
+    .ownInterruption(.needsPlay),
     .alertShownElsewhere(text: "Couldn't open sharing", key: "needsFaceTime"),
   ]
 
@@ -586,6 +588,81 @@ final class ListenTogetherMessagesTests: XCTestCase {
       ListenTogetherSessionAction.action(
         for: .listening(participants: 1, downloaded: 1), usesOwnCopy: true, audience: .unknown)?.hint,
       "Your copy stays in your library.")
+  }
+
+  // MARK: Option A (Becky, 2026-10-20): the person sharing has an interruption
+
+  func testTheSharersInterruptionIsShownAndSaidOnceAndPlayDoesNothing() async throws {
+    let (service, transport, _) = await startListeningWithManifest()
+    let listener = try XCTUnwrap(service.listener)
+    posted = []
+    transport.emit(.message(.action(.pausedBySharer)))
+    transport.emit(.message(.sharerInterrupted))
+    await waitUntil { service.listenerSharerInterruption != nil }
+    timers.advance(by: .seconds(2))
+    let text = "The person sharing has an interruption. Listen Together will continue when it ends."
+    XCTAssertEqual(posted, [text], "one message: the held pause line is replaced")
+    XCTAssertEqual(ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text, text)
+    XCTAssertEqual(ListenTogetherStatus.listenerPlayValue(service.statusConditions), text, "Play's value")
+    XCTAssertTrue(listener.refusesUserActions)
+    let sentBefore = transport.sent.count
+    listener.userTogglePlay()
+    listener.userSkip(by: 30)
+    XCTAssertEqual(posted, [text, text], "the reason again, at most once per 3 s")
+    XCTAssertEqual(transport.sent.count, sentBefore, "nothing reaches the group")
+    transport.emit(.message(.sharerInterruptionEnded(resumed: false)))
+    await waitUntil { service.listenerSharerInterruption == .needsPlay }
+    XCTAssertEqual(posted.last, "Paused. Waiting for the person sharing to press Play.")
+    XCTAssertEqual(
+      ListenTogetherStatus.line(for: service.state, conditions: service.statusConditions)?.text,
+      "Paused. Waiting for the person sharing to press Play.")
+    transport.emit(.message(.action(.resumed)))
+    await waitUntil { service.listenerSharerInterruption == nil }
+    XCTAssertFalse(listener.isSharerInterrupted)
+  }
+
+  func testTheSharersInterruptionEndingWithAResumeIsSilent() async throws {
+    let (service, transport, _) = await startListeningWithManifest()
+    transport.emit(.message(.sharerInterrupted))
+    await waitUntil { service.listenerSharerInterruption != nil }
+    posted = []
+    transport.emit(.message(.sharerInterruptionEnded(resumed: true)))
+    await waitUntil { service.listenerSharerInterruption == nil }
+    XCTAssertEqual(posted, [], "the sound coming back is the cue")
+  }
+
+  /// a11y M8: the sharer's own pause is named as theirs.
+  func testThePersonSharingsPauseIsNamed() async throws {
+    let (service, transport, _) = await startListeningWithManifest()
+    posted = []
+    transport.emit(.message(.action(.pausedBySharer)))
+    await waitUntil { service.isPausedByOther }
+    timers.advance(by: .seconds(2))
+    XCTAssertEqual(posted, ["The person sharing paused"])
+    XCTAssertTrue(service.statusConditions.isPausedBySharer)
+    XCTAssertEqual(
+      ListenTogetherStatus.line(
+        for: .listening(participants: 2, downloaded: 1),
+        conditions: ListenTogetherStatusConditions(isPausedByOther: true, isPausedBySharer: true))?.text,
+      "Paused by the person sharing")
+  }
+
+  func testTheSharerInterruptionRowValues() {
+    let snapshot = ListenTogetherRow.ListenerSnapshot(title: "Moby", isPlaying: false, isWaiting: false)
+    XCTAssertEqual(
+      ListenTogetherRow.value(
+        state: .listening(participants: 3, downloaded: 1), joinedTitle: nil, listener: snapshot, sharerTitle: nil,
+        sharerInterruption: .interrupted),
+      "paused, the person sharing has an interruption, Moby")
+    XCTAssertEqual(
+      ListenTogetherRow.value(
+        state: .sharing(participants: 2), joinedTitle: nil, listener: nil, sharerTitle: "Moby", ownInterruption: .needsPlay),
+      "paused, press Play to continue Listen Together, Moby")
+    let away = ListenTogetherDeliveryContext(appState: .background, isLocked: true, isVoiceOverRunning: true)
+    XCTAssertTrue(ListenTogetherMessageDelivery.plan(for: .sharerInterruption(.interrupted), context: away).notifiesWhenAway)
+    XCTAssertFalse(ListenTogetherMessageDelivery.plan(for: .ownInterruption(.interrupted), context: away).announces,
+                   "never over the sharer's call")
+    XCTAssertTrue(ListenTogetherMessageDelivery.plan(for: .ownInterruption(.needsPlay), context: away).notifiesWhenAway)
   }
 
   func testPressPlayWhileAwayIsSaidOnceOnTheReturnWithoutNotificationPermission() async {

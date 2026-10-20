@@ -64,7 +64,8 @@ enum ListenTogetherRow {
     state: ListenTogetherState, joinedTitle: String?, listener: ListenerSnapshot?, sharerTitle: String?,
     sharerPresence: SharerPresence = .present, isRetryingSend: Bool = false,
     pauseCause: ListenTogetherPauseCause? = nil, localStop: ListenTogetherLocalStop? = nil,
-    isWaitingForListeners: Bool = false
+    isWaitingForListeners: Bool = false, sharerInterruption: ListenTogetherSharerInterruption? = nil,
+    ownInterruption: ListenTogetherSharerInterruption? = nil
   ) -> String? {
     switch role(state: state, hasListener: listener != nil) {
     case .listener:
@@ -78,6 +79,11 @@ enum ListenTogetherRow {
         return text + ", " + joinedTitle
       }
       let title = listener.title.isEmpty ? "voiceover_no_title".localized : listener.title
+      if sharerPresence != .away, let sharerInterruption {
+        let key = sharerInterruption == .interrupted
+          ? "listen_together_row_value_sharer_interrupted" : "listen_together_row_value_sharer_needs_play"
+        return String.localizedStringWithFormat(key.localized, title)
+      }
       if sharerPresence != .away, let localStop {
         // Fix round 3 (a11y I2): this phone is stopped while the group plays on; same order as the status.
         let key: String
@@ -110,6 +116,11 @@ enum ListenTogetherRow {
       return String.localizedStringWithFormat(key.localized, title)
     case .sharer:
       let title = sharerTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "voiceover_no_title".localized
+      if let ownInterruption {
+        let key = ownInterruption == .interrupted
+          ? "listen_together_row_value_own_interruption" : "listen_together_row_value_own_interruption_needs_play"
+        return String.localizedStringWithFormat(key.localized, title)
+      }
       if isWaitingForListeners {
         // Fix round 3 (a11y M4): decision B's minute shows with the player closed too.
         return String.localizedStringWithFormat("listen_together_row_value_waiting_listeners".localized, title)
@@ -190,7 +201,8 @@ struct ListenTogetherStatusRow: View {
       sharerTitle: playerManager.currentItem?.title,
       sharerPresence: service.isSharerGraceRunning ? .away : (service.notice == .waitingForSharer && service.isListenerPlaying ? .quiet : .present),
       isRetryingSend: service.notice == .retryingSend, pauseCause: service.pauseCause,
-      localStop: service.listenerLocalStop, isWaitingForListeners: service.isWaitingForListeners)
+      localStop: service.listenerLocalStop, isWaitingForListeners: service.isWaitingForListeners,
+      sharerInterruption: service.listenerSharerInterruption, ownInterruption: service.ownInterruption)
     Group {
       if let role, let value {
         Button { activate(role) } label: { content(value: value) }

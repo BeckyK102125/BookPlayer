@@ -651,3 +651,14 @@ We're working hard on providing a seamless experience, if possible, please conta
 "listen_together_leave_session_hint_unknown" = "The book is deleted from this iPhone.";
 "listen_together_leave_session_hint_own_copy_unknown" = "Your copy stays in your library.";
 "listen_together_leave_to_play_message_unknown" = "You will leave Listen Together on this iPhone.";
+"listen_together_sharer_interrupted" = "The person sharing has an interruption. Listen Together will continue when it ends.";
+"listen_together_sharer_needs_play" = "Paused. Waiting for the person sharing to press Play.";
+"listen_together_own_interruption" = "Paused for your interruption. Listen Together will continue when it ends.";
+"listen_together_own_interruption_needs_play" = "Press Play to continue Listen Together.";
+"listen_together_row_value_sharer_interrupted" = "paused, the person sharing has an interruption, %@";
+"listen_together_row_value_sharer_needs_play" = "paused, waiting for the person sharing to press Play, %@";
+"listen_together_row_value_own_interruption" = "paused for your interruption, %@";
+"listen_together_row_value_own_interruption_needs_play" = "paused, press Play to continue Listen Together, %@";
+"listen_together_remote_paused_by_sharer" = "The person sharing paused";
+"listen_together_status_paused_by_sharer" = "Paused by the person sharing";
+"listen_together_done_hint" = "Closes this screen. Listen Together keeps playing.";

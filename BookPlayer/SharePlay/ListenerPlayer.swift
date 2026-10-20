@@ -60,8 +60,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   @Published var isJoiningGroup = false
   /// A press now does nothing (the service says why): no "pressed" haptic for it (a11y M5).
   var refusesUserActions: Bool {
-    isHeldForSharer || isJoiningGroup || (isWaitingForPiece && isHeldWhilePlaying)
+    isHeldForSharer || isSharerInterrupted || isJoiningGroup || (isWaitingForPiece && isHeldWhilePlaying)
   }
+  /// Option A: the person sharing has an audio interruption; the group stays paused. Play, skips and
+  /// speed do nothing to the group meanwhile, and say why (set by the service).
+  var isSharerInterrupted = false
+  var onActionWhileSharerInterrupted: (() -> Void)?
   /// A control was used while `isJoiningGroup`: nothing happened; the service says why.
   var onActionWhileJoining: (() -> Void)?
   /// The player is at an arrived piece after a load (a placement, seek, play or pause): a stall that
@@ -393,6 +397,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   // or play reported after that would only ever move this device.
 
   func userTogglePlay() {
+    if isSharerInterrupted {
+      onActionWhileSharerInterrupted?()
+      return
+    }
     // The person sharing is missing (decision 9, C.2): the group is paused for them. Play would only
     // play here; do nothing and say why.
     if isHeldForSharer {
@@ -451,6 +459,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func userPlay() {
     guard !isStopped else { return }
+    if isSharerInterrupted { onActionWhileSharerInterrupted?(); return }
     if isHeldForSharer { onToggleWhileHeldForSharer?(); return }
     if isJoiningGroup { onActionWhileJoining?(); return }
     if isWaitingForPiece, isHeldWhilePlaying { onToggleWhileWaiting?(); return }
@@ -489,6 +498,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func userJump(to target: TimeInterval) {
     guard !isStopped else { return }
+    if isSharerInterrupted { onActionWhileSharerInterrupted?(); return }
     if localStop != nil || pendingRejoin != nil {
       // A skip from here would move the group for a device that isn't listening.
       onActionWhileStoppedHere?()
@@ -506,6 +516,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   func userSetRate(_ newRate: Float) {
     guard !isStopped else { return }
+    if isSharerInterrupted { onActionWhileSharerInterrupted?(); return }
     if pendingRejoin != nil {
       // Fix round 3 (I1): no speed proposal from the cached state while rejoining.
       onActionWhileStoppedHere?()
