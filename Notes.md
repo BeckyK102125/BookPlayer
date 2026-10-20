@@ -1396,3 +1396,44 @@ Rulings: build5-fix-round-1.md (code review build5-code-review.md, a11y review b
 - TestFlight 5.22.2 (5) archived from 64556121 (same overrides, CURRENT_PROJECT_VERSION=5), uploaded internal only: "Upload succeeded". Worktree, archive and export deleted.
 - Both phones must run build 5 (new .listenerLeaving / .groupPaused messages). Device checks: build5-report.md / context.md B5.
 - Next after testing (Becky decisions 2026-10-12): Siri/CarPlay listener leaves + sharer refusal message; streamed-book "Download this book first"; translations for all locales; upstream own-copy-only PR branch later.
+
+## 2026-10-19 — build 6 fix round 1 (branch listen-together-build6; Claude, sole writer after Codex)
+Brief: .superpowers/sdd/2026-10-10-shareplay-listen-together/build6-fix-round-1.md. Audits read: codex-audit-summary
+(A-D decided), codex-audit2-code (C1, I1-I5, M1-M7), codex-audit2-tests (TSan crash), codex-audit-a11y, codex-audit-code.
+Report: build6-fix-round-1-report.md. Commits (parent 8ed9a541): 531f89ea, c3408e85, bd56544d, then this docs commit.
+- TSan crash (531f89ea). Reproduced on 8ed9a541: `-enableThreadSanitizer YES` on ListenTogetherOwnCopyTests +
+  SharePlaySessionServiceTests -> SEGV in CFRelease from figTimelineCoordinator_endSuspensionOnQueue, twice per run, in
+  the middle of testJoiningWithOwnCopyPlaysAtOnceAndNeverDownloads / testListenerReceivesManifestAndPieces, right after
+  "stall end". First attempt (tried, not enough): a ledger that ends each suspension once and keeps the coordinator +
+  suspension alive until `suspensionReasons` is empty (1-10 s): still crashed. Root cause: those tests use a real
+  AVDelegatingPlaybackCoordinator never connected to a group session (session nil); since 8ed9a541 every load begins a
+  stallRecovery suspension, and ending one on an unconnected coordinator crashes inside CoreMedia. Fix: no suspension on
+  a coordinator that isn't connected (`isConnectedToSession`), and the ledger kept as the owner of every suspension
+  (ends once; ends leftovers when its owner goes away; keeps the coordinator alive after an end). After: 81/0, no crash.
+- Option 1 (c3408e85, Becky): listener interruption/headphones stop that phone only (`ListenerPlayer.localStop`,
+  `bridge.beginLocalStop` = `.audioSessionInterrupted` suspension, nobody waits); stale `appWasSuspended` ignored;
+  interrupted while paused does nothing until the group plays; `.ended` + shouldResume rejoins, else "Press Play";
+  Pause meanwhile keeps it stopped; Play tries the session at once; rejoin plays at the estimated group time and the
+  coordinator's reapplied command corrects it; nothing sent. Status, Play value, Zoom caption, one announcement per
+  change; refused presses re-say it at most every 3 s. Removed: the interruption stallRecovery hold (audit 2 C1).
+- Audit 2 in c3408e85: readiness waits split from piece waits and bounded to 10 s; waits < 1 s and `.noItemToPlay` don't
+  stall (M3); I1 rejoin position; I2 interrupted seek retried twice before counting as a failure; I3 `itemFailed` runs
+  `queueAdvanced` first and ignores a piece that already played out; I5 interruption tests call the handlers directly
+  with `now`/`activateSession` seams (no global notifications, no `setActive(false)` in tests); M1 lock-screen Pause
+  refused like the in-app button while the group waits for this phone's piece (test changed from Codex's rule); M2 Play
+  idempotent, `isPlayingForGroup` in `listenerFoundPlace`/`checkSharerPresence`, `applyRate` only on a running player;
+  M7 seek completion via the main queue. Sharer's own interruption (M5) left as a plain group pause/play (bounded: no
+  suspension, anyone's Play resumes); noted in the report.
+- Decisions + audit 1 (bd56544d): A pause on everyone-left (after teardown); B 60 s wait (`everyoneLeftWait`, background
+  task, rejoin cancels, deliberate last Leave immediate); C Control Center sentence + last-listener wording (roster <= 2)
+  in confirmations, leave-to-play and hint; D bookmark "Your place before Listen Together" if > 30 s; no ghost restore
+  (lookup by relativePath + type at join + files); invitation/footer text; saves once a second; end of book marks the own
+  copy finished; restored tests testTwoDroppedAtOnceMixedSaysLeft and the everyone-vanishing "left" wording; renamed
+  testSharerEndClosesListenersViaMessageOrSessionInvalidation -> testEachListenerTearsDownOnTheEndMessageOrOnInvalidation.
+- TDD note: tests were written with the code in each step (not run red first, because each build takes 7-10 min here);
+  the TSan crash was reproduced before the fix and gone after.
+- Commands (simulator 98A8CF98-8142-4710-AD5E-5419F782752C, default DerivedData): `xcodebuild build-for-testing -project
+  BookPlayer.xcodeproj -scheme BookPlayer -testPlan "Unit Tests" -destination id=<sim>` then `test-without-building` with
+  `-only-testing:BookPlayerTests/<Class>` for the 33 SharePlay classes (TSan: `-enableThreadSanitizer YES` on both).
+- Results: SharePlay run 1 "Executed 669 tests, with 0 failures", run 2 669/0; full suite (-only-testing:BookPlayerTests)
+  "Executed 1245 tests, with 0 failures" ** TEST EXECUTE SUCCEEDED **; TSan x3 on the 33 classes: 669/0 each, 0 DEADLYSIGNAL, 0 "WARNING: ThreadSanitizer", 0 restarts.
