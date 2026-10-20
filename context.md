@@ -1,13 +1,14 @@
 # context.md - current snapshot
 
-Date: 2026-10-19
+Date: 2026-10-20
 
 ## Goal
 SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a downloaded audiobook (from
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: build 6 on `listen-together-build6` after fix round 1 (this commit): review, then merge to
+Current goal: build 6 on `listen-together-build6` after fix round 3: Becky's ruling on the sharer
+interruption (code I2, on hold), external full-fork audit, then merge to
 `develop` and TestFlight 5.22.2 (6) once Becky approves. Later: Siri/CarPlay rules, streamed-book alert,
 translations, upstream own-copy-only branch.
 - Specs/plans: docs/superpowers/. Guide: docs/Listen-Together-Guide.md. Ledger, briefs, reports, audits:
@@ -18,8 +19,8 @@ translations, upstream own-copy-only branch.
 - `develop` at 3515e742 (build 5 = TestFlight 5.22.2 (5), plus notes).
 - `listen-together-build6` (local, not pushed): e2428f4b + 8ed9a541 (Codex snapshots, audited), then fix
   round 1: 531f89ea TSan crash, c3408e85 Option 1 + audit 2, bd56544d decisions A-D + audit 1, c42b02e3 docs;
-  fix round 2 (Codex review 2026-10-19 F2-F4) = this commit. Clean after the commit except the untracked `review.md` (external Codex review;
-  never commit it).
+  453d36a5 fix round 2 (Codex F2-F4); 2621724a fix round 3 (code + a11y reviews 2026-10-20); this commit
+  (fix round 3 docs). Clean after the commit except the untracked `review.md` (never commit it).
 - Never committed: BuildConfiguration/Debug.xcconfig. PlayerManager.swift and Shared/ are untouched.
 
 ## Rulings in force (full text in progress.md and reviewer-common.md)
@@ -49,26 +50,36 @@ translations, upstream own-copy-only branch.
   (refusal says the status again, max every 3 s); rejoin = end suspension + reapply, then NOTHING plays or is
   saved until the coordinator's own play/pause arrives (fix round 2, F4; Play on a group that paused meanwhile
   starts it); no command within 3 s -> "Press Play" again. Skips refused while stopped.
-- Sharer's own interruption: unchanged, a plain group pause/play (no suspension, so nobody is held; anyone's
-  Play resumes). Announced as "Another listener paused" / status "Paused by another listener".
+- Rejoin window (fix round 3): status/row "Rejoining the others." (never announced); Play only marks "start a
+  paused group", skips/speed refused, Pause cancels and pauses the group; a buffering pause counts as the
+  group's state. Away: "Press Play" = one notification (existing permission) or announced on return if still
+  stopped, removed when over; "will continue" never said from the background; own Pause changes it silently.
+  Row values for every local stop.
+- Sharer's own interruption: still a plain group pause (no suspension). OPEN (code I2, Becky to rule): a
+  listener's Play then calls `PlayerManager.play()`, whose session-activation failure is `fatalError` outside
+  TestFlight. Fix prepared in the report (SharerPlaybackTarget interruption flag; option a or b).
 - Waits: piece waits (unbounded by design: the book is still arriving; once the file is here the wait becomes
-  the bounded readiness wait, F2), readiness waits bounded to 10 s (`readinessLimit`, session clock), sharer hold bounded by the 60 s grace, local stop blocks nobody. Waits < 1 s and
-  `.noItemToPlay` never stall the group.
+  the bounded readiness wait, F2), readiness waits bounded to 10 s (`readinessLimit`, session clock) and at
+  most once per item, sharer hold bounded by the 60 s grace, local stop blocks nobody. Waits < 1 s and
+  `.noItemToPlay` never stall the group. B: the minute is in the announcement, notification and row; a late
+  `.listenerLeaving` ends at once; an unconfirmed joiner at 60 s gets one more 5 s window, then it ends.
 - TSan crash fix: no suspension on a coordinator that is not connected to a session; every suspension in
   `ListenTogetherSuspensionLedger` (ends once; coordinator kept alive until it reports no suspension, 1-10 s).
-- Own copy: the saved place uses the item the queue really plays (F3, file changes); progress saved once a second; bookmark (D); finishing together marks it finished; teardown
+- Own copy: the saved place uses the item the queue really plays (F3, file changes); progress saved once a second; bookmark (D: once per share, no duplicate, the loaded player's place); finishing together marks it finished; teardown
   re-looks the copy up and skips restoring a gone/moved/converted/failed copy.
 - Leave texts: last listener (roster <= 2) gets "ends for everyone" in confirmations and hint; others get
-  the Control Center sentence (C). Invitation and Settings footer say the place follows the group.
+  the Control Center sentence (C); neutral wording before a roster arrives. Invitation and Settings footer
+  say the place moves to the group and name the bookmark.
 - Lock-screen Pause while the group waits for this phone's piece is refused like the in-app button (M1).
 
-## Test evidence (2026-10-19, fix round 1)
+## Test evidence (fix rounds 1-3, 2026-10-19/20)
 - See Notes.md 2026-10-19 for the full commands. Simulator 98A8CF98-8142-4710-AD5E-5419F782752C, default
   DerivedData, scheme BookPlayer, plan "Unit Tests".
 - Before: TSan on OwnCopy + SessionService tests crashed twice per run in figTimelineCoordinator_endSuspensionOnQueue.
 - Fix round 1: SharePlay 669/0 x2; full 1245/0; TSan 669/0 x3, 0 crashes, 0 warnings.
 - Fix round 2: SharePlay 676/0; full 1252/0 ** TEST EXECUTE SUCCEEDED ** (first attempt died at
   launch before any test, "Early unexpected exit", rerun after a rebuild); TSan 676/0 x3, 0 crashes, 0 warnings.
+- Fix round 3: SharePlay 698/0 x2; full 1274/0 ** TEST EXECUTE SUCCEEDED **; TSan 698/0 x3, 0 crashes, 0 warnings.
 
 ## Local environment gotchas
 - Xcode 27 here, CI uses 26.4. Wait for the FINAL ** TEST SUCCEEDED/FAILED **; log to a file and poll.
@@ -96,19 +107,21 @@ Capture both Console logs filtered on "Listen Together:".
    bookmarks list; library place follows the group; leave restores the player paused there.
 9. Own copy deleted/moved mid-session: no ghost mini player, no "Error Metadata" alert.
 10. Brief buffering at file boundaries (long multi-file book): no group-wide stalls.
-11. Build 5 checks (B5 a-i in Notes.md 2026-10-12) and older checks still apply.
+11. Fix round 3: locked listener, call ends without resume or AirPods out in a pocket: one notification (with
+   permission) or "Press Play" said on return; "Rejoining the others." visible during the gap; row text at Zoom 3x.
+12. Build 5 checks (B5 a-i in Notes.md 2026-10-12) and older checks still apply.
 
 ## Known limitations
 - Streamed books and video cannot be shared. Chunk fallback throughput unmeasured.
 - A piece that never arrives keeps the group waiting (retries every 30 s); this is the piece-wait design.
 - Rejoin waits for the coordinator's re-issued command (device check 1: how fast it arrives; 3 s fallback).
-- Last-listener detection uses the roster count (<= 2 = sharer + me); before the roster arrives a listener
-  sees the last-listener text.
+- Last-listener detection uses the listener's raw roster (<= 2 = sharer + me); an unconfirmed third person
+  can still give "The others keep listening" (code M10, not changed).
 - New strings are English in every lproj; mark for translation before release.
 - Mixed builds degrade: every phone on the same build.
 
 ## Open problems and next steps (in order)
-1. Review of fix round 1 (code + a11y) by the controller; fix rounds.
+1. Becky's ruling on the sharer interruption (code I2); implement it; external full-fork audit.
 2. Merge to develop; TestFlight 5.22.2 (6) (Becky approves the upload).
 3. Two-device run (checks above); fill the guide's Control Center names.
 4. Parked: a11y M1 two messages in the owners-only arrival window; M5 Join hint wording; M6 system Leave
@@ -116,4 +129,5 @@ Capture both Console logs filtered on "Listen Together:".
 
 ## Decisions waiting on Becky
 - Interruption ended without "should resume" waits for Play (Apple's rule); OK, or always rejoin?
-- A sharer's own interruption still pauses the group (the sharer's book is the timeline); OK?
+- Code I2: during the sharer's own interruption, (a) keep the group paused and say "The person sharing is
+  interrupted", or (b) Option 1 for the sharer too (the group plays on; the sharer rejoins)?

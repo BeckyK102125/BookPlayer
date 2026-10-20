@@ -1465,3 +1465,36 @@ fix-round-1 working tree). F1 and F5 were already addressed by c3408e85. F2-F4 w
   first attempt died at launch ("Early unexpected exit, operation never finished bootstrapping", no tests ran, right after a
   TSan build had replaced the binaries); after a rebuild "Executed 1252 tests, with 0 failures" ** TEST EXECUTE SUCCEEDED **.
   TSan x3 on the 33 classes: 676/0 each, 0 DEADLYSIGNAL, 0 "WARNING: ThreadSanitizer", 0 restarts.
+
+## 2026-10-20 — build 6 fix round 3 (branch listen-together-build6, parent 453d36a5)
+Brief: build6-fix-round-3.md. Reviews: build6-code-review-2026-10-20.md (I1-I3, M1-M12) and build6-a11y-review-2026-10-20.md
+(I1, I2, M1-M9). Code commit 2621724a, then this docs commit.
+- Code I1 (rejoin window): while `pendingRejoin` is set, Play only sets playIfPaused, skips/jumps/speed are refused through
+  `onActionWhileStoppedHere`, and Pause cancels the rejoin and sends `.paused` (the group pauses). Nothing is loaded, saved or
+  sent from the cached place. Tests: Play-while-rejoining (no events, progress or load; then a delivered pause starts the
+  group), skips/speed refused, Pause cancels.
+- Code I3/M8: the bookmark is made at most once per share (`bookmarkedShareIDs`, kept for the app's lifetime) and skipped when
+  a user bookmark with the same note is within 2 s. The old place is the loaded player's `currentTime` when the copy was loaded.
+  Tests: two joins of one share; an existing bookmark; the loaded place.
+- Code M1: `holdsGroupForReadiness`/`readinessWaitTimedOut` give at most one 10 s hold per item. M2: `hasFile(at:)` guards the
+  piece-wait conversion. M3: a buffering pause resolves the rejoin. M4/a11y M1: a failed automatic rejoin gives only "Press
+  Play". M6: a `.listenerLeaving` after the drop ends at once. M7: an unconfirmed joiner at 60 s gets one more
+  `joinConfirmationDelay` + 1 s under the background task, then it ends. M9: skipped suspensions are logged; `isStoppedHere` is
+  removed. M12: the recovery tests set `activateSession = { true }`.
+- A11y I1: `.stoppedHere(.needsPlay)` is `notifiesWhenAway`. Without permission it is announced on the return if still
+  stopped (`announcesStopWhenActive`); the notification is removed when it is over (`removeNotificationIfShown(key:)`).
+  `.stoppedHere(.interrupted)` is never announced away (`isSilentWhenAway`).
+- A11y I2: row values for stopped/interrupted/rejoining. M2: `ListenTogetherLocalStop.rejoining` (`displayedStop`), shown and
+  never announced. M3: a change caused by the person's own Pause is silent (`ListenTogetherLocalStopState.announces`). M4:
+  `.pausedWaitingForListeners` (announcement + notification carry the minute), "Someone left. …minute" when paused, and the
+  sharer row value. M5: `ListenTogetherLeaveAudience.unknown` (no roster yet) gives neutral `_unknown` strings. M6:
+  invitation/footer wording names the bookmark. M7-M9: guide (Option 1 split into bullets, notification and row,
+  Rejoining, Pause during rejoin, the sharer shown as "another listener", the hint sentence, Control Center wording).
+- Not changed (reasons): code M10 (the roster-vs-confirmed difference on the listener side needs the sharer's confirmed count;
+  rare and short-lived), M12's direct `advanceToNextPiece()` calls (they still exercise the end-of-book callback), a11y M8
+  role-aware "Paused by the person sharing" (guide note instead; it waits on the I2 ruling).
+- Code I2 (sharer interruption, crash risk) is ON HOLD for Becky. Preparation is in the report: track it in
+  SharerPlaybackTarget with an interruption observer (no PlayerManager change) and never call `playerManager.play()` while it
+  is set.
+- Results (sim 98A8CF98): SharePlay 698/0 twice; full suite "Executed 1274 tests, with 0 failures" ** TEST EXECUTE SUCCEEDED **;
+  TSan x3 698/0 each, 0 DEADLYSIGNAL, 0 warnings, 0 restarts.
