@@ -270,8 +270,8 @@ lines). It is the highest-risk file in the app.
 - **AVAudioSession:** activated in `play()` (`.playback` / `.spokenAudio`); deactivated ~0.1s after `.paused`
   (delay avoids clipping). Interruption observer is **kept** on `.began` (so `.ended`+`.shouldResume` can resume)
   and removed on user pause/stop. `mediaServicesWereReset` re-applies the category and recreates the player.
-  **Session-activation failure `fatalError`s in production** (only downgraded to a Sentry capture on TestFlight) —
-  a real crash surface.
+  Session-activation failure is recoverable in every build (this fork, 2026-10-20): it is captured to Sentry,
+  that `play()` does nothing, and pressing Play again retries. Do not reintroduce a `fatalError` there.
 - **Background task pairing** lives in `AppServices.loadAndKeepAlive(...)`:
   `beginBackgroundTask(withName: "streaming-playback")` must be matched by `endBackgroundTask` on **all three
   paths** — error, success, and the expiration handler — guarded by the `.invalid` sentinel to avoid a
