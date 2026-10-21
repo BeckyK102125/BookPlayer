@@ -30,6 +30,8 @@ struct PlayBookIntent: AudioPlaybackIntent {
 
   func perform() async throws -> some IntentResult {
     let coreServices = try await AppServices.shared.awaitCoreServices()
+    // Listen Together (fork audit A17): a listener leaves first; a sharer can only resume the shared book.
+    _ = try await ListenTogetherIntentRouting.handle(.startBook(relativePath: book.id, title: book.title))
 
     try await AppServices.shared.loadAndKeepAlive(
       relativePath: book.id,

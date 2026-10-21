@@ -34,6 +34,8 @@ struct LastBookStartPlaybackIntent: AudioPlaybackIntent {
     }
 
     #if MAIN_APP
+    // Listen Together (fork audit A17): a listener leaves first; a sharer can only resume the shared book.
+    _ = try await ListenTogetherIntentRouting.handle(.startBook(relativePath: book.relativePath, title: book.title))
     try await AppServices.shared.loadAndKeepAlive(
       relativePath: book.relativePath,
       playerLoaderService: playerLoaderService

@@ -621,6 +621,18 @@ final class ListenTogetherMessagesTests: XCTestCase {
     XCTAssertFalse(listener.isSharerInterrupted)
   }
 
+  /// Fix round 4: a listener who joined after the interruption began gets the waiting-for-Play state.
+  func testALateJoinerGetsTheWaitingForPlayState() async throws {
+    let (service, transport, _) = await startListeningWithManifest()
+    posted = []
+    transport.emit(.message(.sharerInterruptionEnded(resumed: false)))
+    await waitUntil { service.listenerSharerInterruption == .needsPlay }
+    XCTAssertEqual(posted, ["Paused. Waiting for the person sharing to press Play."])
+    transport.emit(.message(.sharerInterruptionEnded(resumed: false)))
+    await waitUntil(timeout: 0.3) { false }
+    XCTAssertEqual(posted.count, 1, "the repeat for later joiners is not said again")
+  }
+
   func testTheSharersInterruptionEndingWithAResumeIsSilent() async throws {
     let (service, transport, _) = await startListeningWithManifest()
     transport.emit(.message(.sharerInterrupted))

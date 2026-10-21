@@ -1079,15 +1079,11 @@ extension PlayerManager {
         try audioSession.setActive(true)
         reportAudioSessionRecoveryIfNeeded()
       } catch {
-        guard AppEnvironment.isTestFlight else {
-          fatalError("Failed to activate the audio session, \(error), description: \(error.localizedDescription)")
-        }
-        /// Beta-only: don't hard-crash when the audio session can't be activated.
-        /// This happens when another process holds the session in a stuck state
-        /// that (so far) only a force-quit clears. Report it to Sentry so we can
-        /// confirm whether the stuck state still occurs, and leave the play button
-        /// inert — a missed auto-play is strictly better than the app dying in the
-        /// background.
+        /// Don't crash when the audio session can't be activated (fork audit A08: it used to be a
+        /// fatalError outside TestFlight). It happens when another process holds the session, for
+        /// example during a call, or in a stuck state that (so far) only a force-quit clears. Report
+        /// it to Sentry and leave the play button inert; pressing Play again retries — a missed
+        /// play is strictly better than the app dying in the background.
         let nsError = error as NSError
         SentrySDK.capture(error: error) { scope in
           scope.setLevel(.error)
@@ -1467,8 +1463,17 @@ extension PlayerManager {
     return nextChapter
   }
 
+  /// The end-of-item observer is registered for every player in the process (`object: nil`), so it
+  /// only accepts the item this player is playing now: never another player's item (Listen Together's
+  /// own player) and never an item this player has already replaced (fork audit A01).
+  nonisolated static func acceptsEndOfItem(_ object: Any?, currentPlayerItem: AVPlayerItem?) -> Bool {
+    guard let item = object as? AVPlayerItem, let currentPlayerItem else { return false }
+    return item === currentPlayerItem
+  }
+
   @objc
   func playerDidFinishPlaying(_ notification: Notification) {
+    guard Self.acceptsEndOfItem(notification.object, currentPlayerItem: audioPlayer.currentItem) else { return }
     guard let currentItem = self.currentItem else { return }
 
     let endOfChapterActive = SleepTimer.shared.state == .endOfChapter

@@ -37,6 +37,7 @@ extension SharePlaySessionService {
     self.transport = transport
     isOwnersOnlySession = ownersOnly
     sharingFingerprint = fingerprint
+    sharingRelativePath = item.relativePath
     resetRoster()
     startEventLoop(on: transport)
     startOutbox(on: transport)
@@ -1010,7 +1011,8 @@ extension SharePlaySessionService {
       sharerPauseHoldGeneration += 1   // the held "The person sharing paused" is replaced
       setListenerSharerInterruption(.interrupted)
     case .message(.sharerInterruptionEnded(let resumed)):
-      guard role == .listener, listenerSharerInterruption != nil else { return }
+      // Not resumed also reaches a late joiner who never saw the interruption begin (fix round 4).
+      guard role == .listener, listenerSharerInterruption != nil || !resumed else { return }
       Self.logger.info("Listen Together: the sharer's interruption ended (resumed=\(resumed, privacy: .public))")
       // Resumed: the sound coming back is the cue (and the play clears it); else wait for their Play.
       setListenerSharerInterruption(resumed ? nil : .needsPlay)
@@ -1125,12 +1127,19 @@ extension SharePlaySessionService {
   /// Late joiners get journal attachments automatically, but not earlier messages: re-send the
   /// manifest and the piece map. Nothing is uploaded again.
   private func resendForLateJoiners(on transport: ListenTogetherTransport) async {
-    guard role == .sharer, let manifest else { return }
-    await send(.manifest(manifest), on: transport)
-    for message in uploadedPieceMessages {
-      guard self.transport === transport else { return }
-      await send(message, on: transport)
+    guard role == .sharer else { return }
+    if let manifest {
+      await send(.manifest(manifest), on: transport)
+      for message in uploadedPieceMessages {
+        guard self.transport === transport else { return }
+        await send(message, on: transport)
+      }
     }
+    // Fix round 4: someone who joins during the sharer's interruption learns of it too (those already
+    // here see no change, so nothing is said twice).
+    guard self.transport === transport, let ownInterruption else { return }
+    await send(
+      ownInterruption == .interrupted ? .sharerInterrupted : .sharerInterruptionEnded(resumed: false), on: transport)
   }
 
   /// Roster changes reported as a count only (no ids).

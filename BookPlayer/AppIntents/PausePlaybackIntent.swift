@@ -16,6 +16,8 @@ struct PausePlaybackIntent: AudioPlaybackIntent {
 
   func perform() async throws -> some IntentResult {
     let coreServices = try await AppServices.shared.awaitCoreServices()
+    // Listen Together (fork audit A17): a listener pauses the shared book, never their own.
+    if try await ListenTogetherIntentRouting.handle(.pause) { return .result() }
     await MainActor.run {
       coreServices.playerLoaderService.playerManager.pause()
     }

@@ -1382,6 +1382,23 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     XCTAssertEqual(playerManager.playCallsCount, 0)
   }
 
+  /// Fix round 4: someone who joins during the sharer's interruption is told too.
+  func testALateJoinerDuringTheSharersInterruptionIsTold() async throws {
+    let (service, transport) = await makeSharer(listeners: [a])
+    let target = try XCTUnwrap(service.sharerTarget)
+    target.handleInterruption(.began, shouldResume: false)
+    await waitUntil { transport.sent.contains(.sharerInterrupted) }
+    let before = transport.sent.filter { $0 == .sharerInterrupted }.count
+    transport.emit(.participantsChanged(count: 0, ids: [me, a, b]))   // b joins
+    await waitUntil { transport.sent.filter { $0 == .sharerInterrupted }.count > before }
+    XCTAssertEqual(transport.sent.filter { $0 == .sharerInterrupted }.count, before + 1)
+    target.handleInterruption(.ended, shouldResume: false)
+    transport.emit(.message(.requestState))
+    await waitUntil { transport.sent.filter { $0 == .sharerInterruptionEnded(resumed: false) }.count >= 2 }
+    XCTAssertGreaterThanOrEqual(transport.sent.filter { $0 == .sharerInterruptionEnded(resumed: false) }.count, 2,
+                                "a state request also gets the waiting-for-Play state")
+  }
+
   func testTheSharersInterruptionEndingWithPermissionResumesTheGroup() async throws {
     let (service, transport) = await makeSharer(listeners: [a])
     let target = try XCTUnwrap(service.sharerTarget)

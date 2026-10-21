@@ -660,3 +660,5 @@
 "listen_together_remote_paused_by_sharer" = "The person sharing paused";
 "listen_together_status_paused_by_sharer" = "Paused by the person sharing";
 "listen_together_done_hint" = "Closes this screen. Listen Together keeps playing.";
+"listen_together_intent_bookmark_unavailable" = "You're listening to someone else's book, so a bookmark can't be added now.";
+"listen_together_intent_sharer_refused" = "You're sharing a book. End Listen Together first to play another book.";

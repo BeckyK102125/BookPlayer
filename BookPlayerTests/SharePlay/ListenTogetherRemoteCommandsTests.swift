@@ -304,3 +304,106 @@ final class ListenTogetherRemoteCommandsTests: XCTestCase {
     XCTAssertEqual(sink.published.last?.state, .paused)
   }
 }
+
+/// Fork audit A17: Siri and Shortcuts during a Listen Together session never touch the user's own
+/// paused book; they act on the shared book or say why not. Each intent asks this router first.
+@MainActor
+final class ListenTogetherIntentRoutingTests: XCTestCase {
+  private var playerManager: PlayerManagerProtocolMock!
+  private var service: SharePlaySessionService!
+  private var posted: [String] = []
+  private var events: [LocalPlaybackEvent] = []
+  private var bag = Set<AnyCancellable>()
+
+  override func setUp() async throws {
+    playerManager = PlayerManagerProtocolMock()
+    playerManager.underlyingIsPlaying = false
+    playerManager.underlyingCurrentSpeed = 1
+    playerManager.isPlayingPublisherReturnValue = Just(false).eraseToAnyPublisher()
+    playerManager.currentSpeedPublisherReturnValue = Just(Float(1)).eraseToAnyPublisher()
+    service = SharePlaySessionService(
+      playerManager: playerManager,
+      storage: ShareStorage(root: FileManager.default.temporaryDirectory.appendingPathComponent("IntentTests-\(UUID())")),
+      announcer: ListenTogetherAnnouncer(post: { [weak self] in self?.posted.append($0) }))
+    service.coordinatorControlFactory = { RecordingCoordinatorControl() }
+    posted = []
+    events = []
+  }
+
+  override func tearDown() async throws {
+    service.end()
+    bag.removeAll()
+  }
+
+  private func listening() -> ListenerPlayer {
+    service.startListening(with: FakeTransport(), shareID: UUID())
+    let manifest = SharedBookManifest(
+      shareID: UUID(), title: "Shared", author: "A", duration: 1000,
+      chapters: [SharedChapter(title: "One", start: 0, duration: 1000)],
+      pieces: [SharedPiece(index: 0, bookStart: 0, duration: 1000, byteSize: 1)])
+    let listener = ListenerPlayer(manifest: manifest)
+    listener.applyPause(at: 100)
+    service.setListener(listener)
+    listener.localEvents.sink { [unowned self] in self.events.append($0) }.store(in: &bag)
+    return listener
+  }
+
+  private func untouched(file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertEqual(playerManager.pauseCallsCount, 0, file: file, line: line)
+    XCTAssertEqual(playerManager.skipCallsCount, 0, file: file, line: line)
+    XCTAssertEqual(playerManager.directSkipCallsCount, 0, file: file, line: line)
+    XCTAssertEqual(playerManager.playCallsCount, 0, file: file, line: line)
+  }
+
+  func testOutsideASessionEveryIntentProceeds() {
+    for command: ListenTogetherIntentRouting.Command in [
+      .pause, .skip(seconds: 30), .createBookmark, .startBook(relativePath: "a", title: "A"),
+    ] {
+      XCTAssertEqual(ListenTogetherIntentRouting.route(command, service: service), .proceed)
+    }
+  }
+
+  func testAListenersPauseIntentGoesToTheSharedBookNotTheirOwn() {
+    listening()
+    XCTAssertEqual(ListenTogetherIntentRouting.route(.pause, service: service), .handled)
+    untouched()
+  }
+
+  func testAListenersSkipIntentsMoveTheSharedBook() {
+    listening()
+    XCTAssertEqual(ListenTogetherIntentRouting.route(.skip(seconds: 30), service: service), .handled)
+    XCTAssertEqual(ListenTogetherIntentRouting.route(.skip(seconds: -15), service: service), .handled)
+    XCTAssertEqual(events.count, 2)
+    untouched()
+  }
+
+  func testAListenersBookmarkIntentIsRefused() {
+    listening()
+    XCTAssertEqual(
+      ListenTogetherIntentRouting.route(.createBookmark, service: service),
+      .refused("You're listening to someone else's book, so a bookmark can't be added now."))
+  }
+
+  func testAListenerStartingTheirOwnBookFromSiriLeavesFirst() {
+    listening()
+    XCTAssertEqual(
+      ListenTogetherIntentRouting.route(.startBook(relativePath: "own.m4b", title: "Moby Dick"), service: service),
+      .proceed)
+    XCTAssertFalse(service.isInSession, "left Listen Together, so the book may start")
+    XCTAssertEqual(posted, ["You left Listen Together. Playing Moby Dick."])
+  }
+
+  func testASharerStartingAnotherBookFromSiriIsRefused() {
+    let item = PlayableItem.stub(currentTime: 10, duration: 100)
+    playerManager.currentItem = item
+    service.startSharingSession(with: FakeTransport(), item: item, shareID: UUID())
+    XCTAssertEqual(
+      ListenTogetherIntentRouting.route(.startBook(relativePath: "other.m4b", title: "Other"), service: service),
+      .refused("You're sharing a book. End Listen Together first to play another book."))
+    XCTAssertEqual(
+      ListenTogetherIntentRouting.route(.startBook(relativePath: item.relativePath, title: nil), service: service),
+      .proceed, "resuming the shared book is fine")
+    XCTAssertEqual(ListenTogetherIntentRouting.route(.pause, service: service), .proceed, "the sharer's book is the shared one")
+    XCTAssertTrue(service.isInSession)
+  }
+}

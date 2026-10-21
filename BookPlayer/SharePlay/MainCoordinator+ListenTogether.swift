@@ -10,6 +10,8 @@ import UIKit
 extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
   func bindListenTogether() {
     sharePlayService.sharingSheetPresenter = self
+    // Fork audit A17: Siri and Shortcuts address the shared book during a session.
+    ListenTogetherIntentRouting.service = sharePlayService
     // R38: starting the user's own book during a listener session asks first (one gate for the
     // library, search, CarPlay, Siri and widget paths that go through PlayerLoaderService).
     playerLoaderService.playbackStartGate = { [weak self] bookTitle in

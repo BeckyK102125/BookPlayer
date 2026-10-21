@@ -28,6 +28,8 @@ struct CustomSkipForwardIntent: AudioPlaybackIntent {
     let coreServices = try await AppServices.shared.awaitCoreServices()
     let playerLoaderService = coreServices.playerLoaderService
     let seconds = interval.converted(to: .seconds).value
+    // Listen Together (fork audit A17): a listener skips the shared book; their own is never loaded or moved.
+    if try await ListenTogetherIntentRouting.handle(.skip(seconds: seconds)) { return .result() }
 
     if !playerLoaderService.playerManager.hasLoadedBook(),
       let book = coreServices.libraryService.getLastPlayedItems(limit: 1)?.first

@@ -25,6 +25,11 @@ struct CreateBookmarkIntent: AppIntent {
     let playerLoaderService = coreServices.playerLoaderService
     let libraryService = coreServices.libraryService
 
+    // Listen Together (fork audit A17): a listener's loaded book is not what they hear; no bookmark there.
+    if case .refused(let text) = await ListenTogetherIntentRouting.route(.createBookmark) {
+      return .result(value: "", dialog: IntentDialog(stringLiteral: text))
+    }
+
     guard let currentItem = await MainActor.run(body: { playerLoaderService.playerManager.currentItem }) else {
       return .result(
         value: "",

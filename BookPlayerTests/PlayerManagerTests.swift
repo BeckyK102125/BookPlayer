@@ -6,6 +6,7 @@
 //  Copyright © 2022 BookPlayer LLC. All rights reserved.
 //
 
+import AVFoundation
 import Foundation
 import MediaPlayer
 
@@ -296,5 +297,36 @@ class PlayerManagerTests: XCTestCase {
     // Falls back to the previous item without seeking within the current one
     XCTAssertEqual(playbackServiceMock.getPlayableItemBeforeParentFolderCallsCount, 1)
     XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 1, accuracy: 0.0001)
+  }
+
+  // MARK: Fork audit A01: only this player's own item finishes the book
+
+  func testOnlyThisPlayersCurrentItemCountsAsFinished() {
+    let mine = AVPlayerItem(url: URL(fileURLWithPath: "/tmp/mine.m4a"))
+    let other = AVPlayerItem(url: URL(fileURLWithPath: "/tmp/other.m4a"))
+    XCTAssertTrue(PlayerManager.acceptsEndOfItem(mine, currentPlayerItem: mine))
+    XCTAssertFalse(PlayerManager.acceptsEndOfItem(other, currentPlayerItem: mine), "another player's item")
+    XCTAssertFalse(PlayerManager.acceptsEndOfItem(mine, currentPlayerItem: nil), "an item this player already replaced")
+    XCTAssertFalse(PlayerManager.acceptsEndOfItem(nil, currentPlayerItem: mine))
+  }
+
+  func testAListenTogetherPieceFinishingNeverFinishesThePersonalBook() {
+    let library = LibraryServiceProtocolMock()
+    let manager = PlayerManager(
+      libraryService: library,
+      playbackService: playbackServiceMock,
+      syncService: SyncServiceProtocolMock(),
+      speedService: SpeedServiceProtocolMock(),
+      shakeMotionService: ShakeMotionServiceProtocolMock(),
+      widgetReloadService: WidgetReloadService()
+    )
+    let item = generatePlayableItem()
+    item.currentChapter = item.chapters.last!
+    manager.currentItem = item
+    // The listener's AVQueuePlayer finishes a piece: the notification is for its item, not ours.
+    let pieceItem = AVPlayerItem(url: URL(fileURLWithPath: "/tmp/piece-000.m4a"))
+    manager.playerDidFinishPlaying(Notification(name: .AVPlayerItemDidPlayToEndTime, object: pieceItem))
+    XCTAssertFalse(library.markAsFinishedFlagRelativePathCalled, "the personal book is not marked finished")
+    XCTAssertFalse(library.setLibraryLastBookWithCalled, "and the next personal book is not started")
   }
 }

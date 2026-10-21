@@ -307,6 +307,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   var pendingOwnCopyJoinedLine = false
   /// Sharer: the running share's fingerprint, sent in the manifest.
   var sharingFingerprint: BookFingerprint?
+  /// Sharer: the shared book (Siri may resume it; another book is refused, fork audit A17).
+  var sharingRelativePath: String?
   var localEventsBag = Set<AnyCancellable>()
   var eventLoop: Task<Void, Never>?
   /// Sharer: the export and upload pipeline. Cancelled by `tearDown`, so no export keeps running after End.
@@ -1405,6 +1407,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     isOwnersOnlySession = false
     pendingOwnCopyJoinedLine = false
     sharingFingerprint = nil
+    sharingRelativePath = nil
     self.shareID = nil
     if leaveTransport { transport?.leave() }
     if let shareID { storage.remove(shareID: shareID) }
