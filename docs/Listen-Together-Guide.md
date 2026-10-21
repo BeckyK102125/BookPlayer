@@ -129,7 +129,9 @@ While you listen together, BookPlayer hides your own mini player. If you choose 
 
 When you leave to play your own copy of the shared book, it resumes at the place you reached together. A different book keeps its own saved place.
 
-If BookPlayer cannot ask (for example Siri, a widget or CarPlay while the phone is locked), your own book does not start, and Listen Together carries on. You will hear "You're in Listen Together. Unlock to play your own book." when BookPlayer can speak. If you have already allowed notifications for BookPlayer, a notification also says "Your book did not start" (at most once every 30 seconds); BookPlayer never asks for notification permission for this. Two books never play at the same time.
+**Siri and Shortcuts:** if you ask Siri to play one of your own books (or your last book), you leave Listen Together first ("You left Listen Together. Playing Moby Dick.") and your book plays. Siri's Pause and skip forward or back act on the shared book for everyone, like the lock screen; your own book's place never changes. Siri can't add a bookmark while you listen to someone else's book, and says so. If you are sharing, Siri's Pause, skips and bookmarks act on the shared book as usual, but asking for another book says "You're sharing a book. End Listen Together first to play another book."
+
+If BookPlayer cannot ask (for example a widget or CarPlay while the phone is locked), your own book does not start, and Listen Together carries on. You will hear "You're in Listen Together. Unlock to play your own book." when BookPlayer can speak. If you have already allowed notifications for BookPlayer, a notification also says "Your book did not start" (at most once every 30 seconds); BookPlayer never asks for notification permission for this. Two books never play at the same time.
 
 Anyone can control playback, and it changes for everyone:
 
@@ -272,7 +274,7 @@ Your own copy is never deleted or moved by Listen Together. Its listening positi
 - On a FaceTime call, Magic Tap ends the call instead of pausing. See "Magic Tap on a FaceTime call".
 - After you send the invitation, BookPlayer waits up to 20 seconds for Listen Together to start (see "Share a book"). With the screen locked, you may not hear whether it started.
 - The sleep timer controls your own book, not the shared one.
-- During a listener session, your own book cannot be started from Siri, a widget or CarPlay while the phone is locked (BookPlayer cannot ask first). You hear "You're in Listen Together. Unlock to play your own book." when BookPlayer can speak. Unlock and choose the book in BookPlayer, then choose Leave.
+- During a listener session, your own book cannot be started from a widget or CarPlay while the phone is locked (BookPlayer cannot ask first; Siri leaves Listen Together instead). You hear "You're in Listen Together. Unlock to play your own book." when BookPlayer can speak. Unlock and choose the book in BookPlayer, then choose Leave.
 - Invitations from other people are ignored while your own sharing screen is open or BookPlayer is waiting (up to 20 seconds) for your own share to start.
 - CarPlay: during a listener session the standard Now Playing play, pause and skip buttons reach the shared book, but CarPlay's chapter buttons still control your own book. Connecting CarPlay may switch the lock screen to your own book.
 - If the person sharing leaves, listeners wait for up to a minute and then Listen Together ends (see "End the session").

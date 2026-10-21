@@ -1547,3 +1547,35 @@ observer; stale `appWasSuspended` ignored; PlayerManager.swift untouched).
   0 restarts.
 - Not done: late joiners during the sharer's interruption don't get the status (they would see "paused"). The listener's
   roster-based last-listener check (code M10) is unchanged.
+
+## 2026-10-20 — build 6 fix round 4: Codex full-fork audit A01, A08, A17 + late joiners (parent b7b080ce)
+Brief: build6-fix-round-4.md. Audit: codex-full-audit-2026-10-20.md. Becky approved minimal PlayerManager.swift edits for A01
+and A08 only. Code commit 22a100f3, then this docs commit. Shared/ is untouched.
+- A01: `PlayerManager.playerDidFinishPlaying` is registered with `object: nil`, so it heard every player's end of item,
+  including ListenerPlayer's AVQueuePlayer. It now first checks `acceptsEndOfItem(notification.object,
+  currentPlayerItem: audioPlayer.currentItem)` (identity with its own current item; a replaced item no longer counts).
+  Tests: PlayerManagerTests testOnlyThisPlayersCurrentItemCountsAsFinished and
+  testAListenTogetherPieceFinishingNeverFinishesThePersonalBook. The second failed on the old code: markAsFinished and
+  setLibraryLastBook were called.
+- A08: the `guard AppEnvironment.isTestFlight else { fatalError }` in `play(autoPlayed:)` is removed. Every build now takes
+  the existing recoverable path (Sentry capture with the same fingerprint, the failure marker, `playbackQueued = nil`,
+  return; pressing Play again retries). The recovery report stays TestFlight-only. No unit test: AVAudioSession can't be
+  injected into PlayerManager without a larger change; the path is the existing TestFlight one.
+- A17: new `BookPlayer/SharePlay/ListenTogetherIntentRouting.swift` (app target only, registered in pbxproj). The service is
+  set by MainCoordinator. Pause, CustomSkipForward, CustomRewind, CreateBookmark, PlayBook and LastBookStartPlayback ask it
+  first (LastBook only under MAIN_APP).
+  - Listener: Pause and skips go to the ListenerPlayer, with the lock-screen Pause rule. The bookmark is refused with a
+    dialog. Starting a book calls `leaveForOwnBook` (existing announcement "You left Listen Together. Playing %@."), then
+    the normal load.
+  - Sharer: starting a book other than `sharingRelativePath` is refused (thrown sentence); everything else proceeds.
+  - Tests: ListenTogetherIntentRoutingTests (6). The intents themselves are not unit-run (AppIntents perform needs the
+    system); they only call the router.
+- Late joiners: `resendForLateJoiners` (joins and state requests) also sends `.sharerInterrupted` or
+  `.sharerInterruptionEnded(resumed: false)` while the sharer is interrupted or waiting for Play. Listeners accept
+  "ended, not resumed" without a prior interruption. A repeat is a no-op, so nothing is said twice. Tests: sharer side
+  (join + requestState) and listener side.
+- Results: SharePlay (35 classes, now including the ledger and routing classes, which were missing from the earlier
+  33-class runs) + PlayerManagerTests 736/0. Full suite "Executed 1295 tests, with 0 failures" ** TEST EXECUTE SUCCEEDED **.
+  TSan on the same 736: 0 DEADLYSIGNAL, 0 warnings, 0 restarts.
+- Deferred by Becky (listed in context.md "Later"): A02-A07, A09-A16, A18-A20.
+- CLAUDE.md's hotlist still describes the session-activation fatalError; not changed, per the brief.
