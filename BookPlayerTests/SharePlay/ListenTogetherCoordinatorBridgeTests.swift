@@ -271,7 +271,7 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
 
   func testAReadinessWaitIsBoundedAndTheGroupCarriesOn() {
     let (bridge, _, control) = makeBridge(ready: false)
-    var timers: [(TimeInterval, () -> Void)] = []
+    var timers: [(TimeInterval, @MainActor () -> Void)] = []
     bridge.schedule = { timers.append(($0, $1)) }
     bridge.waitForReadiness()
     bridge.waitForReadiness()
@@ -283,7 +283,7 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
 
   func testAReadinessWaitEndsWhenReadyAndItsLimitThenDoesNothing() {
     let (bridge, target, control) = makeBridge(ready: false)
-    var timers: [() -> Void] = []
+    var timers: [@MainActor () -> Void] = []
     bridge.schedule = { timers.append($1) }
     bridge.waitForReadiness()
     target.ready = true
@@ -295,7 +295,7 @@ final class ListenTogetherCoordinatorBridgeTests: XCTestCase {
 
   func testAnItemThatTimedOutOnceNeverHoldsTheGroupAgain() {
     let (bridge, target, control) = makeBridge(ready: false)
-    var timers: [() -> Void] = []
+    var timers: [@MainActor () -> Void] = []
     bridge.schedule = { timers.append($1) }
     bridge.waitForReadiness()
     timers.forEach { $0() }

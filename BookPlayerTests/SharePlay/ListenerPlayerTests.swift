@@ -414,7 +414,7 @@ final class ListenerPlayerTests: XCTestCase {
 
   private var clock = Date(timeIntervalSince1970: 1_000)
   private var refusedWhileStopped = 0
-  private var timers: [() -> Void] = []
+  private var timers: [@MainActor () -> Void] = []
   private func runTimers() {
     let due = timers
     timers = []

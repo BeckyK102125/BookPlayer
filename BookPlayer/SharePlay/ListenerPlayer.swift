@@ -148,8 +148,11 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   /// Test seams: the clock, the audio session activation and the short delays.
   var now: () -> Date = Date.init
   var activateSession: (() -> Bool)?
-  var schedule: (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+  var schedule: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(delay))
+      work()
+    }
   }
   /// A wait to play shorter than this is not reported (the whole group would stall for it, M3).
   static let bufferingGrace: TimeInterval = 1

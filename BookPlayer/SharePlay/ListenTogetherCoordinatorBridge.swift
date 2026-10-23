@@ -48,8 +48,11 @@ final class ListenTogetherCoordinatorBridge: NSObject, BPLogger {
   /// The longest the group waits for one device to become ready to play (buffering, decoding).
   static let readinessLimit: TimeInterval = 10
   /// Test seam for the readiness limit.
-  var schedule: (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+  var schedule: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(delay))
+      work()
+    }
   }
   private var disposeBag = Set<AnyCancellable>()
   private var isInvalidated = false
