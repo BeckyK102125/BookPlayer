@@ -1579,3 +1579,39 @@ and A08 only. Code commit 22a100f3, then this docs commit. Shared/ is untouched.
   TSan on the same 736: 0 DEADLYSIGNAL, 0 warnings, 0 restarts.
 - Deferred by Becky (listed in context.md "Later"): A02-A07, A09-A16, A18-A20.
 - CLAUDE.md's hotlist still describes the session-activation fatalError; not changed, per the brief.
+
+## 2026-10-23 - Upstream develop 6.0.0 merged (iPhone Duo support), branch listen-together-6.0
+
+Becky asked for upstream's iPhone Duo updates in the fork. The Duo commits (#1635, #1637, #1640, #1642, #1651)
+build on upstream's side-by-side player, native tab accessory and split-view Settings, so cherry-picking only them
+was not workable; the whole of upstream/develop (a8e2cac7, 90 commits since merge base eb19a92f, marketing version
+6.0.0) was merged instead. New branch `listen-together-6.0` from `listen-together-build6` (feb50669, kept).
+- Commits: 698698a3 merge, 3adbca24 timer seams, then this docs commit.
+- Conflicts (37 files): 26 Localizable.strings and project.pbxproj were add/add (both kept; in pbxproj the rule was
+  upstream's hunk plus our-only lines, which honours upstream's removals). Swift: MiniPlayerAccessoryView,
+  MiniPlayerView (deleted upstream; our focus change moved to the accessory view), MainView, PlayerLoaderService,
+  ArtworkView, PlayerView, the two Settings files, Environment+BookPlayer and View+BookPlayer (taken from upstream).
+- Ruling: upstream now uses the single tab accessory everywhere, so the iOS 26.0 single-slot Listen Together design
+  applies to all iOS versions. Listener: row in the accessory. Sharer: mini player; to keep R41 (visible as well as
+  spoken, Michael at Zoom 3x) its second line shows "Listen Together, sharing" in place of the author. Cost if
+  wrong: the sharer no longer sees the author in the mini player during a share. MiniPlayerLayout (and its two
+  tests) removed with the overlay it sized. Closing the sharer's player requests mini player focus instead of the
+  (no longer present) sharer row.
+- PlayerView was taken from upstream (PlayerContentView, side by side, Duo panel) and our six additions re-applied:
+  focus state, ListenTogetherBanner, ArtworkView metaFocus, ListenTogetherPlayControls, title focus task, the
+  needs-FaceTime and first-share alerts.
+- loadPlayer: upstream resolves the item first (throws fileMissing) and compares real uuids; our start gate now
+  runs after the file check, with the item's title.
+- Build fixes after the merge: ListenTogetherPresentation uses `activeLibrarySheet` (renamed upstream); tests pass
+  the new `externalURL:` and `hasStreamingEnabled:`/`presentFailure:` arguments.
+- Checked: upstream deleted the SiriKit Intents extension (legacy) only; App Intents routing (A17) intact. Now Playing
+  suggestions (#1652) and Siri PlayMedia go through MainCoordinator/AppServices `loadPlayer`, so the gate applies.
+  Debug.template.xcconfig only lost BP_PROVISIONING_INTENTS; local xcconfigs have every remaining key.
+- 3adbca24: ListenTogetherCoordinatorBridge and ListenerPlayer `schedule` seams were the last two "passing
+  non-Sendable parameter 'work'" warnings (pre-existing; the project is still Swift 5 mode). Now @MainActor closures
+  run from a main-actor Task, like the service, messages and speaker seams.
+- Results (simulator 98A8CF98, default DerivedData): full `xcodebuild test` "Executed 1757 tests, with 0 failures"
+  ** TEST SUCCEEDED **. TSan on 34 SharePlay classes + PlayerManagerTests: 745/0, 0 ThreadSanitizer warnings, 0
+  crashes or restarts. The first test attempt failed before running anything ("Failed to prepare device ... Invalid
+  connectionUUID"); booting the simulator first fixed it.
+- Pre-existing, not changed: SharePlaySessionService.swift 1729 lines, ListenerPlayer.swift 1032 (700-line rule).

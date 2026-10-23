@@ -1,15 +1,15 @@
 # context.md - current snapshot
 
-Date: 2026-10-20
+Date: 2026-10-23
 
 ## Goal
 SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a downloaded audiobook (from
 Messages with no call, or on a FaceTime call); the others listen to a temporary copy (deleted when the
 session ends) or their own copy; playback stays in sync; everything works with VoiceOver, and every
 important message is also seen (Zoom, low vision).
-Current goal: build 6 on `listen-together-build6` after fix round 4 (Codex full-fork audit A01, A08, A17, and
-late joiners during the sharer's interruption): review, then merge to
-`develop` and TestFlight 5.22.2 (6) once Becky approves. Later: Siri/CarPlay rules, streamed-book alert,
+Current goal: build 6 on `listen-together-6.0` = build 6 work (fix round 4 done) + upstream develop 6.0.0 merged
+in (iPhone Duo layouts and 89 other upstream commits, Becky asked 2026-10-23). Next: Codex read-only re-audit of
+`listen-together-6.0`, fix anything noteworthy, then merge to `develop` and TestFlight 6.0.0 (6) once Becky approves. Later: Siri/CarPlay rules, streamed-book alert,
 translations, upstream own-copy-only branch.
 - Specs/plans: docs/superpowers/. Guide: docs/Listen-Together-Guide.md. Ledger, briefs, reports, audits:
   .superpowers/sdd/2026-10-10-shareplay-listen-together/ (build6-fix-round-1.md, -report.md, codex-audit*.md).
@@ -17,7 +17,9 @@ translations, upstream own-copy-only branch.
 ## Branches and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
 - `develop` at 3515e742 (build 5 = TestFlight 5.22.2 (5), plus notes).
-- `listen-together-build6` (local, not pushed): e2428f4b + 8ed9a541 (Codex snapshots, audited), then fix
+- `listen-together-6.0` (local, not pushed, current): `listen-together-build6` + 698698a3 (merge of upstream/develop
+  a8e2cac7, marketing version now 6.0.0) + 3adbca24 (main-actor timer seams) + this docs commit.
+- `listen-together-build6` (local, not pushed, kept as the pre-merge state at feb50669): e2428f4b + 8ed9a541 (Codex snapshots, audited), then fix
   round 1: 531f89ea TSan crash, c3408e85 Option 1 + audit 2, bd56544d decisions A-D + audit 1, c42b02e3 docs;
   453d36a5 fix round 2 (Codex F2-F4); 2621724a + 68941208 fix round 3; b7b080ce option A; fix round 4 =
   the code commit after it plus this docs commit. Clean after the commit except the untracked `review.md` (never commit it).
@@ -71,9 +73,22 @@ translations, upstream own-copy-only branch.
   bookmark refused, starting a book leaves first; sharer may resume only the shared book. Late joiners get the
   sharer's interruption state with the manifest/state answer.
 
+## Upstream 6.0.0 merge (2026-10-23, details in Notes.md)
+- Mini player: upstream uses the tab view's single bottom accessory on every iOS version (overlay MiniPlayerView
+  deleted). Listen Together now uses the former iOS 26.0 design everywhere: listener = the Listen Together row in
+  the accessory; sharer = the mini player, whose second line SHOWS "Listen Together, sharing" instead of the
+  author (and VoiceOver reads it as the value). Closing the sharer's player focuses the mini player.
+- PlayerView = upstream side-by-side/Duo version + our banner, play controls, title focus, alerts.
+- loadPlayer = upstream body + our start gate; Settings split view has the Listen Together row.
+- Upstream removed the SiriKit extension (BookPlayerIntents); our App Intents routing (A17) is unchanged.
+  Now Playing suggestions and Siri PlayMedia go through loadPlayer, so the Listen Together gate applies.
+
 ## Test evidence (commands and full history in Notes.md 2026-10-19/20)
 - Simulator 98A8CF98-8142-4710-AD5E-5419F782752C, default DerivedData, scheme BookPlayer, plan "Unit Tests".
 - Rounds 1-3 and option A all green (SharePlay, full suite, TSan with 0 crashes and 0 warnings).
+- After the 6.0.0 merge (3adbca24): full suite "Executed 1757 tests, with 0 failures" ** TEST SUCCEEDED **;
+  0 Sendable warnings in SharePlay code. TSan on the 34 SharePlay classes + PlayerManagerTests: 745/0, 0 warnings,
+  0 crashes.
 - Fix round 4: SharePlay (35 classes) + PlayerManagerTests 736/0; full 1295/0 ** TEST EXECUTE SUCCEEDED **; TSan
   on the same 736 tests: 0 crashes, 0 warnings, 0 restarts.
 
@@ -135,10 +150,13 @@ Capture both Console logs filtered on "Listen Together:".
   lack accessible equivalents.
 
 ## Open problems and next steps (in order)
-1. Review of fix round 4; then the deferred audit items above when Becky schedules them.
-2. Merge to develop; TestFlight 5.22.2 (6) (Becky approves the upload).
-3. Two-device run (checks above); fill the guide's Control Center names.
-4. Parked: a11y M1 two messages in the owners-only arrival window; M5 Join hint wording; M6 system Leave
+1. Codex read-only re-audit of `listen-together-6.0` (fix round 4 + the upstream merge); fix anything noteworthy.
+2. Merge to develop; TestFlight 6.0.0 (6) (Becky approves the upload). Device checks add: Duo/landscape side-by-side
+   player as sharer (banner and Listen Together controls visible), sharer mini player line at Zoom 3x.
+3. Deferred audit items above when Becky schedules them. Files over 700 lines (pre-existing):
+   SharePlaySessionService.swift 1729, ListenerPlayer.swift 1032; split them in a focused pass.
+4. Two-device run (checks above); fill the guide's Control Center names.
+5. Parked: a11y M1 two messages in the owners-only arrival window; M5 Join hint wording; M6 system Leave
    SharePlay wording on the listener; build-5 parked minors.
 
 ## Decisions waiting on Becky
