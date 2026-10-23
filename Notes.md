@@ -1651,3 +1651,5 @@ pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the r
   Becky expires it. Future archives: add MARKETING_VERSION=5.22.2 to the overrides until Becky says otherwise.
 - Xcode's sign-in wrote automatic signing, team and bundle ID into project.pbxproj and reordered Info.plist in the
   main checkout; reverted with git checkout, never committed.
+- 6.0.0 (6) expired in App Store Connect (TestFlight, iOS Builds, Expire Build) at Becky's request. 5.22.2 (6) shows
+  Testing, group Listen Together, uploaded 4:34 PM.

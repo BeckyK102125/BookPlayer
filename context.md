@@ -159,7 +159,7 @@ Capture both Console logs filtered on "Listen Together:".
    test, we work through them (R09 touches PlayerManager.swift: ask before editing).
 2. DONE 2026-10-23: develop fast-forwarded to d55292ea and pushed; TestFlight 5.22.2 (6) uploaded (internal only;
    Becky: keep the 5.22.2 train for the fork, so MARKETING_VERSION=5.22.2 is passed on the archive command line).
-   A 6.0.0 (6) upload from the same commit also exists in TestFlight: expire it.
+   The 6.0.0 (6) upload from the same commit was expired in App Store Connect (2026-10-23).
    Next: the two-phone test on build 6. Device checks add: Duo/landscape side-by-side
    player as sharer (banner and Listen Together controls visible), sharer mini player line at Zoom 3x.
 3. Deferred audit items above when Becky schedules them. Files over 700 lines (pre-existing):
