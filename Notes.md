@@ -1635,3 +1635,12 @@ pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the r
 - Results: full suite "Executed 1760 tests, with 0 failures" ** TEST SUCCEEDED **.
 - Not changed: R03-R22 (upstream code) wait for Becky's decision; Codex notes the keep-alive seam and the adapter
   callbacks have unannotated closures (no compiler warning).
+
+## 2026-10-23 - develop merged, pushed, TestFlight 6.0.0 (6)
+- Becky approved all three steps and deferring the 20 upstream findings (R03-R22) until build 6 proves stable.
+- `develop` fast-forwarded from 3515e742 to d55292ea (listen-together-6.0) and pushed: 64556121..d55292ea.
+- TestFlight 6.0.0 (6) archived from d55292ea in a temporary worktree (same overrides, CURRENT_PROJECT_VERSION=6):
+  app.techopolis.BookPlayer-together 6.0.0 (6), share extension and phone widgets (no Intents extension now).
+- The first export failed: "App Store Connect access for M9SNPTXA44 is required" (Xcode account session expired).
+  Becky signed in again in Xcode, Settings, Accounts; the retry exported and uploaded internal only: "Upload
+  succeeded". Sentry.framework dSYM warning as before (harmless). Worktree, archive, export and logs deleted.

@@ -155,8 +155,10 @@ Capture both Console logs filtered on "Listen Together:".
 ## Open problems and next steps (in order)
 1. Codex re-audit 2026-10-23 (review.md, copy codex-full-audit-2026-10-23.md, R01-R22) read. Fixed: R01 (Siri
    PlayMedia now routed), R02 (video player restored), transfer-sheet cover, live sharer status in the mini
-   player. Waiting on Becky: whether the other 20 (upstream code; new ones R05, R09, R10, R13, R22) wait as before.
-2. Merge to develop; TestFlight 6.0.0 (6) (Becky approves the upload). Device checks add: Duo/landscape side-by-side
+   player. Becky 2026-10-23: the other 20 (upstream code) wait; once TestFlight 6 proves stable on the two-phone
+   test, we work through them (R09 touches PlayerManager.swift: ask before editing).
+2. DONE 2026-10-23: develop fast-forwarded to d55292ea and pushed; TestFlight 6.0.0 (6) uploaded (internal only).
+   Next: the two-phone test on build 6. Device checks add: Duo/landscape side-by-side
    player as sharer (banner and Listen Together controls visible), sharer mini player line at Zoom 3x.
 3. Deferred audit items above when Becky schedules them. Files over 700 lines (pre-existing):
    SharePlaySessionService.swift 1729, ListenerPlayer.swift 1032; split them in a focused pass.
