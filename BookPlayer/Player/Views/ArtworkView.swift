@@ -18,7 +18,9 @@ struct ArtworkView: View {
   var imagePath: String?
   /// Lets the player move VoiceOver focus to the title and author element.
   var metaFocus: AccessibilityFocusState<Bool>.Binding?
-  
+  /// Where the square sits when it's narrower than the space it's given
+  var alignment: Alignment = .center
+
   var body: some View {
     ZStack(alignment: .top) {
       ZStack {
@@ -106,7 +108,7 @@ struct ArtworkView: View {
       .cornerRadius(12)
       .clipped()
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
   }
 }
 

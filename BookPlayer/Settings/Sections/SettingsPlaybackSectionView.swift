@@ -20,18 +20,22 @@ struct SettingsPlaybackSectionView: View {
         Text("settings_controls_title")
           .bpFont(.body)
       }
+      .settingsRowBackground(for: .controls)
       NavigationLink(value: SettingsScreen.autoplay) {
         Text("settings_autoplay_section_title".localized.localizedCapitalized)
           .bpFont(.body)
       }
+      .settingsRowBackground(for: .autoplay)
       NavigationLink(value: SettingsScreen.autolock) {
         Text("settings_autlock_section_title")
           .bpFont(.body)
       }
+      .settingsRowBackground(for: .autolock)
       NavigationLink(value: SettingsScreen.listenTogether) {
         Text("settings_listen_together_title".localized)
           .bpFont(.body)
       }
+      .settingsRowBackground(for: .listenTogether)
       // The current choice in short form, so it is heard without opening the screen.
       .accessibilityValue(listenTogetherMode.shortValue)
     } header: {

@@ -51,7 +51,9 @@ final class SharePlayMenuTests: XCTestCase {
       syncService: SyncServiceProtocolMock(),
       speedService: SpeedServiceProtocolMock(),
       shakeMotionService: ShakeMotionServiceProtocolMock(),
-      widgetReloadService: WidgetReloadService()
+      widgetReloadService: WidgetReloadService(),
+      hasStreamingEnabled: { true },
+      presentFailure: { _ in }
     )
     playerManager.currentItem = item
     return PlayerViewModel(

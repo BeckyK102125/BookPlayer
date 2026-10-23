@@ -140,37 +140,6 @@ final class ListenTogetherRowTests: XCTestCase {
     XCTAssertEqual(bar(.idle, searchingOrEditing: true), R.BottomBar(showsRow: false, showsMiniPlayer: false))
   }
 
-  // MARK: Bottom clearance and content inset
-
-  typealias L = MiniPlayerLayout
-
-  func testClearanceClearsTheTabBarOrTheEditingToolbar() {
-    // Compact: the tab bar is at the bottom; in edit mode the editing toolbar takes its place.
-    XCTAssertEqual(L.bottomClearance(isCompact: true, isEditing: false, tabBarContentHeight: 49), 57)
-    XCTAssertEqual(L.bottomClearance(isCompact: true, isEditing: true, tabBarContentHeight: 49), 57)
-    // Regular (iPad full screen): the tab bar is at the top, but the editing toolbar is at the bottom.
-    XCTAssertEqual(L.bottomClearance(isCompact: false, isEditing: false, tabBarContentHeight: 49), Spacing.S1)
-    XCTAssertEqual(L.bottomClearance(isCompact: false, isEditing: true, tabBarContentHeight: 49), 57)
-  }
-
-  func testContentInsetSubtractsOnlyTheChromeTheClearanceCovers() {
-    // The stack's measured height includes the clearance; the bar at the bottom already insets content.
-    XCTAssertEqual(L.contentInset(stackHeight: 120, isCompact: true, isEditing: false, tabBarContentHeight: 49), 91)
-    XCTAssertEqual(L.contentInset(stackHeight: 120, isCompact: true, isEditing: true, tabBarContentHeight: 49), 91)
-    XCTAssertEqual(L.contentInset(stackHeight: 120, isCompact: false, isEditing: true, tabBarContentHeight: 49), 91)
-    XCTAssertEqual(L.contentInset(stackHeight: 70, isCompact: false, isEditing: false, tabBarContentHeight: 49), 90)
-    // Never less than the stack itself above the chrome: content can always scroll clear of the row.
-    for editing in [false, true] {
-      for compact in [false, true] {
-        let clearance = L.bottomClearance(isCompact: compact, isEditing: editing, tabBarContentHeight: 49)
-        let stack = 64 + clearance
-        let inset = L.contentInset(stackHeight: stack, isCompact: compact, isEditing: editing, tabBarContentHeight: 49)
-        let chrome: CGFloat = compact || editing ? 49 : 0
-        XCTAssertGreaterThanOrEqual(inset + chrome, stack, "compact \(compact) editing \(editing)")
-      }
-    }
-  }
-
   // MARK: (c) The row's value
 
   private func value(

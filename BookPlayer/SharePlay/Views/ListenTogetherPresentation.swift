@@ -162,7 +162,7 @@ struct ListenTogetherPresentation: ViewModifier {
         }
         // Close what is in the way; the listener screen follows once it has left.
         if playerState.isShowingPlayer { playerState.isShowingPlayer = false }
-        if listState.activeIntegrationSheet != nil { listState.activeIntegrationSheet = nil }
+        if listState.activeLibrarySheet != nil { listState.activeLibrarySheet = nil }
       }
       .onChange(of: service.state) { _, state in
         listState.isListenerScreenRequested = Self.isListenerScreenRequested(

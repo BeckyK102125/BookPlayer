@@ -69,7 +69,7 @@ final class BookSplitterTests: XCTestCase {
       }
       chapters.append(PlayableChapter(
         title: "c\(i)", author: "a", start: Double(i) * 2, duration: 2,
-        relativePath: relative, remoteURL: nil, index: Int16(i + 1)))
+        relativePath: relative, remoteURL: nil, externalURL: nil, index: Int16(i + 1)))
     }
     return PlayableItem(
       title: "t", author: "a", chapters: chapters, currentTime: 0,
@@ -113,7 +113,7 @@ final class BookSplitterTests: XCTestCase {
       }
       chapters.append(PlayableChapter(
         title: "c\(i)", author: "a", start: spec.start, duration: spec.duration,
-        relativePath: relative, remoteURL: nil, index: Int16(i + 1), chapterOffset: spec.offset))
+        relativePath: relative, remoteURL: nil, externalURL: nil, index: Int16(i + 1), chapterOffset: spec.offset))
     }
     return PlayableItem(
       title: "t", author: "a", chapters: chapters, currentTime: 0,

@@ -12,14 +12,13 @@ import SwiftUI
 struct MiniPlayerAccessoryView: View {
   let relativePath: String
   let showPlayer: () -> Void
-  /// iOS 26.0 has one accessory slot, so a sharer's Listen Together status is read here instead of
-  /// in a separate row ("Listen Together, sharing, Moby Dick").
+  /// The tab view has one accessory slot, so a sharer's Listen Together status is shown (in place of
+  /// the author) and read here instead of in a separate row ("Listen Together, sharing").
   var listenTogetherValue: String?
 
   @State private var isPlaying: Bool = false
   /// Listen Together: VoiceOver lands here after leaving or after the sharer ended it.
   @AccessibilityFocusState private var isInfoFocused: Bool
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @EnvironmentObject private var theme: ThemeViewModel
   @EnvironmentObject private var playerManager: PlayerManager
 
@@ -48,18 +47,14 @@ struct MiniPlayerAccessoryView: View {
         .accessibilityHidden(true)
         .padding(.leading, 8)
 
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 0) {
           Text(verbatim: playerManager.currentItem?.title ?? "")
-            .foregroundStyle(
-              reduceTransparency ? Color.primary : theme.primaryColor
-            )
+            .foregroundStyle(.primary)
             .bpFont(.miniPlayerTitle)
             .lineLimit(1)
 
-          Text(verbatim: playerManager.currentItem?.author ?? "")
-            .foregroundStyle(
-              reduceTransparency ? Color.secondary : theme.secondaryColor
-            )
+          Text(verbatim: listenTogetherValue ?? playerManager.currentItem?.author ?? "")
+            .foregroundStyle(.secondary)
             .bpFont(.miniPlayerAuthor)
             .lineLimit(1)
         }
@@ -68,6 +63,7 @@ struct MiniPlayerAccessoryView: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel(voiceOverLabel)
         .accessibilityValue(listenTogetherValue ?? "")
+        .accessibilityIdentifier("miniPlayer.info")
         .accessibilityFocused($isInfoFocused)
         Button {
           UIImpactFeedbackGenerator(style: .medium).impactOccurred()

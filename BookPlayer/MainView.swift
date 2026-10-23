@@ -16,6 +16,9 @@ struct MainView: View {
   @State private var listState = ListStateManager()
   @StateObject private var theme = ThemeViewModel()
   @StateObject private var keyboardObserver = KeyboardObserver()
+  /// A wire between SwiftUI views that MainCoordinator never touches, so it's owned here.
+  /// Injected below, where the library sheets and the library tab both inherit it.
+  @StateObject private var externalImportEvents = ExternalImportEvents()
   @Environment(\.libraryService) private var libraryService
   @Environment(\.playerState) private var playerState
   @Environment(\.syncService) private var syncService
@@ -25,11 +28,10 @@ struct MainView: View {
   @Environment(\.colorScheme) private var scheme
   @Environment(\.horizontalSizeClass) private var hSize
 
-  @State private var tabBarContentHeight: CGFloat = 49
-
   @EnvironmentObject private var listSyncRefreshService: ListSyncRefreshService
   @EnvironmentObject private var playerManager: PlayerManager
   @EnvironmentObject private var sharePlayService: SharePlaySessionService
+  @EnvironmentObject private var importManager: ImportManager
 
   var body: some View {
     TabView {
@@ -38,23 +40,9 @@ struct MainView: View {
           showSecondOnboarding: showSecondOnboarding,
           showImport: showImport
         )
-        .background {
-          TabBarHeightReader { height in
-            if tabBarContentHeight != height {
-              tabBarContentHeight = height
-            }
-          }
-        }
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarBackground(theme.systemBackgroundColor, for: .tabBar)
         .toolbar(listState.isEditing ? .hidden : .visible, for: .tabBar)
-        .onDrop(
-          of: ImportableItem.readableTypeIdentifiers,
-          isTargeted: nil
-        ) { providers in
-          handleDrop(providers)
-          return true
-        }
       }
       Tab("profile_title", systemImage: "person.crop.circle") {
         ProfileView()
@@ -62,43 +50,19 @@ struct MainView: View {
       Tab("settings_title", systemImage: "gearshape") {
         SettingsView()
       }
-      if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone {
-        Tab("search_title", systemImage: "magnifyingglass", role: .search) {
-          SearchView {
-            SearchViewModel(libraryService: libraryService)
-          }
+      Tab("search_title", systemImage: "magnifyingglass", role: .search) {
+        SearchView {
+          SearchViewModel(libraryService: libraryService)
         }
       }
 
     }
-    .miniPlayer {
-      // R36: the Listen Together row sits in the mini player's slot, above the mini player when both
-      // show; a listener's own mini player is hidden. One bottom clearance for the whole stack.
-      let bar = bottomBar
-      VStack(spacing: 8) {
-        if bar.showsRow {
-          ListenTogetherStatusRow(service: sharePlayService, showPlayer: showPlayer)
-            .transition(.opacity)
-        }
-        if bar.showsMiniPlayer, let relativePath = playerState.loadedBookRelativePath {
-          MiniPlayerView(relativePath: relativePath, showPlayer: showPlayer)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .animation(.spring(), value: playerState.loadedBookRelativePath != nil)
-        }
-      }
-      // Clear the tab bar, or in edit mode the editing toolbar that takes its place (so the row never
-      // covers Move or Delete); in regular width outside edit mode only minimal spacing.
-      .padding(
-        .bottom,
-        bar.showsRow || bar.showsMiniPlayer
-          ? MiniPlayerLayout.bottomClearance(
-            isCompact: hSize == .compact, isEditing: listState.isEditing, tabBarContentHeight: tabBarContentHeight)
-          : 0
-      )
-      .animation(.easeInOut(duration: 0.25), value: bar)
-    } accessoryContent: {
-      // iOS 26.0 has a single accessory slot: a listener gets the row there; a sharer keeps the mini
-      // player, which reads the sharing status as its value.
+    /// Selecting the Search tab focuses its field right away; dismissing search returns to the previous tab
+    .tabViewSearchActivation(.searchTabSelection)
+    .miniPlayer(isEnabled: bottomBar.showsRow || bottomBar.showsMiniPlayer) {
+      // R36 in the tab view's one accessory slot: a listener gets the Listen Together row there (their
+      // own mini player is hidden); a sharer keeps the mini player, which shows and reads the sharing
+      // status in place of the author.
       let bar = bottomBar
       if bar.showsRow && !bar.showsMiniPlayer {
         ListenTogetherStatusRow(service: sharePlayService, isAccessory: true, showPlayer: showPlayer)
@@ -111,8 +75,9 @@ struct MainView: View {
           listenTogetherValue: bar.showsRow ? ListenTogetherRow.sharerAccessoryValue : nil)
       }
     }
-    .sheet(item: $listState.activeIntegrationSheet, onDismiss: {
+    .sheet(item: $listState.activeLibrarySheet, onDismiss: {
       listState.coversOnScreen.remove(.mediaServers)
+      listState.coversOnScreen.remove(.transferFromComputer)
     }) { sheet in
       switch sheet {
       case .mediaServers:
@@ -123,18 +88,23 @@ struct MainView: View {
             style: .libraryEntry
           )
         }
+        .environment(\.closeMediaServers, CloseMediaServersAction { listState.activeLibrarySheet = nil })
         .onAppear { listState.coversOnScreen.insert(.mediaServers) }
+      case .transferFromComputer:
+        TransferView {
+          TransferViewModel(importManager: importManager, libraryService: libraryService)
+        }
+        .onAppear { listState.coversOnScreen.insert(.transferFromComputer) }
       }
     }
     .fullScreenCover(isPresented: playerState.isShowingPlayerBinding, onDismiss: {
       listState.coversOnScreen.remove(.player)
-      // A sharer closed the player: land on the Listen Together row, the way back to it. On iOS 26.0
-      // exactly there is no row for a sharer (the accessory mini player reads the status instead), so
-      // the request finds no focused element and VoiceOver keeps its default landing, which is fine.
+      // A sharer closed the player: land on the mini player, the way back to it, which shows and
+      // reads the sharing status (a sharer has no separate Listen Together row).
       if case .sharing = sharePlayService.state {
         Task { @MainActor in
           try? await Task.sleep(for: .milliseconds(500))
-          listState.listenTogetherRowFocusRequest += 1
+          ListenTogetherFocusRequests.shared.requestMiniPlayerFocus()
         }
       }
     }) {
@@ -149,6 +119,35 @@ struct MainView: View {
       }
       .presentationBackground(.clear)
       .onAppear { listState.coversOnScreen.insert(.player) }
+      .playbackAlerts(playerState: playerState, whenPlayerVisible: true)
+    }
+    // Posted by the failure alert's Media Servers button (PlaybackAlerts) when a book can't
+    // play because its media server isn't configured here. Lives at this level because both
+    // pieces of state it writes are owned above: the cover has to come down before the sheet
+    // can present, since the sheet is attached underneath it.
+    .onReceive(NotificationCenter.default.publisher(for: .showMediaServers)) { _ in
+      playerState.isShowingPlayer = false
+      listState.activeLibrarySheet = .mediaServers
+    }
+    // Sibling copy (see PlaybackAlerts): playback also starts with the player CLOSED —
+    // mini-player, CarPlay, remote commands, last-book restore — and the copy inside the cover
+    // isn't in the hierarchy then, silently dropping the prompt.
+    .playbackAlerts(playerState: playerState, whenPlayerVisible: false)
+    // A prompt belongs to the context that raised it and is NOT handed over when the player
+    // opens or closes — a deliberate product decision, not a workaround. The two-copy gate
+    // exists so exactly one copy can present, not so a prompt can migrate: an alert raised
+    // against a closed player, re-appearing over an open one after something else (a widget,
+    // an intent, Siri) opened it, has lost the context that made it make sense.
+    // Dropping it is the conservative half of that trade, and the alert is re-raised by the
+    // next attempt anyway.
+    .onChange(of: playerState.isShowingPlayer) {
+      playerState.clearPrompts()
+    }
+    // A failure raised while backgrounded outlives the attempt that caused it, so playback
+    // succeeding in the meantime has to retire it — otherwise coming back to the app shows an
+    // error for something that is playing right now.
+    .onReceive(NotificationCenter.default.publisher(for: .bookPlayed)) { _ in
+      playerState.pendingFailure = nil
     }
     .listenTogetherPresentation(service: sharePlayService, listState: listState, playerState: playerState)
     .accessibilityAction(.magicTap) {
@@ -163,9 +162,8 @@ struct MainView: View {
       case .libraryPlayer: playerManager.playPause()
       }
     }
-    .environment(\.tabBarContentHeight, tabBarContentHeight)
-    .environment(\.listenTogetherRowIsShown, bottomBar.showsRow)
     .environmentObject(theme)
+    .environmentObject(externalImportEvents)
     .environment(\.listState, listState)
     .tint(theme.linkColor)
     .onChange(of: scheme) {
@@ -199,50 +197,15 @@ struct MainView: View {
   }
 
   func showPlayer() {
+    /// The import screen is a UIKit presentation from the same screen as the player's cover, so the
+    /// cover can't present over it, and `isShowingPlayer` would stay true with no player showing,
+    /// leaving every later request (the mini player included) a no-op. The import wins
+    guard !importManager.isImportScreenShown else { return }
     playerState.isShowingPlayer = true
   }
   
   func hasPlayerShown() -> Bool {
     return playerState.isShowingPlayer
-  }
-
-  func handleDrop(_ providers: [NSItemProvider]) {
-    for provider in providers {
-      let suggestedName = provider.suggestedName
-      provider.loadObject(ofClass: ImportableItem.self) { [suggestedName] (object, _) in
-        guard let item = object as? ImportableItem else { return }
-        /// Set `suggesteName` from the provider
-        item.suggestedName = suggestedName
-
-        importData(from: item)
-      }
-    }
-  }
-
-  func importData(from item: ImportableItem) {
-    let filename: String
-
-    if let suggestedName = item.suggestedName {
-      let pathExtension = (suggestedName as NSString).pathExtension
-      /// Use  `suggestedFileExtension` only if the curret name does not include an extension
-      if pathExtension.isEmpty {
-        filename = "\(suggestedName).\(item.suggestedFileExtension)"
-      } else {
-        filename = suggestedName
-      }
-    } else {
-      /// Fallback if the provider didn't have a suggested name
-      filename = "\(Date().timeIntervalSince1970).\(item.suggestedFileExtension)"
-    }
-
-    let destinationURL = DataManager.getDocumentsFolderURL()
-      .appendingPathComponent(filename)
-
-    do {
-      try item.data.write(to: destinationURL)
-    } catch {
-      print("Fail to move dropped file to the Documents directory: \(error.localizedDescription)")
-    }
   }
 }
 
