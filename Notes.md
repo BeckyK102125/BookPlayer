@@ -1644,3 +1644,10 @@ pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the r
 - The first export failed: "App Store Connect access for M9SNPTXA44 is required" (Xcode account session expired).
   Becky signed in again in Xcode, Settings, Accounts; the retry exported and uploaded internal only: "Upload
   succeeded". Sentry.framework dSYM warning as before (harmless). Worktree, archive, export and logs deleted.
+- Correction (same day): Becky wants the fork's TestFlight builds to stay on the 5.22.2 version train ("keep things
+  correct"), although the upstream merge set MARKETING_VERSION = 6.0.0. Re-archived d55292ea with
+  MARKETING_VERSION=5.22.2 on the command line (project file unchanged); app, share extension and widgets all
+  5.22.2 (6). Uploaded internal only: "Upload succeeded". The earlier 6.0.0 (6) build stays in TestFlight until
+  Becky expires it. Future archives: add MARKETING_VERSION=5.22.2 to the overrides until Becky says otherwise.
+- Xcode's sign-in wrote automatic signing, team and bundle ID into project.pbxproj and reordered Info.plist in the
+  main checkout; reverted with git checkout, never committed.

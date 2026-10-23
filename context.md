@@ -9,7 +9,7 @@ session ends) or their own copy; playback stays in sync; everything works with V
 important message is also seen (Zoom, low vision).
 Current goal: build 6 on `listen-together-6.0` = build 6 work (fix round 4 done) + upstream develop 6.0.0 merged
 in (iPhone Duo layouts and 89 other upstream commits, Becky asked 2026-10-23). Next: Codex read-only re-audit of
-`listen-together-6.0`, fix anything noteworthy, then merge to `develop` and TestFlight 6.0.0 (6) once Becky approves. Later: Siri/CarPlay rules, streamed-book alert,
+`listen-together-6.0`, fix anything noteworthy, then merge to `develop` and TestFlight 5.22.2 (6). Later: Siri/CarPlay rules, streamed-book alert,
 translations, upstream own-copy-only branch.
 - Specs/plans: docs/superpowers/. Guide: docs/Listen-Together-Guide.md. Ledger, briefs, reports, audits:
   .superpowers/sdd/2026-10-10-shareplay-listen-together/ (build6-fix-round-1.md, -report.md, codex-audit*.md).
@@ -157,7 +157,9 @@ Capture both Console logs filtered on "Listen Together:".
    PlayMedia now routed), R02 (video player restored), transfer-sheet cover, live sharer status in the mini
    player. Becky 2026-10-23: the other 20 (upstream code) wait; once TestFlight 6 proves stable on the two-phone
    test, we work through them (R09 touches PlayerManager.swift: ask before editing).
-2. DONE 2026-10-23: develop fast-forwarded to d55292ea and pushed; TestFlight 6.0.0 (6) uploaded (internal only).
+2. DONE 2026-10-23: develop fast-forwarded to d55292ea and pushed; TestFlight 5.22.2 (6) uploaded (internal only;
+   Becky: keep the 5.22.2 train for the fork, so MARKETING_VERSION=5.22.2 is passed on the archive command line).
+   A 6.0.0 (6) upload from the same commit also exists in TestFlight: expire it.
    Next: the two-phone test on build 6. Device checks add: Duo/landscape side-by-side
    player as sharer (banner and Listen Together controls visible), sharer mini player line at Zoom 3x.
 3. Deferred audit items above when Becky schedules them. Files over 700 lines (pre-existing):
