@@ -138,7 +138,10 @@ Capture both Console logs filtered on "Listen Together:".
 - A08: no automatic retry after an activation failure (Play again retries); the CLAUDE.md hotlist line about
   that fatalError is now out of date (not changed, per the brief).
 
-## Later (inherited findings from the Codex full-fork audit 2026-10-20, deferred by Becky)
+## Later (inherited findings; 2026-10-23 audit renumbered them R03-R22: A02->R03, A04->R04, A05->R06, A06->R07,
+## A07->R08, A09->R11, A10->R12, A11->R14, A12->R15, A13->R16, A15->R17, A16->R18, A18->R19, A19->R20, A20->R21;
+## A03 and A14 fixed upstream; new: R05 sync queue admission vs logout, R09 player-status KVO isolation, R10 Watch
+## resumes after Pause during activation, R13 chapter refresh across servers, R22 share extension drops duplicates)
 - P1: A02 failed backup moves still lead to permanent deletion; A03 HTTP storage rejection recorded as upload
   success; A04 former-account responses reconcile after logout; A05 import workers violate Core Data context
   ownership; A06 ZIP failure deletes the source archive; A07 obsolete chapter operations reinstall old playback.
@@ -150,7 +153,9 @@ Capture both Console logs filtered on "Listen Together:".
   lack accessible equivalents.
 
 ## Open problems and next steps (in order)
-1. Codex read-only re-audit of `listen-together-6.0` (fix round 4 + the upstream merge); fix anything noteworthy.
+1. Codex re-audit 2026-10-23 (review.md, copy codex-full-audit-2026-10-23.md, R01-R22) read. Fixed: R01 (Siri
+   PlayMedia now routed), R02 (video player restored), transfer-sheet cover, live sharer status in the mini
+   player. Waiting on Becky: whether the other 20 (upstream code; new ones R05, R09, R10, R13, R22) wait as before.
 2. Merge to develop; TestFlight 6.0.0 (6) (Becky approves the upload). Device checks add: Duo/landscape side-by-side
    player as sharer (banner and Listen Together controls visible), sharer mini player line at Zoom 3x.
 3. Deferred audit items above when Becky schedules them. Files over 700 lines (pre-existing):

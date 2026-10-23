@@ -12,7 +12,7 @@ import SwiftUI
 struct MiniPlayerAccessoryView: View {
   let relativePath: String
   let showPlayer: () -> Void
-  /// The tab view has one accessory slot, so a sharer's Listen Together status is shown (in place of
+  /// The tab view has one accessory slot, so a sharer's live Listen Together status is shown (in place of
   /// the author) and read here instead of in a separate row ("Listen Together, sharing").
   var listenTogetherValue: String?
 

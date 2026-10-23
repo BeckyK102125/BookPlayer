@@ -146,10 +146,18 @@ enum ListenTogetherRow {
     }
   }
 
-  /// iOS 26.0 accessory mini player value for a sharer: "Listen Together, sharing". The mini player's
-  /// label already has the title, so it is not repeated.
-  static var sharerAccessoryValue: String {
-    "listen_together_title".localized + ", " + "listen_together_row_value_sharing_untitled".localized
+  /// The sharer's mini player (the tab view's one accessory slot) shows and reads this in place of the
+  /// author: the same live status the sharer's row used to give ("Listen Together, paused, waiting a
+  /// minute for listeners to come back, Moby Dick"), status first so a cut-off line loses the title.
+  static func sharerAccessoryValue(
+    state: ListenTogetherState, title: String?, isRetryingSend: Bool = false,
+    pauseCause: ListenTogetherPauseCause? = nil, isWaitingForListeners: Bool = false,
+    ownInterruption: ListenTogetherSharerInterruption? = nil
+  ) -> String {
+    let status = value(
+      state: state, joinedTitle: nil, listener: nil, sharerTitle: title, isRetryingSend: isRetryingSend,
+      pauseCause: pauseCause, isWaitingForListeners: isWaitingForListeners, ownInterruption: ownInterruption)
+    return "listen_together_title".localized + ", " + (status ?? "listen_together_row_value_sharing_untitled".localized)
   }
 
   static func hint(for role: Role) -> String {

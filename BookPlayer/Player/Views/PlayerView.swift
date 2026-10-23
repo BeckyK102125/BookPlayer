@@ -49,6 +49,7 @@ struct PlayerView: View {
         viewModel.bindBookObservers()
         viewModel.handleAutolockStatus(forceDisable: false)
         viewModel.recalculateProgress()
+        viewModel.refreshVideoState()
       }
       .onDisappear {
         viewModel.handleAutolockStatus(forceDisable: true)
@@ -198,13 +199,20 @@ private struct PlayerContentView: View {
 
       layout {
         VStack {
-          ArtworkView(
-            title: viewModel.title,
-            author: viewModel.author,
-            imagePath: viewModel.relativePath,
-            metaFocus: $isMetaFocused,
-            alignment: artworkAlignment
-          )
+          /// Upstream's side-by-side layout (#1639) dropped the video surface; restored here
+          Group {
+            if viewModel.isVideoItem {
+              VideoArtworkView()
+            } else {
+              ArtworkView(
+                title: viewModel.title,
+                author: viewModel.author,
+                imagePath: viewModel.relativePath,
+                metaFocus: $isMetaFocused,
+                alignment: artworkAlignment
+              )
+            }
+          }
           .simultaneousGesture(
             DragGesture(minimumDistance: 15)
               .onChanged { gesture in

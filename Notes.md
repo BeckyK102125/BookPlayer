@@ -1615,3 +1615,23 @@ was not workable; the whole of upstream/develop (a8e2cac7, 90 commits since merg
   crashes or restarts. The first test attempt failed before running anything ("Failed to prepare device ... Invalid
   connectionUUID"); booting the simulator first fixed it.
 - Pre-existing, not changed: SharePlaySessionService.swift 1729 lines, ListenerPlayer.swift 1032 (700-line rule).
+
+## 2026-10-23 - Codex re-audit of listen-together-6.0 and the merge fixes
+
+Codex wrote review.md (copy: .superpowers/sdd/2026-10-10-shareplay-listen-together/codex-full-audit-2026-10-23.md),
+pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the rest are upstream code.
+- R01 (P1): upstream's new PlayMediaIntentHandler (Siri, Now Playing suggestions) called loadAndKeepAlive directly,
+  so a sharer could start another book mid-share. Now `PlayMediaIntentHandler.listenTogetherAllowsStart` asks
+  ListenTogetherIntentRouting (.startBook) first, and a declined load reports failure. Tests:
+  testSiriPlayMediaFollowsTheSameRulesAsTheAppIntents, testSiriPlayMediaAsAListenerLeavesFirst.
+- R02 (P1): upstream's side-by-side player (#1639) dropped VideoArtworkView and refreshVideoState by accident (not in
+  its commit message); our merge inherited it. Restored in PlayerContentView. No unit test (view only); device check.
+- Transfer-from-computer cover: ListenTogetherPresentation now treats every cover except its own as blocking
+  (`isCovered(by:)`, test testEveryOtherCoverBlocksTheListenerScreen).
+- Sharer status: the mini player line now shows the live sharer status (waiting for listeners, own interruption,
+  retrying, alone) via `ListenTogetherRow.sharerAccessoryValue(state:title:...)`, status first, title last (a cut-off
+  line loses the title, not the status). Test testSharerMiniPlayerShowsTheLiveStatusFirst replaces the constant test.
+- A first build failed: a default argument read the main-actor `ListenTogetherIntentRouting.service`; now passed in.
+- Results: full suite "Executed 1760 tests, with 0 failures" ** TEST SUCCEEDED **.
+- Not changed: R03-R22 (upstream code) wait for Becky's decision; Codex notes the keep-alive seam and the adapter
+  callbacks have unannotated closures (no compiler warning).

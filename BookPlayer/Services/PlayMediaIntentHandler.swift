@@ -130,14 +130,33 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     guard let relativePath else { return .failure }
 
+    guard
+      listenTogetherAllowsStart(
+        relativePath: relativePath, title: libraryService.getSimpleItem(with: relativePath)?.title,
+        service: ListenTogetherIntentRouting.service)
+    else { return .failure }
+
     do {
-      try await AppServices.shared.loadAndKeepAlive(
+      let loaded = try await AppServices.shared.loadAndKeepAlive(
         relativePath: relativePath,
         playerLoaderService: coreServices.playerLoaderService
       )
-      return .success
+      /// Declined by the start gate: nothing plays
+      return loaded ? .success : .failure
     } catch {
       return .failure
+    }
+  }
+
+  /// Listen Together asks first, as for the App Intents: a listener leaves the session, then the book
+  /// plays; a sharer may only resume the shared book
+  @MainActor
+  static func listenTogetherAllowsStart(
+    relativePath: String, title: String?, service: SharePlaySessionService?
+  ) -> Bool {
+    switch ListenTogetherIntentRouting.route(.startBook(relativePath: relativePath, title: title), service: service) {
+    case .proceed: return true
+    case .handled, .refused: return false
     }
   }
 

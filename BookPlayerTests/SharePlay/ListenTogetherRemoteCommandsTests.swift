@@ -406,4 +406,26 @@ final class ListenTogetherIntentRoutingTests: XCTestCase {
     XCTAssertEqual(ListenTogetherIntentRouting.route(.pause, service: service), .proceed, "the sharer's book is the shared one")
     XCTAssertTrue(service.isInSession)
   }
+
+  func testSiriPlayMediaFollowsTheSameRulesAsTheAppIntents() {
+    // Upstream's INPlayMediaIntent handler (Siri, Now Playing suggestions) asks the router too.
+    XCTAssertTrue(PlayMediaIntentHandler.listenTogetherAllowsStart(relativePath: "a", title: "A", service: service))
+    let item = PlayableItem.stub(currentTime: 10, duration: 100)
+    playerManager.currentItem = item
+    service.startSharingSession(with: FakeTransport(), item: item, shareID: UUID())
+    XCTAssertFalse(
+      PlayMediaIntentHandler.listenTogetherAllowsStart(relativePath: "other.m4b", title: "Other", service: service),
+      "a sharer's suggestion for another book never starts it")
+    XCTAssertTrue(
+      PlayMediaIntentHandler.listenTogetherAllowsStart(relativePath: item.relativePath, title: nil, service: service))
+    XCTAssertTrue(service.isInSession)
+  }
+
+  func testSiriPlayMediaAsAListenerLeavesFirst() {
+    listening()
+    XCTAssertTrue(
+      PlayMediaIntentHandler.listenTogetherAllowsStart(relativePath: "own.m4b", title: "Moby Dick", service: service))
+    XCTAssertFalse(service.isInSession)
+    XCTAssertEqual(posted, ["You left Listen Together. Playing Moby Dick."])
+  }
 }

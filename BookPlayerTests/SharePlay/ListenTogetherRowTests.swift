@@ -16,6 +16,15 @@ final class ListenTogetherRowTests: XCTestCase {
 
   // MARK: (a) Whether the listener cover is shown
 
+  func testEveryOtherCoverBlocksTheListenerScreen() {
+    XCTAssertFalse(P.isCovered(by: []))
+    XCTAssertFalse(P.isCovered(by: [.listenTogether]))
+    for cover: ListStateManager.Cover in [.player, .mediaServers, .transferFromComputer] {
+      XCTAssertTrue(P.isCovered(by: [cover]), "\(cover)")
+      XCTAssertTrue(P.isCovered(by: [cover, .listenTogether]), "\(cover)")
+    }
+  }
+
   func testListenerScreenIsNeverShownWhenNotRequested() {
     XCTAssertFalse(P.showsListenerScreen(state: gettingBook, hasListener: false, isCovered: false, isRequested: false))
     XCTAssertFalse(P.showsListenerScreen(state: listening, hasListener: true, isCovered: false, isRequested: false))
@@ -178,10 +187,23 @@ final class ListenTogetherRowTests: XCTestCase {
       String.localizedStringWithFormat("listen_together_row_value_downloading".localized, 50) + ", Moby Dick")
   }
 
-  func testSharerAccessoryValueDoesNotRepeatTheTitle() {
+  func testSharerMiniPlayerShowsTheLiveStatusFirst() {
+    let prefix = "listen_together_title".localized + ", "
     XCTAssertEqual(
-      R.sharerAccessoryValue,
-      "listen_together_title".localized + ", " + "listen_together_row_value_sharing_untitled".localized)
+      R.sharerAccessoryValue(state: .sharing(participants: 2), title: "Moby Dick"),
+      prefix + String.localizedStringWithFormat("listen_together_row_value_sharing".localized, "Moby Dick"))
+    XCTAssertEqual(
+      R.sharerAccessoryValue(state: .sharing(participants: 2), title: "Moby Dick", isWaitingForListeners: true),
+      prefix + String.localizedStringWithFormat("listen_together_row_value_waiting_listeners".localized, "Moby Dick"))
+    XCTAssertEqual(
+      R.sharerAccessoryValue(state: .sharing(participants: 2), title: "Moby Dick", ownInterruption: .interrupted),
+      prefix + String.localizedStringWithFormat("listen_together_row_value_own_interruption".localized, "Moby Dick"))
+    XCTAssertEqual(
+      R.sharerAccessoryValue(state: .sharing(participants: 2), title: "Moby Dick", isRetryingSend: true),
+      prefix + String.localizedStringWithFormat("listen_together_row_value_sharing_retrying".localized, "Moby Dick"))
+    XCTAssertEqual(
+      R.sharerAccessoryValue(state: .sharing(participants: 2), title: nil),
+      prefix + "listen_together_row_value_sharing_untitled".localized)
   }
 
   func testSharerValueSaysSharingWithTheTitle() {

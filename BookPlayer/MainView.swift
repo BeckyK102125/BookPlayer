@@ -72,7 +72,7 @@ struct MainView: View {
       } else if bar.showsMiniPlayer, let relativePath = playerState.loadedBookRelativePath {
         MiniPlayerAccessoryView(
           relativePath: relativePath, showPlayer: showPlayer,
-          listenTogetherValue: bar.showsRow ? ListenTogetherRow.sharerAccessoryValue : nil)
+          listenTogetherValue: bar.showsRow ? sharerStatus : nil)
       }
     }
     .sheet(item: $listState.activeLibrarySheet, onDismiss: {
@@ -194,6 +194,14 @@ struct MainView: View {
       hasLoadedBook: playerState.loadedBookRelativePath != nil,
       isSearchingOrEditing: listState.isSearching || listState.isEditing,
       isKeyboardVisible: keyboardObserver.isKeyboardVisible)
+  }
+
+  private var sharerStatus: String {
+    ListenTogetherRow.sharerAccessoryValue(
+      state: sharePlayService.state, title: playerManager.currentItem?.title,
+      isRetryingSend: sharePlayService.notice == .retryingSend, pauseCause: sharePlayService.pauseCause,
+      isWaitingForListeners: sharePlayService.isWaitingForListeners,
+      ownInterruption: sharePlayService.ownInterruption)
   }
 
   func showPlayer() {

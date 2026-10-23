@@ -110,6 +110,12 @@ struct ListenTogetherPresentation: ViewModifier {
     ListenTogetherAnnouncer.postQueued(text)
   }
 
+  /// Any other cover over the library (player, media servers, transfer from computer, and any cover
+  /// added later) blocks the listener screen until it has left.
+  static func isCovered(by covers: Set<ListStateManager.Cover>) -> Bool {
+    covers.contains { $0 != .listenTogether }
+  }
+
   private var isListening: Bool {
     if case .listening = service.state { return true }
     return service.listener != nil
@@ -118,7 +124,7 @@ struct ListenTogetherPresentation: ViewModifier {
   func body(content: Content) -> some View {
     // Read here (not only inside the binding) so the presentation re-evaluates when covers change.
     let covers = listState.coversOnScreen
-    let isCovered = covers.contains(.player) || covers.contains(.mediaServers)
+    let isCovered = Self.isCovered(by: covers)
     let screen = Self.showsListenerScreen(
       state: service.state, hasListener: service.listener != nil, isCovered: isCovered,
       isRequested: listState.isListenerScreenRequested
