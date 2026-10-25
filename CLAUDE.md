@@ -11,6 +11,9 @@ persistence, and auth/entitlement handling**. Default branch: **`develop`**.
 > as its rubric and this file as the codebase reference). Keep it accurate; a stale claim here becomes a bad
 > review. When you change an invariant described here, update this file in the same PR.
 
+> Reviews and audits (Codex, Claude, Aquila) follow `agents.md`: one local, never-committed `review.md`, newest
+> first, numbered findings, and the Claude and Aquila hand-off file.
+
 ---
 
 ## ⚠️ Repo layout gotcha (read this first)

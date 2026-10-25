@@ -1653,3 +1653,19 @@ pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the r
   main checkout; reverted with git checkout, never committed.
 - 6.0.0 (6) expired in App Store Connect (TestFlight, iOS Builds, Expire Build) at Becky's request. 5.22.2 (6) shows
   Testing, group Listen Together, uploaded 4:34 PM.
+
+## 2026-10-25 — Aquila (Grok bot) audit process copied from Start Speaking (develop, main Mac, parent 37a91dda)
+- Becky: Aquila will audit this fork; replicate the process used in Start Speaking.
+- Start Speaking's process (agents.md rules 9 and 10 there): every review at the top of one Review.md in the main
+  checkout, heading with reviewer, scope and date, branch plus full commit, unique finding prefix with severity,
+  file:line and failure scenario; reviewers off the Mac push a review/<reviewer>-<date> branch; Claude and Grok bot
+  hand-offs in ~/Developer/Swift/swift-dev-review/HANDOFF.md; Claude verifies each finding and replies there.
+- Adapted here, because context.md already said review.md is never committed (public fork):
+  - New agents.md (rules 1 to 4). review.md stays local and untracked, now also in .git/info/exclude. Off-Mac
+    reviews go into the hand-off folder as files instead of a pushed review branch. Aquila's prefix is BP-.
+  - Hand-off file: ~/Developer/Swift/swift-dev-review/BookPlayer/HANDOFF.md (a subfolder next to Start Speaking's,
+    outside the repo), with what to audit (develop on GitHub) and the already-known findings to skip.
+  - Pointer lines in CLAUDE.md and context.md.
+- Before this, develop was fast-forwarded from f4ff047d to neo/develop 37a91dda (same as
+  origin/develop; notes-only commits from the Neo).
+- Not pushed. Aquila reads GitHub, so it sees agents.md only after Becky pushes develop.

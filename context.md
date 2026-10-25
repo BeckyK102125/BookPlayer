@@ -23,6 +23,9 @@ translations, upstream own-copy-only branch.
   round 1: 531f89ea TSan crash, c3408e85 Option 1 + audit 2, bd56544d decisions A-D + audit 1, c42b02e3 docs;
   453d36a5 fix round 2 (Codex F2-F4); 2621724a + 68941208 fix round 3; b7b080ce option A; fix round 4 =
   the code commit after it plus this docs commit. Clean after the commit except the untracked `review.md` (never commit it).
+- Reviews: agents.md (2026-10-25) copies Start Speaking's process for Aquila (Grok bot) audits: review.md stays
+  local (in .git/info/exclude), newest first, Aquila findings BP-01 on; hand-offs in
+  ~/Developer/Swift/swift-dev-review/BookPlayer/HANDOFF.md. Aquila reads GitHub, so only pushed commits.
 - Never committed: BuildConfiguration/Debug.xcconfig. Shared/ untouched. PlayerManager.swift: only the two
   edits Becky approved (A01 end-of-item check, A08 no fatalError on session activation failure).
 
