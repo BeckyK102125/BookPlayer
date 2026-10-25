@@ -1680,3 +1680,11 @@ pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the r
   never push to develop or main. Hand-offs: swift-dev-review/BookPlayer/HANDOFF.md, sections "To Grok bot" and
   "To Claude".
 - CLAUDE.md and context.md pointer lines updated; context.md's old "never commit review.md" line replaced.
+
+## 2026-10-25 — Aquila files audit findings in Start Testing (develop, parent 00417d03)
+- Becky: Aquila will put audit items in Start Testing for Claude to look at, to save usage for both.
+- agents.md rule 3 added: one Start Testing item per finding in "BookPlayer - Listen together"
+  (697bd58a-bca7-47f3-83c5-4cc076a741f6, the only BookPlayer project; its GitHub link is this fork), title starting with
+  the BP number; Claude works from the items and follows the Start Testing tracking process of 2026-10-21
+  (~/.codex/handoffs/start-testing-tracking-process-2026-10-21.md): branch comment, commit plus tests, move to Testing.
+  Review.md stays for other reviewers; the hand-off file is for short notes only.

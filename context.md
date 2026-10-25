@@ -26,6 +26,7 @@ translations, upstream own-copy-only branch.
 - Reviews: agents.md (2026-10-25) = Start Speaking's rules 9 and 10 for Aquila (Grok bot) audits: Review.md in the
   repo root (tracked), newest first, prefix BP-; off-Mac reviews on review/<reviewer>-<date> branches; hand-offs in
   ~/Developer/Swift/swift-dev-review/BookPlayer/HANDOFF.md. Aquila reads GitHub, so only pushed commits.
+  Aquila's findings go into Start Testing (project "BookPlayer - Listen together", agents.md rule 3), not Review.md.
 - Never committed: BuildConfiguration/Debug.xcconfig. Shared/ untouched. PlayerManager.swift: only the two
   edits Becky approved (A01 end-of-item check, A08 no fatalError on session activation failure).
 
