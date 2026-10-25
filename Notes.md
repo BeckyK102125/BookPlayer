@@ -1669,3 +1669,14 @@ pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the r
 - Before this, develop was fast-forwarded from f4ff047d to neo/develop 37a91dda (same as
   origin/develop; notes-only commits from the Neo).
 - Not pushed. Aquila reads GitHub, so it sees agents.md only after Becky pushes develop.
+
+## 2026-10-25 — Correction: Aquila review rules now identical to Start Speaking (develop, parent e268a652)
+- Becky: "use the same rules with Aquila as start speaking". This replaces the adaptation in the entry above.
+- review.md renamed to Review.md, removed from .git/info/exclude and committed (it holds the Codex audit of
+  2026-10-23, R01 to R22). The fork on GitHub is public, so Review.md is public once pushed; Becky chose this.
+- agents.md rewritten as Start Speaking's rules 9 and 10: Review.md in the main checkout on develop, newest first,
+  heading with reviewer, scope and date, branch plus full commit, unique prefix (BP-) with severity, file:line and
+  failure scenario; reviewers on another machine commit to review/<reviewer>-<yyyy-mm-dd>, push it and tell Becky;
+  never push to develop or main. Hand-offs: swift-dev-review/BookPlayer/HANDOFF.md, sections "To Grok bot" and
+  "To Claude".
+- CLAUDE.md and context.md pointer lines updated; context.md's old "never commit review.md" line replaced.

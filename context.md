@@ -22,9 +22,9 @@ translations, upstream own-copy-only branch.
 - `listen-together-build6` (local, not pushed, kept as the pre-merge state at feb50669): e2428f4b + 8ed9a541 (Codex snapshots, audited), then fix
   round 1: 531f89ea TSan crash, c3408e85 Option 1 + audit 2, bd56544d decisions A-D + audit 1, c42b02e3 docs;
   453d36a5 fix round 2 (Codex F2-F4); 2621724a + 68941208 fix round 3; b7b080ce option A; fix round 4 =
-  the code commit after it plus this docs commit. Clean after the commit except the untracked `review.md` (never commit it).
-- Reviews: agents.md (2026-10-25) copies Start Speaking's process for Aquila (Grok bot) audits: review.md stays
-  local (in .git/info/exclude), newest first, Aquila findings BP-01 on; hand-offs in
+  the code commit after it plus this docs commit. Earlier rule "never commit review.md" was replaced on 2026-10-25: Review.md is tracked (agents.md).
+- Reviews: agents.md (2026-10-25) = Start Speaking's rules 9 and 10 for Aquila (Grok bot) audits: Review.md in the
+  repo root (tracked), newest first, prefix BP-; off-Mac reviews on review/<reviewer>-<date> branches; hand-offs in
   ~/Developer/Swift/swift-dev-review/BookPlayer/HANDOFF.md. Aquila reads GitHub, so only pushed commits.
 - Never committed: BuildConfiguration/Debug.xcconfig. Shared/ untouched. PlayerManager.swift: only the two
   edits Becky approved (A01 end-of-item check, A08 no fatalError on session activation failure).
@@ -156,7 +156,7 @@ Capture both Console logs filtered on "Listen Together:".
   lack accessible equivalents.
 
 ## Open problems and next steps (in order)
-1. Codex re-audit 2026-10-23 (review.md, copy codex-full-audit-2026-10-23.md, R01-R22) read. Fixed: R01 (Siri
+1. Codex re-audit 2026-10-23 (Review.md, copy codex-full-audit-2026-10-23.md, R01-R22) read. Fixed: R01 (Siri
    PlayMedia now routed), R02 (video player restored), transfer-sheet cover, live sharer status in the mini
    player. Becky 2026-10-23: the other 20 (upstream code) wait; once TestFlight 6 proves stable on the two-phone
    test, we work through them (R09 touches PlayerManager.swift: ask before editing).
