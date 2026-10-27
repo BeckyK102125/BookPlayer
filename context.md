@@ -1,6 +1,13 @@
 # context.md - current snapshot
 
-Date: 2026-10-23
+Date: 2026-10-27
+
+## Lead chat (from 2026-10-27)
+- "BookPlayer Lead" chat on the Neo: weekdays 7 AM to 3 PM it fixes BookPlayer items from Start Testing (project
+  697bd58a, agents.md rule 3: branch comment, then commit plus tests and move to Testing) and reads the Pro-Neo
+  hand-off notes for work done after 3 PM and at weekends. Swift Reviewer files items per commit.
+- 2026-10-27 09:45: the Start Testing project has 0 items; nothing to fix yet. The scheduled checks (7:10 to 13:10
+  and a 14:40 hand-off to the Pro) were refused by the permission check and wait on Becky.
 
 ## Goal
 SharePlay "Listen Together" in Becky's fork of BookPlayer: one person shares a downloaded audiobook (from
@@ -16,7 +23,7 @@ translations, upstream own-copy-only branch.
 
 ## Branches and remotes
 - origin = github.com/BeckyK102125/BookPlayer (Becky's fork, public). upstream = TortugaPower/BookPlayer.
-- `develop` at 3515e742 (build 5 = TestFlight 5.22.2 (5), plus notes).
+- `develop` at c16411f4 on GitHub (TestFlight 5.22.2 (6) code d55292ea, plus notes and agents.md); this commit on top.
 - `listen-together-6.0` (local, not pushed, current): `listen-together-build6` + 698698a3 (merge of upstream/develop
   a8e2cac7, marketing version now 6.0.0) + 3adbca24 (main-actor timer seams) + this docs commit.
 - `listen-together-build6` (local, not pushed, kept as the pre-merge state at feb50669): e2428f4b + 8ed9a541 (Codex snapshots, audited), then fix

@@ -1688,3 +1688,20 @@ pinned at 8cb29725: 22 findings, R01-R22. Two were merge integration gaps; the r
   the BP number; Claude works from the items and follows the Start Testing tracking process of 2026-10-21
   (~/.codex/handoffs/start-testing-tracking-process-2026-10-21.md): branch comment, commit plus tests, move to Testing.
   Review.md stays for other reviewers; the hand-off file is for short notes only.
+
+## 2026-10-27 — Started: BookPlayer Lead chat on the Neo (develop, parent c16411f4)
+- Becky started the "BookPlayer Lead" chat on the Neo: on weekdays 7 AM to 3 PM it takes BookPlayer items from Start
+  Testing (project "BookPlayer - Listen together", 697bd58a), fixes them, comments on each (agents.md rule 3), and
+  reads the Pro-Neo hand-off notes for what happened after 3 PM and over the weekend. Swift Reviewer checks each
+  commit and files new items there.
+- develop fast-forwarded 37a91dda -> c16411f4 (GitHub). The untracked review.md blocked it (case-insensitive name
+  clash with the tracked Review.md); its content was identical to GitHub's Review.md, so it was moved to the chat's
+  scratchpad, not deleted.
+- Start Testing at 09:45: the project has 0 items (checked by project, and by the searches "BP-" and "Listen
+  Together"; the tool returns items for other projects, so this is real). Orion's queue has no BookPlayer items.
+  Nothing to fix yet.
+- ~/Developer/Swift/swift-dev-review/BookPlayer/HANDOFF.md does not exist on the Neo (agents.md rule 2 puts it on the
+  Pro).
+- Planned two scheduled tasks on the Neo (Start Testing check at 7:10, 9:10, 11:10 and 13:10 weekdays that messages
+  the lead chat, and a 14:40 BookPlayer "From Neo" entry in the Pro-Neo notes, mirroring Start Speaking's jobs).
+  Creating them was refused by the permission check; waiting on Becky to allow it.
