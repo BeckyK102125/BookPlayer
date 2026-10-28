@@ -659,15 +659,36 @@ final class ListenerPlayerTests: XCTestCase {
     XCTAssertTrue(player.isPlayingForGroup)
   }
 
-  func testAnInterruptionThatEndsWithoutPermissionWaitsForPlay() async throws {
+  // Becky 2026-10-28: an interruption that ends without iOS's "should resume" still rejoins the group.
+  func testAnInterruptionThatEndsWithoutPermissionStillRejoinsTheGroup() async throws {
+    let (player, bridge, control, events) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.activateSession = { true }
+    player.handleInterruption(.began, shouldResume: false)
+    player.handleInterruption(.ended, shouldResume: false)
+    XCTAssertNil(player.localStop)
+    XCTAssertTrue(player.isRejoining)
+    XCTAssertEqual(control.activeHolds, 0, "the group is not held")
+    XCTAssertEqual(control.localHolds, 0)
+    XCTAssertEqual(control.reapplications, 1, "the coordinator is asked for the group's state")
+    XCTAssertFalse(player.isPlayingForGroup, "no audio before the group's own state arrives")
+    bridge.handlePlay(itemTime: 4, rate: 1)
+    XCTAssertEqual(player.bookTime, 4, accuracy: 0.05)
+    try await AudioFixture.waitUntil(player: player.player) { player.isPlaying }
+    XCTAssertTrue(control.rates.isEmpty, "never sends Play or Pause to the group")
+    XCTAssertTrue(events().isEmpty)
+  }
+
+  func testAnInterruptionThatEndsWithoutPermissionAndCannotStartAudioWaitsForPlay() async throws {
     let (player, bridge, control, events) = try await playingRecoveryPlayer()
     defer { bridge.invalidate(); player.stop() }
     player.handleInterruption(.began, shouldResume: false)
+    player.activateSession = { false }
     player.handleInterruption(.ended, shouldResume: false)
     XCTAssertEqual(player.localStop, .needsPlay)
-    XCTAssertEqual(control.activeHolds, 0, "the group is not held")
     XCTAssertEqual(control.reapplications, 0)
     XCTAssertFalse(player.isPlaying)
+    player.activateSession = { true }
     player.userTogglePlay()
     XCTAssertNil(player.localStop)
     bridge.handlePlay(itemTime: 4, rate: 1)

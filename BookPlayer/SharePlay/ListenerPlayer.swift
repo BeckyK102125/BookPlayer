@@ -875,8 +875,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   }
 
   /// An audio interruption (Option 1). Internal for tests. The group never waits for it: this device
-  /// stops here; it rejoins at the group's current place when the interruption ends (with permission
-  /// to resume) or when Play is pressed. A stale `.began` from a suspended app is ignored.
+  /// stops here and rejoins at the group's current place when the interruption ends, whether or not iOS
+  /// says to resume (Becky, 2026-10-28: always rejoin the group). Only a Pause or a lost route during it
+  /// (`requiresUserResume`) waits for Play. A stale `.began` from a suspended app is ignored.
   func handleInterruption(_ type: AVAudioSession.InterruptionType, shouldResume: Bool, wasSuspended: Bool = false) {
     guard !isStopped else { return }
     switch type {
@@ -901,12 +902,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
         "Listen Together: listener interruption ended (resume=\(shouldResume, privacy: .public), stopped here=\(self.localStop != nil, privacy: .public))")
       // Nothing was missed (the group was paused): a later group Play plays here as usual.
       guard localStop != nil else { return }
-      if shouldResume, !requiresUserResume {
-        if !rejoin(playIfPaused: false) { localStop = .needsPlay; requiresUserResume = true }
-      } else {
-        requiresUserResume = true
-        localStop = .needsPlay
-      }
+      if !requiresUserResume, rejoin(playIfPaused: false) { return }
+      requiresUserResume = true
+      localStop = .needsPlay
     @unknown default:
       break
     }

@@ -1893,3 +1893,19 @@ Capture both Console logs filtered on "Listen Together:".
 #### Decisions waiting on Becky
 - Interruption ended without "should resume" waits for Play (Apple's rule); OK, or always rejoin?
 - (Ruled 2026-10-20: option A for the sharer's interruption.)
+
+## 2026-10-28 — Becky's answers: listeners always rejoin; one noon Start Testing check (develop, parent 8f8ab312)
+- Becky answered the two open questions at about 15:10.
+- 1. Interruption ended without iOS's "should resume": always rejoin the group (listener side, Option 1).
+  `ListenerPlayer.handleInterruption(.ended)` now rejoins whether or not `shouldResume` is set. It still waits for
+  Play when the user paused during the interruption or the headphones went away (`requiresUserResume`), and when
+  the audio session can't be activated yet (another app still holds the audio): then "Press Play" as before.
+  The sharer's side (Option A, `SharerPlaybackTarget`) is unchanged: Becky's question was about rejoining the group.
+  Test `testAnInterruptionThatEndsWithoutPermissionWaitsForPlay` replaced by
+  `...WithoutPermissionStillRejoinsTheGroup` and `...WithoutPermissionAndCannotStartAudioWaitsForPlay`.
+  docs/Listen-Together-Guide.md "When it ends" updated.
+  Apple's guidance is not to restart audio without "should resume"; Becky chose rejoining. Device check: after
+  Music or a video took the audio and stopped, the listener rejoins (and doesn't cut off something still playing).
+- 2. Scheduled tasks: only the Start Testing check, once a day. Created `bookplayer-start-testing-noon-check`
+  (weekdays 12:00 Eastern, about 12:06 with the app's delay, Auto mode): lists open BookPlayer items not yet
+  handled and messages the BookPlayer Lead chat; it changes nothing itself. Hand-offs stay with the mac-handoff runs.
