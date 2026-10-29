@@ -1916,3 +1916,9 @@ Capture both Console logs filtered on "Listen Together:".
 - 07:00, the Neo's time: `git fetch origin` showed origin/develop still at 8f8ab312 and develop 1 ahead, 0 behind,
   so develop (6e02e8e6, the October 28 listener-rejoin change, plus this notes commit) was pushed to GitHub as a
   fast-forward with `git push origin develop`.
+- 07:05: Start Testing project "BookPlayer - Listen together" (697bd58a, organization Techopolis, LLC
+  8b4f528d-10bf-4afe-ac1d-213c37b0968f) has 0 items, open or closed.
+- The scheduled task `bookplayer-start-testing-noon-check` is listed (enabled, weekdays about 12:06) but its
+  prompt file `~/.claude/scheduled-tasks/bookplayer-start-testing-noon-check/SKILL.md` doesn't exist, and its
+  description is empty, so it can't be checked which chat it messages, and it may run with no instructions.
+  Asked Becky whether to rewrite its prompt to message this Lead chat.

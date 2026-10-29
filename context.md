@@ -45,4 +45,4 @@ commit and tests, then move to Testing, when fixed).
 5. Mark the new Listen Together strings for translation before a release.
 
 ## Open questions for Becky
-- None.
+- The noon Start Testing check task has no prompt file; rewrite it to message the new Lead chat?
