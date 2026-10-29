@@ -1909,3 +1909,10 @@ Capture both Console logs filtered on "Listen Together:".
 - 2. Scheduled tasks: only the Start Testing check, once a day. Created `bookplayer-start-testing-noon-check`
   (weekdays 12:00 Eastern, about 12:06 with the app's delay, Auto mode): lists open BookPlayer items not yet
   handled and messages the BookPlayer Lead chat; it changes nothing itself. Hand-offs stay with the mac-handoff runs.
+
+## 2026-10-29 — New BookPlayer Lead chat on the Neo; develop pushed (develop, parent 6e02e8e6)
+- The first Lead chat (local_4daf7f4f) reached about 261,000 tokens; Becky asked for a replacement. The new Lead
+  chat started at 07:00 from ~/.codex/handoffs/bookplayer-lead-summary-2026-10-29.md, context.md and agents.md.
+- 07:00, the Neo's time: `git fetch origin` showed origin/develop still at 8f8ab312 and develop 1 ahead, 0 behind,
+  so develop (6e02e8e6, the October 28 listener-rejoin change, plus this notes commit) was pushed to GitHub as a
+  fast-forward with `git push origin develop`.

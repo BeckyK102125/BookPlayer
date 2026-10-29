@@ -1,6 +1,6 @@
 # context.md - current snapshot
 
-Date: 2026-10-28
+Date: 2026-10-29
 Branch: `develop` (Becky's fork, origin github.com/BeckyK102125/BookPlayer; upstream TortugaPower/BookPlayer).
 Full history and the old long snapshot (rulings, build 6 design, device checks): Notes.md, entry 2026-10-28.
 
@@ -19,6 +19,7 @@ commit and tests, then move to Testing, when fixed).
 - Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
 
 ## Last work
+- 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.
 - 2026-10-27: lead chat started; develop fast-forwarded to c16411f4; Start Testing project had 0 items.
 - 2026-10-28: this file trimmed to 60 lines (old text in Notes.md). Becky's answers: a listener now always
   rejoins the group when an interruption ends (even without iOS's "should resume"); a weekday noon Start Testing
