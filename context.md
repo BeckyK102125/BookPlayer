@@ -22,8 +22,8 @@ commit and tests, then move to Testing, when fixed).
 - 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.
 - 2026-10-27: lead chat started; develop fast-forwarded to c16411f4; Start Testing project had 0 items.
 - 2026-10-28: this file trimmed to 60 lines (old text in Notes.md). Becky's answers: a listener now always
-  rejoins the group when an interruption ends (even without iOS's "should resume"); a weekday noon Start Testing
-  check (scheduled task bookplayer-start-testing-noon-check) messages this chat with new items.
+  rejoins the group when an interruption ends (even without iOS's "should resume"). The weekday noon Start
+  Testing check was removed on 2026-10-29 at Becky's request; the Lead checks Start Testing at the start of work.
 - 2026-10-23: Codex re-audit (Review.md, R01 to R22); R01 (Siri PlayMedia routing), R02 (video player), the
   transfer-sheet cover and the live sharer status were fixed; develop pushed; TestFlight 5.22.2 (6) uploaded
   with MARKETING_VERSION=5.22.2 on the archive command line (6.0.0 (6) expired).
@@ -45,4 +45,4 @@ commit and tests, then move to Testing, when fixed).
 5. Mark the new Listen Together strings for translation before a release.
 
 ## Open questions for Becky
-- The noon Start Testing check task has no prompt file; rewrite it to message the new Lead chat?
+- None.

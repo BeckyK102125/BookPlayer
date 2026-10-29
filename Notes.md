@@ -1922,3 +1922,6 @@ Capture both Console logs filtered on "Listen Together:".
   prompt file `~/.claude/scheduled-tasks/bookplayer-start-testing-noon-check/SKILL.md` doesn't exist, and its
   description is empty, so it can't be checked which chat it messages, and it may run with no instructions.
   Asked Becky whether to rewrite its prompt to message this Lead chat.
+- Later on 2026-10-29: Becky had the noon check removed ("we don't need it at noon"); the hand-off chat deleted
+  the scheduled task `bookplayer-start-testing-noon-check`, so the question above is closed. The Lead chat checks
+  Start Testing itself at the start of work, as the other lead chats do.
