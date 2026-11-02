@@ -1925,3 +1925,24 @@ Capture both Console logs filtered on "Listen Together:".
 - Later on 2026-10-29: Becky had the noon check removed ("we don't need it at noon"); the hand-off chat deleted
   the scheduled task `bookplayer-start-testing-noon-check`, so the question above is closed. The Lead chat checks
   Start Testing itself at the start of work, as the other lead chats do.
+
+## 2026-11-02 — SR6-01: an automatic rejoin no longer cuts off another app's audio (fix/sr6-01-rejoin-other-audio, parent 90463774)
+- Morning hand-off: no Pro work; Start Testing had one open item, SR6-01 (low, filed October 29 against 6e02e8e6):
+  since the October 28 change a listener rejoins when an interruption ends without "should resume", and
+  activating the non-mixable .playback/.spokenAudio session then interrupts another app still playing.
+- Labelled Safe Alone (Becky's October 28 note already says the rejoin must not cut off something still playing);
+  the device check stays with Becky. Started comment posted on the item.
+- `ListenerPlayer.handleInterruption(.ended)`: rejoins only if `shouldResume || !isOtherAudioPlaying()`;
+  otherwise `requiresUserResume` and `.needsPlay` ("Stopped on this iPhone. Press Play to rejoin the others."),
+  the same path as a failed activation. Play still rejoins and takes the audio, as asked.
+  `isOtherAudioPlaying()` reads `AVAudioSession.secondaryAudioShouldBeSilencedHint` (true while another app's
+  non-mixable audio plays, which is exactly what our activation would interrupt; `isOtherAudioPlaying` was not
+  used because it is also true for mixable audio we wouldn't cut off). Test seam `otherAudioIsPlaying`, like
+  `activateSession`. Open device question: whether the hint is accurate while BookPlayer is in the background.
+- Tests (ListenerPlayerTests): new `...WithoutPermissionWhileOtherAudioPlaysWaitsForPlay` (no activation, no
+  reapplication, then Play rejoins) and `...WithPermissionRejoinsEvenWhileOtherAudioPlays`; the two existing
+  without-permission tests now set `otherAudioIsPlaying = { false }` so they don't read the simulator's session.
+- docs/Listen-Together-Guide.md "When it ends" updated.
+- Not built or tested on the Neo: simulator work runs on the Pro. Branch pushed; the Pro lead was asked to run
+  ListenerPlayerTests (and the other SharePlay classes) and fast-forward develop if green.
+- ListenerPlayer.swift is now 1042 lines, ListenerPlayerTests.swift 982 (both over 700 before this; split planned).

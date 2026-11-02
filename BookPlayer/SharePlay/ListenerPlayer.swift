@@ -145,9 +145,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   private var rejoinGeneration = 0
   /// If no group command arrives this long after a rejoin, this phone shows "Press Play" again.
   static let rejoinCommandLimit: TimeInterval = 3
-  /// Test seams: the clock, the audio session activation and the short delays.
+  /// Test seams: the clock, the audio session activation, another app's audio and the short delays.
   var now: () -> Date = Date.init
   var activateSession: (() -> Bool)?
+  var otherAudioIsPlaying: (() -> Bool)?
   var schedule: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
     Task { @MainActor in
       try? await Task.sleep(for: .seconds(delay))
@@ -876,8 +877,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
 
   /// An audio interruption (Option 1). Internal for tests. The group never waits for it: this device
   /// stops here and rejoins at the group's current place when the interruption ends, whether or not iOS
-  /// says to resume (Becky, 2026-10-28: always rejoin the group). Only a Pause or a lost route during it
-  /// (`requiresUserResume`) waits for Play. A stale `.began` from a suspended app is ignored.
+  /// says to resume (Becky, 2026-10-28: always rejoin the group). A Pause or a lost route during it
+  /// (`requiresUserResume`) waits for Play, and so does an end without "should resume" while another
+  /// app's audio still plays: activating would cut it off (SR6-01). A stale `.began` from a suspended
+  /// app is ignored.
   func handleInterruption(_ type: AVAudioSession.InterruptionType, shouldResume: Bool, wasSuspended: Bool = false) {
     guard !isStopped else { return }
     switch type {
@@ -902,7 +905,7 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
         "Listen Together: listener interruption ended (resume=\(shouldResume, privacy: .public), stopped here=\(self.localStop != nil, privacy: .public))")
       // Nothing was missed (the group was paused): a later group Play plays here as usual.
       guard localStop != nil else { return }
-      if !requiresUserResume, rejoin(playIfPaused: false) { return }
+      if !requiresUserResume, shouldResume || !isOtherAudioPlaying(), rejoin(playIfPaused: false) { return }
       requiresUserResume = true
       localStop = .needsPlay
     @unknown default:
@@ -1016,6 +1019,12 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   private func activate() -> Bool {
     if let activateSession { return activateSession() }
     return activateSessionIfNeeded()
+  }
+
+  /// True while another app plays audio that this non-mixable session would interrupt on activation.
+  private func isOtherAudioPlaying() -> Bool {
+    if let otherAudioIsPlaying { return otherAudioIsPlaying() }
+    return AVAudioSession.sharedInstance().secondaryAudioShouldBeSilencedHint
   }
 
   private func activateSessionIfNeeded() -> Bool {

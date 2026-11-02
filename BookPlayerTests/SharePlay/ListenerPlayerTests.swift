@@ -664,6 +664,7 @@ final class ListenerPlayerTests: XCTestCase {
     let (player, bridge, control, events) = try await playingRecoveryPlayer()
     defer { bridge.invalidate(); player.stop() }
     player.activateSession = { true }
+    player.otherAudioIsPlaying = { false }
     player.handleInterruption(.began, shouldResume: false)
     player.handleInterruption(.ended, shouldResume: false)
     XCTAssertNil(player.localStop)
@@ -682,6 +683,7 @@ final class ListenerPlayerTests: XCTestCase {
   func testAnInterruptionThatEndsWithoutPermissionAndCannotStartAudioWaitsForPlay() async throws {
     let (player, bridge, control, events) = try await playingRecoveryPlayer()
     defer { bridge.invalidate(); player.stop() }
+    player.otherAudioIsPlaying = { false }
     player.handleInterruption(.began, shouldResume: false)
     player.activateSession = { false }
     player.handleInterruption(.ended, shouldResume: false)
@@ -695,6 +697,40 @@ final class ListenerPlayerTests: XCTestCase {
     try await AudioFixture.waitUntil(player: player.player) { player.isPlaying }
     XCTAssertTrue(control.rates.isEmpty)
     XCTAssertTrue(events().isEmpty)
+  }
+
+  // SR6-01: without "should resume", another app's audio that is still playing isn't cut off.
+  func testAnInterruptionThatEndsWithoutPermissionWhileOtherAudioPlaysWaitsForPlay() async throws {
+    let (player, bridge, control, events) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    var activations = 0
+    player.activateSession = { activations += 1; return true }
+    player.otherAudioIsPlaying = { true }
+    player.handleInterruption(.began, shouldResume: false)
+    player.handleInterruption(.ended, shouldResume: false)
+    XCTAssertEqual(player.localStop, .needsPlay)
+    XCTAssertEqual(activations, 0, "the other app's audio is left alone")
+    XCTAssertEqual(control.reapplications, 0)
+    XCTAssertFalse(player.isRejoining)
+    XCTAssertFalse(player.isPlaying)
+    player.userTogglePlay()
+    XCTAssertNil(player.localStop, "Play rejoins, taking the audio as asked")
+    bridge.handlePlay(itemTime: 4, rate: 1)
+    try await AudioFixture.waitUntil(player: player.player) { player.isPlaying }
+    XCTAssertTrue(control.rates.isEmpty)
+    XCTAssertTrue(events().isEmpty)
+  }
+
+  func testAnInterruptionThatEndsWithPermissionRejoinsEvenWhileOtherAudioPlays() async throws {
+    let (player, bridge, control, _) = try await playingRecoveryPlayer()
+    defer { bridge.invalidate(); player.stop() }
+    player.activateSession = { true }
+    player.otherAudioIsPlaying = { true }
+    player.handleInterruption(.began, shouldResume: false)
+    player.handleInterruption(.ended, shouldResume: true)
+    XCTAssertNil(player.localStop)
+    XCTAssertTrue(player.isRejoining)
+    XCTAssertEqual(control.reapplications, 1)
   }
 
   func testPauseDuringAnInterruptionKeepsThisPhoneStoppedAfterIt() async throws {

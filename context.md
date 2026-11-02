@@ -1,6 +1,6 @@
 # context.md - current snapshot
 
-Date: 2026-10-29
+Date: 2026-11-02
 Branch: `develop` (Becky's fork, origin github.com/BeckyK102125/BookPlayer; upstream TortugaPower/BookPlayer).
 Full history and the old long snapshot (rulings, build 6 design, device checks): Notes.md, entry 2026-10-28.
 
@@ -13,12 +13,15 @@ Lead: the "BookPlayer Lead" chat on the Neo fixes Start Testing items (project "
 commit and tests, then move to Testing, when fixed).
 
 ## Branches
+- `fix/sr6-01-rejoin-other-audio` (from develop, pushed): SR6-01 fix, waiting for the Pro to run the tests.
 - `develop`: TestFlight 5.22.2 (6) code at d55292ea, then notes, agents.md and Review.md commits.
 - `listen-together-6.0` (local only): build 6 plus the upstream 6.0.0 merge; merged into develop on 2026-10-23.
 - `listen-together-build6` and older `listen-together-*` branches: local only, kept for history.
 - Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
 
 ## Last work
+- 2026-11-02: SR6-01 (Start Testing, low): when an interruption ends without "should resume" while another
+  app's audio still plays, the listener now waits for Play instead of cutting that app off. Not yet tested.
 - 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.
 - 2026-10-27: lead chat started; develop fast-forwarded to c16411f4; Start Testing project had 0 items.
 - 2026-10-28: this file trimmed to 60 lines (old text in Notes.md). Becky's answers: a listener now always
@@ -35,13 +38,14 @@ commit and tests, then move to Testing, when fixed).
 - TSan on the whole suite stops at a pre-existing DirectoryWatcher race; run SharePlay classes by name.
 
 ## Next steps (in order)
+0. Pro: run ListenerPlayerTests on fix/sr6-01-rejoin-other-audio; if green, fast-forward develop, move SR6-01 to Testing.
 1. Two-phone test on build 6 (Becky with VoiceOver, Michael with Zoom 3x): the 13 device checks in Notes.md
    (2026-10-28 snapshot), plus the Duo side-by-side player as sharer and the sharer mini player line at Zoom 3x,
    plus: a listener whose audio Music or a video took rejoins by itself once that app stops (needs a new build).
 2. Fix Start Testing items as they arrive (Swift Reviewer, Aquila BP-, testers).
 3. Once build 6 is stable: the 20 deferred upstream findings R03 to R22 in Review.md (R09 touches
    PlayerManager.swift: ask first).
-4. Split files over 700 lines: SharePlaySessionService.swift (1729), ListenerPlayer.swift (1032).
+4. Split files over 700 lines: SharePlaySessionService.swift (1729), ListenerPlayer.swift (1042), ListenerPlayerTests.swift (982).
 5. Mark the new Listen Together strings for translation before a release.
 
 ## Open questions for Becky
