@@ -20,6 +20,8 @@ commit and tests, then move to Testing, when fixed).
 - Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
 
 ## Last work
+- 2026-11-02: Becky and Michael tested build 6: fine when both had the book; sharing a book only Michael had
+  failed (unknown how). Filed in Start Testing (dd0bde92, Needs Becky); they will test again.
 - 2026-11-02: SR6-01 (Start Testing, low): when an interruption ends without "should resume" while another
   app's audio still plays, the listener now waits for Play instead of cutting that app off. Not yet tested.
 - 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.

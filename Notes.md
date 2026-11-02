@@ -1946,3 +1946,11 @@ Capture both Console logs filtered on "Listen Together:".
 - Not built or tested on the Neo: simulator work runs on the Pro. Branch pushed; the Pro lead was asked to run
   ListenerPlayerTests (and the other SharePlay classes) and fast-forward develop if green.
 - ListenerPlayer.swift is now 1042 lines, ListenerPlayerTests.swift 982 (both over 700 before this; split planned).
+
+## 2026-11-02 — Two-phone test of TestFlight 5.22.2 (6) (fix/sr6-01-rejoin-other-audio, parent 050d480f)
+- Becky reported (about 9:40): she and Michael used build 6. With both of them having the book (own copy) there
+  were no issues. When Michael shared a book only he had (the "Send it for this session" temporary-copy path),
+  sharing didn't work; neither knows yet what went wrong. They will test it again later.
+- Filed in Start Testing as dd0bde92-7e20-402d-b5ab-00fa8f984a0f ("Listen Together: sharing a book only the
+  sharer has didn't work"), Needs Becky, with steps asking what each phone said and for Console lines
+  ("Listen Together") from both phones. Nothing to fix until there is more to go on.
