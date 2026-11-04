@@ -1954,3 +1954,11 @@ Capture both Console logs filtered on "Listen Together:".
 - Filed in Start Testing as dd0bde92-7e20-402d-b5ab-00fa8f984a0f ("Listen Together: sharing a book only the
   sharer has didn't work"), Needs Becky, with steps asking what each phone said and for Console lines
   ("Listen Together") from both phones. Nothing to fix until there is more to go on.
+
+## 2026-11-04 — BookPlayer Lead chat replaced for the new Start Testing tools (fix/sr6-01-rejoin-other-audio, parent 19b0a753)
+- Start Testing's connector now offers a short tool set (list_items, get_item, list_comments, add_comment,
+  create_item, update_item, ..., plus search_tools / call_read_tool / call_tool); this chat still had the old
+  320-tool set, and only a new chat gets the new one, so the hand-off chat asked for a replacement (replace-chat).
+- State at 08:56: origin/develop still 90463774; fix/sr6-01-rejoin-other-audio at 19b0a753 (pushed); SR6-01 has
+  only the Lead's two comments, so the Pro hasn't run the SharePlay tests yet. Start Testing: SR6-01 (open,
+  low) and dd0bde92 (open, Needs Becky: temporary-copy sharing failed in the build 6 test).

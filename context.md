@@ -1,6 +1,6 @@
 # context.md - current snapshot
 
-Date: 2026-11-02
+Date: 2026-11-04
 Branch: `develop` (Becky's fork, origin github.com/BeckyK102125/BookPlayer; upstream TortugaPower/BookPlayer).
 Full history and the old long snapshot (rulings, build 6 design, device checks): Notes.md, entry 2026-10-28.
 
@@ -20,6 +20,8 @@ commit and tests, then move to Testing, when fixed).
 - Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
 
 ## Last work
+- 2026-11-04: Lead chat replaced to get the new Start Testing tools. The Pro hasn't run the SR6-01 tests yet
+  (develop unchanged, no result on the item). The checkout is on fix/sr6-01-rejoin-other-audio.
 - 2026-11-02: Becky and Michael tested build 6: fine when both had the book; sharing a book only Michael had
   failed (unknown how). Filed in Start Testing (dd0bde92, Needs Becky); they will test again.
 - 2026-11-02: SR6-01 (Start Testing, low): when an interruption ends without "should resume" while another
