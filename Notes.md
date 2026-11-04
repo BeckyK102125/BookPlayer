@@ -1962,3 +1962,7 @@ Capture both Console logs filtered on "Listen Together:".
 - State at 08:56: origin/develop still 90463774; fix/sr6-01-rejoin-other-audio at 19b0a753 (pushed); SR6-01 has
   only the Lead's two comments, so the Pro hasn't run the SharePlay tests yet. Start Testing: SR6-01 (open,
   low) and dd0bde92 (open, Needs Becky: temporary-copy sharing failed in the build 6 test).
+- New Lead chat started (about 9:05, Neo) with the new tools; they work (list_items, list_comments, get_item).
+  Start Testing unchanged: SR6-01 open (no Pro result yet), dd0bde92 open (no comments; waiting for the retest).
+  origin/develop still 90463774. No Pro session is reachable from the Neo; the Nov 2 hand-off note stands as the
+  request for the Pro to run the SharePlay tests.
