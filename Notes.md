@@ -1925,3 +1925,70 @@ Capture both Console logs filtered on "Listen Together:".
 - Later on 2026-10-29: Becky had the noon check removed ("we don't need it at noon"); the hand-off chat deleted
   the scheduled task `bookplayer-start-testing-noon-check`, so the question above is closed. The Lead chat checks
   Start Testing itself at the start of work, as the other lead chats do.
+
+
+## 2026-11-12 — Codex/Astra Medium develop audit recheck
+
+Branch: develop. Audited commit: 90463774e1abcfe163535f95bdec575ff236abb1.
+Request: recheck previous audit findings and prepend outstanding issues to Review.md.
+Three Astra Medium source reviewers revalidated all 22 October 23 findings. R01 and R02 are addressed in source by d55292ea; R03–R22 remain open (8 P1, 12 P2). Earlier upload-status, Hardcover ID, foreign-item completion, recoverable activation and six App Intent fixes remain present. Transfer-cover arbitration and live sharer accessory concerns are also addressed in source. No fresh device acceptance is claimed.
+Review.md now starts with the November 12 recheck, BP-20261112-03 through BP-20261112-22, proof steps and Safe Alone/Needs Becky classifications. Earlier Review.md bytes were preserved verbatim.
+Commands/evidence: git status --short, git branch -vv, git worktree list, git rev-parse HEAD; git diff 8cb29725 HEAD and targeted numbered source/caller reads; source setting scan confirms Swift 5.0 remains. No implementation edits, builds, runtime tests, Simulator or phone actions. Existing untracked .nova/ preserved.
+Start Testing: searched all project items and read the one existing temporary-copy sharing report dd0bde92-7e20-402d-b5ab-00fa8f984a0f, leaving it unchanged. Created 20 open audit items with matching BP-20261112 IDs and verification/classification fields. Bulk creation failed because the advertised MCP tool was unavailable; individual create_item calls succeeded. No existing status or assignment changed.
+Skills: SwiftUI Pro, Swift Concurrency Pro, Swift Testing Pro and Superpowers parallel/verification guidance. The configured Superpowers symlink was broken; the cached installed package was located and read.
+Documentation checks: verify unique finding IDs, current local link targets, complete preservation of the previous review, context at most 60 lines, and git diff --check before the local documentation commit. No push requested or performed.
+
+### Previous context snapshot retained for history
+
+# context.md - current snapshot
+
+Date: 2026-10-29
+Branch: `develop` (Becky's fork, origin github.com/BeckyK102125/BookPlayer; upstream TortugaPower/BookPlayer).
+Full history and the old long snapshot (rulings, build 6 design, device checks): Notes.md, entry 2026-10-28.
+
+## Goal
+SharePlay "Listen Together" in the fork: one person shares a downloaded audiobook, the others listen to a
+temporary copy or their own copy, playback stays in sync, and everything works with VoiceOver and Zoom.
+Now: TestFlight 5.22.2 (6) is out (internal only); next is the two-phone test on build 6.
+Lead: the "BookPlayer Lead" chat on the Neo fixes Start Testing items (project "BookPlayer - Listen together",
+697bd58a) on weekdays 7 AM to 3 PM, following agents.md rule 3 (comment with the branch on start; comment with
+commit and tests, then move to Testing, when fixed).
+
+## Branches
+- `develop`: TestFlight 5.22.2 (6) code at d55292ea, then notes, agents.md and Review.md commits.
+- `listen-together-6.0` (local only): build 6 plus the upstream 6.0.0 merge; merged into develop on 2026-10-23.
+- `listen-together-build6` and older `listen-together-*` branches: local only, kept for history.
+- Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
+
+## Last work
+- 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.
+- 2026-10-27: lead chat started; develop fast-forwarded to c16411f4; Start Testing project had 0 items.
+- 2026-10-28: this file trimmed to 60 lines (old text in Notes.md). Becky's answers: a listener now always
+  rejoins the group when an interruption ends (even without iOS's "should resume"). The weekday noon Start
+  Testing check was removed on 2026-10-29 at Becky's request; the Lead checks Start Testing at the start of work.
+- 2026-10-23: Codex re-audit (Review.md, R01 to R22); R01 (Siri PlayMedia routing), R02 (video player), the
+  transfer-sheet cover and the live sharer status were fixed; develop pushed; TestFlight 5.22.2 (6) uploaded
+  with MARKETING_VERSION=5.22.2 on the archive command line (6.0.0 (6) expired).
+
+## Test results (fix round 4 and the 6.0.0 merge, scheme BookPlayer, plan "Unit Tests", default DerivedData)
+- Full suite after the merge: "Executed 1757 tests, with 0 failures", ** TEST SUCCEEDED **.
+- SharePlay classes plus PlayerManagerTests: 736/0; TSan on them: 0 crashes, 0 warnings.
+- 2026-10-28 rejoin change: ListenerPlayer, OwnCopy, SessionEnd and SharerPlaybackTarget tests 135/0, ** TEST SUCCEEDED **.
+- TSan on the whole suite stops at a pre-existing DirectoryWatcher race; run SharePlay classes by name.
+
+## Next steps (in order)
+1. Two-phone test on build 6 (Becky with VoiceOver, Michael with Zoom 3x): the 13 device checks in Notes.md
+   (2026-10-28 snapshot), plus the Duo side-by-side player as sharer and the sharer mini player line at Zoom 3x,
+   plus: a listener whose audio Music or a video took rejoins by itself once that app stops (needs a new build).
+2. Fix Start Testing items as they arrive (Swift Reviewer, Aquila BP-, testers).
+3. Once build 6 is stable: the 20 deferred upstream findings R03 to R22 in Review.md (R09 touches
+   PlayerManager.swift: ask first).
+4. Split files over 700 lines: SharePlaySessionService.swift (1729), ListenerPlayer.swift (1032).
+5. Mark the new Listen Together strings for translation before a release.
+
+## Open questions for Becky
+- None.
+
+Validation result: all 20 BP-20261112 items read back as open. Previous review preserved byte-for-byte; 20 unique IDs (8 P1, 12 P2), primary file references valid, context under 60 lines, only Review.md/Notes.md/context.md modified. An added blank line at EOF was removed before the final whitespace check.
+
+Git outcome: the first git add/commit attempt was blocked by the filesystem sandbox at .git/index.lock. The permitted escalation succeeded with the local commit message "docs: recheck develop audit findings and record outstanding issues". No push was performed.

@@ -1,3 +1,324 @@
+# Codex (Astra Medium): develop audit finding recheck — November 12, 2026
+
+## Reviewed snapshot and result
+
+Branch: develop.
+Full commit reviewed: 90463774e1abcfe163535f95bdec575ff236abb1.
+Checkout read: /Users/becky/Developer/Swift/BookPlayer.
+Baseline: the October 23 review of 8cb2972534af4ba7a4bd112410d280748270319a, retained unchanged below.
+
+Two of the 22 prior numbered findings are addressed in source: R01 and R02. Twenty remain outstanding: R03–R22, comprising eight P1 and twelve P2 findings. Each is revalidated below with a new review-specific ID; the suffix preserves the previous R number. No implementation repair was performed in this review.
+
+Three GPT-6 Astra reviewers using Medium reasoning rechecked the source and relevant callers in data/sync/import, playback/UI/accessibility, and accounts/network/integrations. The coordinating review checked the intervening diff and reconciliation evidence. Swift Concurrency Pro, SwiftUI Pro, Swift Testing Pro and the Superpowers parallel review/verification workflows informed the review. The configured Superpowers symlink was broken; the installed cached skill package was used instead.
+
+This is the current local develop snapshot, not a claim about un-fetched remote branches. Tracked source was clean; the existing untracked .nova/ directory was left alone. No builds, automated tests, Thread Sanitizer, Simulator, phone or assistive-technology runs occurred. Fixed means the reported source defect is addressed, not that fresh device acceptance has passed. The checks below describe future verification, not tests run today.
+
+## Findings addressed in current source
+
+- R01, Siri playback routing: PlayMediaIntentHandler.swift:133–145 now routes through listenTogetherAllowsStart before loading and returns failure when the loader declines. Its helper at 154–160 uses ListenTogetherIntentRouting. This was introduced by d55292ea. Actual Siri requests as sharer/listener, another-book refusal and declined loading still need device acceptance with Becky.
+- R02, video playback surface: PlayerView.swift:48–52 refreshes video state and 200–215 restores VideoArtworkView for video items, also in d55292ea. Show Video, portrait/side-by-side layout, full-screen and Picture in Picture still need device acceptance with Becky.
+- Earlier A01, foreign-item completion: PlayerManager.swift:1832–1839 retains the owned-item identity guard. Earlier A08, activation crash: 1420–1443 retains recoverable reporting and return. Earlier A17, the six App Intent routes, still uses ListenTogetherIntentRouting. These earlier fixes have not been promoted back into the open list.
+- Earlier A03, upload rejection: NetworkClient.swift:146–154 checks artwork HTTP status; PartUploadTransport.swift:113–114 passes multipart status and FileUploadOperation.swift:599–605 restricts success to 2xx. Earlier A14, lost Hardcover ID: HardcoverService.swift:351–352 still saves the returned ID. R16’s independent ordering defect remains.
+- The October 23 unnumbered transfer-cover concern is addressed by ListenTogetherPresentation.isCovered at 113–119, which includes every cover except Listen Together itself. MainView.swift:199–206 and ListenTogetherStatusRow.swift:150–163 now derive the sharer accessory from live interruption/wait/retry state. Source repairs do not certify presentation, focus, Zoom or VoiceOver behavior.
+
+## Outstanding findings, ranked by severity
+
+P1 denotes high-priority data integrity, crash or playback ownership risk. P2 denotes consequential functional/state/accessibility defects. Safe Alone permits isolated repair and fixture verification; any stated device acceptance still needs Becky. Needs Becky also marks the existing permission boundary on PlayerManager.swift. These labels do not change item assignments or approve release.
+
+### BP-20261112-03 — P1: A failed backup move is followed by permanent deletion
+
+Status: outstanding; revalidates R03 from October 23.
+
+Location: [Shared/Services/LibraryService+Sync.swift:727](</Users/becky/Developer/Swift/BookPlayer/Shared/Services/LibraryService+Sync.swift:727>).
+
+createBackup suppresses move errors, while removeItems deep-deletes every original at line 666. If Backup already contains the same relative path, moving the current file fails and LibraryService.swift:1435 still deletes that current original. The older backup may contain different audio. Directory or storage errors have the same destructive continuation.
+
+Recommended correction: Return backup success or failure, use collision-safe destinations, and permit destructive deletion only after confirming a recoverable backup of that specific item.
+
+How to prove it is fixed: Use disposable files to inject an existing backup-name collision and directory/write failures. Confirm the exact original remains unless its own recoverable backup has been verified.
+
+Classification: Safe Alone.
+
+### BP-20261112-04 — P1: A former account’s list response can reconcile after logout
+
+Status: outstanding; revalidates R04 from October 23.
+
+Location: [Shared/Services/Sync/SyncService.swift:361](</Users/becky/Developer/Swift/BookPlayer/Shared/Services/Sync/SyncService.swift:361>).
+
+syncListContents waits for teardown before fetching, but captures no account/session generation and performs no check after fetchContents returns at 361–363. Logout at 763–778 can occur during that await. A delayed account A response then updates, inserts and removes local items through 440–445 after logout or login to B. Initial sync now guards its initial fetch result at 410–411, but that partial repair does not protect this ordinary refresh or the individual awaited reconciliation mutations.
+
+Recommended correction: Carry a session generation through fetching and reconciliation, invalidate it on logout, and validate it before applying mutations. Exercise a delayed A response after switching to B.
+
+How to prove it is fixed: Hold account A’s response, log out and switch to B, then release it. Assert no A metadata, insertion, removal or timestamp effects. Repeat with barriers between reconciliation mutations; use mocked accounts. Live account acceptance needs Becky.
+
+Classification: Safe Alone.
+
+### BP-20261112-05 — P1: Logout can miss a sync operation that has not yet entered its queue
+
+Status: outstanding; revalidates R05 from October 23.
+
+Location: [Shared/Services/SyncQueue/SyncQueueService.swift:432](</Users/becky/Developer/Swift/BookPlayer/Shared/Services/SyncQueue/SyncQueueService.swift:432>).
+
+enqueueNextTask checks whether server work is enabled at 338–349, then suspends on task lookup at 353 and again on MainActor publication at 432–434. Logout cancels only operations already in operationQueue at 255. If it runs in either gap, the captured operation is added afterward at 436 and was never cancelled. LibraryItemSyncOperation.main at 86–101 checks cancellation flags, not a session generation, and requests use the current token. Following a rapid account switch, a former account’s queued mutation can execute under the next account.
+
+Recommended correction: Serialize queue admission with logout invalidation and give each operation a captured account generation checked before execution and completion effects. A Boolean check before another suspension is insufficient.
+
+How to prove it is fixed: Place deterministic barriers at task lookup and MainActor publication, log out/switch accounts, then release admission. Assert zero stale network requests and completion mutations under the new account.
+
+Classification: Safe Alone.
+
+### BP-20261112-06 — P1: Import workers use main-context Core Data objects off their queue
+
+Status: outstanding; revalidates R06 from October 23.
+
+Location: [BookPlayer/Import/Models/ImportOperation.swift:179](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Import/Models/ImportOperation.swift:179>).
+
+ImportManager enqueues these operations on OperationQueue at 100–101. hasExistingBook calls LibraryService.findBooks, whose fetch directly uses the main viewContext at LibraryService.swift:1674–1676, then dereferences the returned Book on the import worker. CoreDataStack.swift:17–18 confirms context ownership. Concurrent library changes can race this queue-confinement violation and cause a crash.
+
+Recommended correction: Perform the fetch and URL extraction on the owning context, returning a value snapshot. Protecting only the fetch while returning a managed object for worker access does not fix ownership.
+
+How to prove it is fixed: Import on the worker queue with Core Data concurrency debugging and disposable data while modifying library records. Verify lookup runs on its context and workers receive only value snapshots; run targeted concurrency checks.
+
+Classification: Safe Alone.
+
+### BP-20261112-07 — P1: Failed ZIP extraction deletes its input archive
+
+Status: outstanding; revalidates R07 from October 23.
+
+Location: [BookPlayer/Import/Models/ImportOperation.swift:124](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Import/Models/ImportOperation.swift:124>).
+
+The unzip completion removes the source before checking success at 124–129. A corrupt archive or failed extraction is discarded and the operation advances without preserving the input for retry. Unlike ordinary file-import cleanup, this path also lacks the isAppManagedSource restriction, so a writable external input can be removed.
+
+Recommended correction: Preserve archives on failure, surface extraction errors, and remove only app-owned inputs after successful processing.
+
+How to prove it is fixed: Exercise corrupt ZIPs, extraction failure, a writable external source and owned staging. Failure must retain retryable input and report the error; successful cleanup must respect ownership, including finish() staging cleanup.
+
+Classification: Safe Alone.
+
+### BP-20261112-08 — P1: Queued chapter installation can resurrect obsolete playback
+
+Status: outstanding; revalidates R08 from October 23.
+
+Location: [BookPlayer/Player/PlayerManager.swift:697](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Player/PlayerManager.swift:697>).
+
+The load task has cancellation checks, but then escapes into an OperationQueue block and an independent main-queue closure at 697–724. The operation captures playerItem at 706, clears the active player off main at 717 and later installs the captured item at 724 without cancellation, generation or identity checks. A load of B or Stop between these steps cannot retract A’s queued installation. The subsequent initialization at 740–745 can combine stale audio/metadata with the latest currentItem. Stop cancels Swift tasks at 1693–1694, not these queued closures.
+
+Recommended correction: Install the item on the playback owner’s actor with an exact load generation and item/chapter check. Invalidate pending installations when stopping or replacing a book; cancelling only the parent Swift task is insufficient.
+
+How to prove it is fixed: Existing context.md requires Becky before editing PlayerManager.swift. Once authorized, hold an A installation, Stop or load B, then release A. Assert no stale item, metadata or readiness publication; run targeted Thread Sanitizer and device playback acceptance.
+
+Classification: Needs Becky.
+
+### BP-20261112-09 — P1: Raw player-status callbacks mutate shared state without isolation
+
+Status: outstanding; revalidates R09 from October 23.
+
+Location: [BookPlayer/Player/PlayerManager.swift:1549](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Player/PlayerManager.swift:1549>).
+
+The KVO handler checks only the status key path and AVPlayerItem type, then directly mutates observer/queued flags, starts reloads and clears playerItem at 1554–1615. It neither moves the whole transition onto the playback owner’s executor nor checks that the observed object is still owned. The file acknowledges the lack of guaranteed main-thread delivery at 609–620. These writes can race load/stop; a delayed callback can affect a replacement item. The external-stream retry at 1572–1581 uses the same unsafe path. The A01 end-of-item identity fix protects a different notification.
+
+Recommended correction: Confine the entire status transition to one actor and revalidate the observed item and load generation there. Review observer registration/removal under the same ownership boundary.
+
+How to prove it is fixed: Existing context.md requires Becky before editing PlayerManager.swift. Once authorized, inject delayed replaced/foreign-item status callbacks and assert no changes to the current item. Verify all status transitions and observer changes share one owner; run targeted Thread Sanitizer.
+
+Classification: Needs Becky.
+
+### BP-20261112-10 — P1: Watch playback can resume after Pause or Stop during activation
+
+Status: outstanding; revalidates R10 from October 23.
+
+Location: [BookPlayerWatch/LocalPlayback/Player/PlayerManager.swift:872](</Users/becky/Developer/Swift/BookPlayer/BookPlayerWatch/LocalPlayback/Player/PlayerManager.swift:872>).
+
+The play task checks cancellation at 859 and then awaits audio-session activation at 872. Pause and Stop cancel it at 1058 and 1098, but no check follows activation: completion proceeds to bookmark work and playImmediately at 908 with the captured old book. The catch at 873–875 also reports activation failure and continues, including when cancellation throws.
+
+Recommended correction: Return on activation failure and check cancellation plus the current playback generation/item after the await before changing playback or bookmarks. Exercise delayed activation followed by Pause, Stop and a different-book load.
+
+How to prove it is fixed: Delay Watch audio activation and issue Pause, Stop and replacement load; also fail activation. Assert no stale playback or bookmark effects. Real Watch playback acceptance needs Becky.
+
+Classification: Safe Alone.
+
+### BP-20261112-11 — P2: Database backup can accept a stale or inconsistent SQLite snapshot
+
+Status: outstanding; revalidates R11 from October 23.
+
+Location: [Shared/Services/DatabaseBackupService.swift:159](</Users/becky/Developer/Swift/BookPlayer/Shared/Services/DatabaseBackupService.swift:159>).
+
+The live SQLite database and WAL/SHM are copied separately at 159–175. Sidecar-copy errors are suppressed and success is returned. Missing committed WAL content can leave a readable but stale database, so opening it does not prove backup completeness. A checkpoint between copies also prevents a guaranteed coherent snapshot. Previous backups are then eligible for pruning.
+
+Recommended correction: Use a supported consistent database snapshot operation, fail on required-copy errors, and retain prior backups until the new snapshot is validated.
+
+How to prove it is fixed: Back up a disposable database during writes/checkpoints and inject WAL-copy failure. Restore and check committed sentinel records and consistency; failed backup must preserve prior backups.
+
+Classification: Safe Alone.
+
+### BP-20261112-12 — P2: An empty remote folder never clears its local contents
+
+Status: outstanding; revalidates R12 from October 23.
+
+Location: [Shared/Services/Sync/SyncService.swift:421](</Users/becky/Developer/Swift/BookPlayer/Shared/Services/Sync/SyncService.swift:421>).
+
+processContentsResponse returns immediately when content is empty, including when canDelete is true. Deleting the last remote child therefore skips removal of all local entries, while syncListContents still advances its timestamp at 365–368. The library can retain deleted books indefinitely.
+
+Recommended correction: Process a successful authoritative empty listing as an empty identifier set for reconciliation, distinct from a fetch or decoding failure.
+
+How to prove it is fixed: Return an authoritative successful empty listing and verify eligible local records are reconciled away. A failed or undecodable response must never delete them.
+
+Classification: Safe Alone.
+
+### BP-20261112-13 — P2: Chapter refresh loses server identity and writes chapters to other books
+
+Status: outstanding; revalidates R13 from October 23.
+
+Location: [Shared/Services/LibraryService.swift:3334](</Users/becky/Developer/Swift/BookPlayer/Shared/Services/LibraryService.swift:3334>).
+
+Providers group requests by server but merge their answers into a dictionary keyed only by providerId (MediaServerChapterProviding.swift:74–79). Ingest at 3334–3350 fetches every resource matching providerName and providerId, without hostId or an originating-resource restriction. Server A’s book can therefore populate a different book on server B with the same ID, even outside the refreshed folder. Both servers need not participate in that refresh. storeChaptersIfEmpty makes the incorrect result persistent.
+
+Recommended correction: Preserve provider, resolved host and item identity throughout request results and ingest, and restrict writes to the originating resources. Cover overlapping IDs on two configured servers.
+
+How to prove it is fixed: Configure two fixture servers with identical provider IDs but distinct chapters, including a B resource outside the refreshed folder. Refresh A and verify only the correctly identified A resources change.
+
+Classification: Safe Alone.
+
+### BP-20261112-14 — P2: Download ownership is assigned after an await
+
+Status: outstanding; revalidates R14 from October 23.
+
+Location: [BookPlayer/Services/SingleFileDownloadService.swift:91](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Services/SingleFileDownloadService.swift:91>).
+
+Two handleDownload calls can both observe currentTask == nil before networkClient.download returns. That function really suspends on session.allTasks (NetworkClient.swift:116). Both downloads start and the later assignment overwrites ownership at 104. Completion uses currentTask.folderName at 143 rather than metadata belonging to the completed task, so one download can enter the other destination. Delegate callbacks also read state written from MainActor without a single isolation boundary.
+
+Recommended correction: Reserve the queue item before awaiting, isolate all queue state, and bind destination metadata to the actual URLSessionTask identity.
+
+How to prove it is fixed: Suspend download creation, issue two starts and release completions in reverse order. Verify one queue owner and correct per-task destinations; run targeted race checks. Actual device import acceptance needs Becky.
+
+Classification: Safe Alone.
+
+### BP-20261112-15 — P2: Login failure leaves backend and local account identities inconsistent
+
+Status: outstanding; revalidates R15 from October 23.
+
+Location: [Shared/Services/Account/AccountService.swift:472](</Users/becky/Developer/Swift/BookPlayer/Shared/Services/Account/AccountService.swift:472>).
+
+Apple login stores the new backend token before awaiting throwing RevenueCat login at 479. Failure leaves that token active while local account identity remains old or anonymous. Passkey login at 500–504 and transferred credentials at 526–528 use the same ordering. Subsequent requests can use the newly stored token despite the failed-login result. Pending login also has no logout-generation invalidation.
+
+Recommended correction: Stage identity changes or roll back credentials on failure, and reject stale completions after logout so backend, RevenueCat and local identity commit coherently.
+
+How to prove it is fixed: Inject RevenueCat failure for Apple, passkey and transferred-credential login. Verify token, account and subscription identities remain coherent. Suspend login, log out and resume; reject stale identity restoration. Real account acceptance needs Becky.
+
+Classification: Safe Alone.
+
+### BP-20261112-16 — P2: Hardcover status tasks can commit in reverse order
+
+Status: outstanding; revalidates R16 from October 23.
+
+Location: [BookPlayer/Hardcover/Network/HardcoverService.swift:341](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Hardcover/Network/HardcoverService.swift:341>).
+
+Progress and finish subscriptions launch independent tasks at 280 and 293. updateHardcoverStatus captures the current association/status at 334, then awaits the mutation and unconditionally stores the captured record with its requested status at 350–354. A reading update that completes after a read update can move the local status backward; server requests can also arrive out of order. An association changed while awaiting can likewise be overwritten.
+
+Recommended correction: Serialize/coalesce changes per book and validate association/generation before committing. Preserve the newest intended status. The separate old missing-userBookID issue is fixed at 351–352.
+
+How to prove it is fixed: Reverse reading/read request completion and change the book association during suspension. Assert the newest intended status and current association survive. Real Hardcover acceptance needs Becky.
+
+Classification: Safe Alone.
+
+### BP-20261112-17 — P2: Cancelled AudiobookShelf search can show an error or stale results
+
+Status: outstanding; revalidates R17 from October 23.
+
+Location: [BookPlayer/AudiobookShelf/Library Screen/AudiobookShelfLibraryViewModel.swift:529](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/AudiobookShelf/Library Screen/AudiobookShelfLibraryViewModel.swift:529>).
+
+Query changes cancel the previous search, but the catch handles only CancellationError. IntegrationURLSessionClient directly forwards URLSession errors, including URLError.cancelled, into the general error branch at 545–546; IntegrationLibraryView.swift:69 presents it. There is also no query/generation check after the await before replacing results at 541–542. Normal rapid typing can therefore produce a cancellation alert or obsolete results.
+
+Recommended correction: Suppress both cancellation forms and validate the current query/task generation before publishing results or errors.
+
+How to prove it is fixed: Rapidly change queries with reversed delayed responses and both CancellationError and URLError.cancelled. Assert no cancellation alert or obsolete results. Search and VoiceOver acceptance needs Becky.
+
+Classification: Safe Alone.
+
+### BP-20261112-18 — P2: An old fetch clears the replacement task’s handle
+
+Status: outstanding; revalidates R18 from October 23.
+
+Location: [BookPlayer/Jellyfin/Library Screen/JellyfinLibraryViewModel.swift:346](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Jellyfin/Library Screen/JellyfinLibraryViewModel.swift:346>).
+
+Unconditional defer cleanup sets fetchTask to nil when an old task exits, even if another task has replaced it. The same pattern occurs at Jellyfin lines 282 and 318 and AudiobookShelf lines 392, 472 and 532. A’s cleanup can erase B’s ownership, defeating cancellation and fetchMore guards and allowing overlapping page requests or duplicate appends. Jellyfin’s new response guards do not fix handle ownership.
+
+Recommended correction: Clear the handle only if the finishing operation still owns the active generation; keep pagination admission serialized.
+
+How to prove it is fixed: Suspend A, replace it with B, then finish A. B must retain its active handle and remain cancellable, and a third page request must not overlap or append duplicate results.
+
+Classification: Safe Alone.
+
+### BP-20261112-19 — P2: Late bookmark loading can replace the new book’s list
+
+Status: outstanding; revalidates R19 from October 23.
+
+Location: [BookPlayer/Player/Views/Bookmarks/BookmarksViewModel.swift:108](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Player/Views/Bookmarks/BookmarksViewModel.swift:108>).
+
+An independent request for A awaits syncBookmarksList and assigns userBookmarks at 115–116 without checking the current book or generation. Switching to B while A is pending lets A replace B’s displayed list. Selecting a stale bookmark calls jumpTo on the current player at 88, so B moves to A’s timestamp. The merged persistent side panel makes book changes while the list is mounted especially relevant.
+
+Recommended correction: Invalidate superseded requests and check current book identity at publication and action time.
+
+How to prove it is fixed: Request bookmarks for A then B, resolve B before A, and verify only B remains displayed. Attempt a stale A selection and ensure B is not sought or mutated. Mounted-panel device acceptance needs Becky.
+
+Classification: Safe Alone.
+
+### BP-20261112-20 — P2: Playback sliders and speed buttons lack meaningful accessible names
+
+Status: outstanding; revalidates R20 from October 23.
+
+Location: [BookPlayer/Player/Views/Controls/PlayerControlsSpeedSectionView.swift:51](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Player/Views/Controls/PlayerControlsSpeedSectionView.swift:51>).
+
+The speed slider at 51–55 supplies a value without a function name; the adjacent text is not associated with it. Decrease/increase buttons explicitly use emoji labels at 94 and 119. ListeningProgressView.swift:27–39 and SlickSlider.swift:82–114 also supply no explicit seek-function label. Screen-reader users receive insufficient purpose information. Actual announcements were not exercised.
+
+Recommended correction: Provide localized Playback speed and Playback position names, meaningful increase/decrease labels, and appropriate speed/time values. Verify adjustment and announcement with VoiceOver and Braille.
+
+How to prove it is fixed: Verify explicit localized seek/speed names and meaningful increase/decrease labels in source, then check actual VoiceOver/Braille names, values and adjustment on device.
+
+Classification: Needs Becky.
+
+### BP-20261112-21 — P2: Button-free mode lacks accessible equivalents for its gestures
+
+Status: outstanding; revalidates R21 from October 23.
+
+Location: [BookPlayer/Player/Views/ButtonFree/ButtonFreeView.swift:64](</Users/becky/Developer/Swift/BookPlayer/BookPlayer/Player/Views/ButtonFree/ButtonFreeView.swift:64>).
+
+Play/pause and directional functions are attached to raw container tap/drag gestures at 64–74. The only explicit accessibility action is Escape at 89–91; rewind, forward and bookmark creation have no named actions or equivalent keyboard-operable controls within this mode. VoiceOver directional navigation competes with those gestures.
+
+Recommended correction: Expose named accessibility actions and operable alternatives while retaining gestures, and announce results. Validate VoiceOver, Switch Control and keyboard use.
+
+How to prove it is fixed: Operate play/pause, rewind, forward and bookmark using VoiceOver actions, Switch Control and keyboard. Every command must be available and its result announced without relying on raw directional gestures.
+
+Classification: Needs Becky.
+
+### BP-20261112-22 — P2: Share extension silently drops files with duplicate names or copy failures
+
+Status: outstanding; revalidates R22 from October 23.
+
+Location: [BookPlayerShareExtension/ShareViewController.swift:199](</Users/becky/Developer/Swift/BookPlayer/BookPlayerShareExtension/ShareViewController.swift:199>).
+
+Every selected URL is copied to sharedFolder using only lastPathComponent, with try? suppressing errors at 200. Two different files named chapter.mp3, or an existing pending shared file with that name, collide: the later copy fails, yet the extension advances and completes the request successfully at 190–193. Permission/storage errors are also silently treated as completion.
+
+Recommended correction: Allocate collision-safe staging names, retain each selected file’s identity, and surface copy failures before completing the extension request. Do not silently replace or omit a selected input.
+
+How to prove it is fixed: Use duplicate basenames, a preexisting staged filename and injected copy failures. Preserve every selected input or show an actionable failure before completion. Real share-sheet acceptance needs Becky.
+
+Classification: Safe Alone.
+
+## Existing device report and acceptance gaps
+
+Start Testing already contains an open November 2 report: “Listen Together: sharing a book only the sharer has didn't work (TestFlight 5.22.2 (6))”, item dd0bde92-7e20-402d-b5ab-00fa8f984a0f. It reports successful own-copy listening but failure when only the sharer has the book; the failure stage is still unknown. This is an existing user report, not a new source-confirmed finding or proof of a particular cause. It was left unchanged and was not duplicated. Classification: Needs Becky. Reproduce with both phones, recording invitation, join, transfer and playback stages and VoiceOver status.
+
+Session-ending, interruption recovery, own-copy chapter-boundary saving, late joining and disappearance grace behavior still need the relevant two-device acceptance. The October 28 automatic-rejoin change is present; this audit did not execute it. The historical passing test counts below and in Notes.md are not fresh evidence for this recheck.
+
+The project still specifies Swift 5.0 in BookPlayer.xcodeproj/project.pbxproj (for example line 6190), with no explicit SWIFT_STRICT_CONCURRENCY setting found. Swift 6 language mode and Complete concurrency checking are not established. No build settings or source were changed; a separate migration remains necessary. Accessibility conformance and zero concurrency warnings are not claimed.
+
+## Tracking and preservation
+
+The outstanding findings are filed in Start Testing under Techopolis, LLC / BookPlayer - Listen together with their BP-20261112 IDs, verification steps and Safe Alone/Needs Becky classification. The project was searched first; its one existing temporary-copy report was not a duplicate of these findings. No existing status, assignment or comment was changed.
+
+The prior review follows verbatim. Its status statements refer to its own October 23 snapshot.
+
 # BookPlayer fork audit — October 23, 2026
 
 ## Scope and evidence

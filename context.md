@@ -1,48 +1,44 @@
 # context.md - current snapshot
 
-Date: 2026-10-29
-Branch: `develop` (Becky's fork, origin github.com/BeckyK102125/BookPlayer; upstream TortugaPower/BookPlayer).
-Full history and the old long snapshot (rulings, build 6 design, device checks): Notes.md, entry 2026-10-28.
+Date: 2026-11-12
+Branch: develop (BookPlayer fork).
 
 ## Goal
-SharePlay "Listen Together" in the fork: one person shares a downloaded audiobook, the others listen to a
-temporary copy or their own copy, playback stays in sync, and everything works with VoiceOver and Zoom.
-Now: TestFlight 5.22.2 (6) is out (internal only); next is the two-phone test on build 6.
-Lead: the "BookPlayer Lead" chat on the Neo fixes Start Testing items (project "BookPlayer - Listen together",
-697bd58a) on weekdays 7 AM to 3 PM, following agents.md rule 3 (comment with the branch on start; comment with
-commit and tests, then move to Testing, when fixed).
-
-## Branches
-- `develop`: TestFlight 5.22.2 (6) code at d55292ea, then notes, agents.md and Review.md commits.
-- `listen-together-6.0` (local only): build 6 plus the upstream 6.0.0 merge; merged into develop on 2026-10-23.
-- `listen-together-build6` and older `listen-together-*` branches: local only, kept for history.
-- Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
+Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync,
+and support VoiceOver and Zoom. Resolve the existing device report and outstanding audit findings.
 
 ## Last work
-- 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.
-- 2026-10-27: lead chat started; develop fast-forwarded to c16411f4; Start Testing project had 0 items.
-- 2026-10-28: this file trimmed to 60 lines (old text in Notes.md). Becky's answers: a listener now always
-  rejoins the group when an interruption ends (even without iOS's "should resume"). The weekday noon Start
-  Testing check was removed on 2026-10-29 at Becky's request; the Lead checks Start Testing at the start of work.
-- 2026-10-23: Codex re-audit (Review.md, R01 to R22); R01 (Siri PlayMedia routing), R02 (video player), the
-  transfer-sheet cover and the live sharer status were fixed; develop pushed; TestFlight 5.22.2 (6) uploaded
-  with MARKETING_VERSION=5.22.2 on the archive command line (6.0.0 (6) expired).
+- November 12: Codex with three Astra Medium reviewers rechecked all 22 October 23 findings.
+- R01 (Siri PlayMedia routing) and R02 (video surface) are addressed in source.
+- R03–R22 remain open: 8 P1 and 12 P2. New review is at the top of Review.md;
+  IDs BP-20261112-03 through BP-20261112-22. Earlier review retained verbatim.
+- Filed those 20 findings in Start Testing, project BookPlayer - Listen together (697bd58a),
+  with proof steps and Safe Alone/Needs Becky. Existing temporary-copy report left unchanged.
+- Earlier source fixes for upload status, Hardcover ID, completion ownership, activation crash,
+  six App Intents, transfer-cover arbitration and live sharer status remain present.
+- October 28 listener rejoin change is present: interruption end rejoins even without shouldResume,
+  unless user Pause/route loss requires explicit Play. No new device acceptance performed.
+- TestFlight 5.22.2 (6) was the last documented internal release; release status was not queried today.
+- November 2 Start Testing report says own-copy listening worked, but temporary-copy sharing failed;
+  stage/cause unknown. Item dd0bde92-7e20-402d-b5ab-00fa8f984a0f, Needs Becky.
 
-## Test results (fix round 4 and the 6.0.0 merge, scheme BookPlayer, plan "Unit Tests", default DerivedData)
-- Full suite after the merge: "Executed 1757 tests, with 0 failures", ** TEST SUCCEEDED **.
-- SharePlay classes plus PlayerManagerTests: 736/0; TSan on them: 0 crashes, 0 warnings.
-- 2026-10-28 rejoin change: ListenerPlayer, OwnCopy, SessionEnd and SharerPlaybackTarget tests 135/0, ** TEST SUCCEEDED **.
-- TSan on the whole suite stops at a pre-existing DirectoryWatcher race; run SharePlay classes by name.
+## Test results
+- This review: git diff 8cb29725 HEAD plus current source/caller inspection; 2 addressed, 20 open.
+- Documentation validation: preservation of old review, unique IDs, local links and git diff --check.
+- No builds, automated tests, TSan, Simulator or phone actions in this review.
+- Historical only: merged full suite 1757/0; SharePlay + PlayerManager 736/0 with targeted TSan clean.
+- Historical October 28 targeted rejoin tests 135/0. Whole-suite TSan had a DirectoryWatcher race.
+- Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
-## Next steps (in order)
-1. Two-phone test on build 6 (Becky with VoiceOver, Michael with Zoom 3x): the 13 device checks in Notes.md
-   (2026-10-28 snapshot), plus the Duo side-by-side player as sharer and the sharer mini player line at Zoom 3x,
-   plus: a listener whose audio Music or a video took rejoins by itself once that app stops (needs a new build).
-2. Fix Start Testing items as they arrive (Swift Reviewer, Aquila BP-, testers).
-3. Once build 6 is stable: the 20 deferred upstream findings R03 to R22 in Review.md (R09 touches
-   PlayerManager.swift: ask first).
-4. Split files over 700 lines: SharePlaySessionService.swift (1729), ListenerPlayer.swift (1032).
-5. Mark the new Listen Together strings for translation before a release.
+## Next steps
+1. Reproduce the existing temporary-copy sharing failure with both phones and capture its exact stage.
+2. Prioritize BP-20261112-03 through -10 (P1); read item status/comments before starting any fix.
+3. Address remaining P2 findings and verify each using its proof steps; Testing awaits device acceptance.
+4. Complete multi-device session-end, interruption, own-copy boundary, Siri/video and accessibility checks.
+5. Plan Swift 6/Complete concurrency migration, over-700-line file splits and missing translations separately.
 
-## Open questions for Becky
-- None.
+## Open questions and constraints
+- PlayerManager.swift: Becky must approve before implementation changes (existing project constraint).
+- Never commit BuildConfiguration/Debug.xcconfig. No push authorized for this audit update.
+- Main worktree has an unrelated untracked .nova/ directory; leave it alone.
+- Full history, design rulings and earlier device-check lists are in Notes.md.
