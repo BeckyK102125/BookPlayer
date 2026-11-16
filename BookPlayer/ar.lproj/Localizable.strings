@@ -413,8 +413,7 @@
 "hardcover_progress_tracking_footer" = "يحدد الحد الأدنى لنسبة التقدم المطلوبة قبل تمييز الكتاب كـ **قيد القراءة حاليًا** في مكتبة Hardcover الخاصة بك.";
 "hardcover_automation_description" = "مزامنة تقدم القراءة تلقائيًا مع Hardcover. عند التفعيل، سيتم مطابقة الكتب تلقائيًا وإضافتها إلى مكتبتك.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "الوصول إلى API";
-"hardcover_api_access_footer" = "يمكنك العثور على وصول Hardcover API الخاص بك في https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "لم يُكمل Hardcover تسجيل الدخول. حاول مرة أخرى.";
 "hardcover_automation_title" = "الأتمتة";
 "hardcover_progress_tracking_title" = "تتبع التقدم";
 "save_button" = "حفظ";
@@ -753,5 +752,6 @@
 "transfer_web_not_enough_space" = "لا توجد مساحة كافية على الجهاز";
 "transfer_web_too_large" = "كبير جدًا";
 "transfer_web_unsupported" = "نوع الملف غير مدعوم";
+"transfer_web_path_conflict" = "يوجد ملف أو مجلد آخر أرسلته بهذا الاسم";
 "transfer_web_done_hint" = "عند الانتهاء، أكّد في BookPlayer لاستيراد الملفات.";
 "transfer_web_load_error" = "تعذّر الوصول إلى BookPlayer. تحقق من أن شاشة النقل فيه لا تزال مفتوحة.";

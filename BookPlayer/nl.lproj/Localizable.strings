@@ -413,8 +413,7 @@
 "hardcover_progress_tracking_footer" = "Stelt het minimale voortgangspercentage in dat vereist is voordat een boek wordt gemarkeerd als **Momenteel aan het lezen** in uw Hardcover-bibliotheek.";
 "hardcover_automation_description" = "Synchroniseer uw leesvoortgang automatisch met Hardcover. Wanneer ingeschakeld, worden boeken automatisch gekoppeld en toegevoegd aan uw bibliotheek.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "API-toegang";
-"hardcover_api_access_footer" = "U kunt uw Hardcover API-toegang vinden op https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "Hardcover heeft het inloggen niet voltooid. Probeer het opnieuw.";
 "hardcover_automation_title" = "Automatisering";
 "hardcover_progress_tracking_title" = "Voortgang bijhouden";
 "save_button" = "Opslaan";
@@ -753,5 +752,6 @@
 "transfer_web_not_enough_space" = "Niet genoeg ruimte op het apparaat";
 "transfer_web_too_large" = "Te groot";
 "transfer_web_unsupported" = "Bestandstype niet ondersteund";
+"transfer_web_path_conflict" = "Een ander bestand of een andere map die je hebt verstuurd, heeft al deze naam";
 "transfer_web_done_hint" = "Bevestig in BookPlayer als je klaar bent om de bestanden te importeren.";
 "transfer_web_load_error" = "Kan BookPlayer niet bereiken. Controleer of het overzetscherm nog open is.";

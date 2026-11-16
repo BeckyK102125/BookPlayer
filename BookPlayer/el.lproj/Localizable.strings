@@ -413,8 +413,7 @@
 "hardcover_progress_tracking_footer" = "Ορίζει το ελάχιστο ποσοστό προόδου που απαιτείται πριν ένα βιβλίο επισημανθεί ως **Διαβάζω αυτή τη στιγμή** στη βιβλιοθήκη Hardcover σας.";
 "hardcover_automation_description" = "Αυτόματος συγχρονισμός της προόδου ανάγνωσής σας με το Hardcover. Όταν είναι ενεργοποιημένο, τα βιβλία θα ταιριάζουν αυτόματα και θα προστίθενται στη βιβλιοθήκη σας.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "Πρόσβαση API";
-"hardcover_api_access_footer" = "Μπορείτε να βρείτε την πρόσβαση API του Hardcover στο https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "Το Hardcover δεν ολοκλήρωσε τη σύνδεση. Δοκιμάστε ξανά.";
 "hardcover_automation_title" = "Αυτοματισμός";
 "hardcover_progress_tracking_title" = "Παρακολούθηση προόδου";
 "save_button" = "Αποθήκευση";
@@ -753,5 +752,6 @@
 "transfer_web_not_enough_space" = "Δεν υπάρχει αρκετός χώρος στη συσκευή";
 "transfer_web_too_large" = "Πολύ μεγάλο";
 "transfer_web_unsupported" = "Μη υποστηριζόμενος τύπος αρχείου";
+"transfer_web_path_conflict" = "Ένα άλλο αρχείο ή φάκελος που στείλατε έχει ήδη αυτό το όνομα";
 "transfer_web_done_hint" = "Όταν τελειώσετε, επιβεβαιώστε στο BookPlayer για να εισαγάγετε τα αρχεία.";
 "transfer_web_load_error" = "Δεν είναι δυνατή η σύνδεση με το BookPlayer. Ελέγξτε ότι η οθόνη μεταφοράς του είναι ακόμα ανοιχτή.";

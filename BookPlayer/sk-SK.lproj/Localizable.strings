@@ -413,8 +413,7 @@
 "hardcover_progress_tracking_footer" = "Nastavuje minimálne percento pokroku potrebné pred tým, ako je kniha označená ako **Momentálne čítam** vo vašej knižnici Hardcover.";
 "hardcover_automation_description" = "Automaticky synchronizovať pokrok v čítaní s Hardcover. Keď je povolené, knihy budú automaticky spárované a pridané do vašej knižnice.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "Prístup k API";
-"hardcover_api_access_footer" = "Váš prístup k API Hardcover môžete nájsť na https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "Hardcover nedokončil prihlásenie. Skúste to znova.";
 "hardcover_automation_title" = "Automatizácia";
 "hardcover_progress_tracking_title" = "Sledovanie pokroku";
 "save_button" = "Uložiť";
@@ -753,5 +752,6 @@
 "transfer_web_not_enough_space" = "V zariadení nie je dosť miesta";
 "transfer_web_too_large" = "Príliš veľký";
 "transfer_web_unsupported" = "Nepodporovaný typ súboru";
+"transfer_web_path_conflict" = "Iný odoslaný súbor alebo priečinok už má tento názov";
 "transfer_web_done_hint" = "Keď skončíte, potvrďte import súborov v BookPlayeri.";
 "transfer_web_load_error" = "BookPlayer nie je dostupný. Skontrolujte, či je v ňom stále otvorená obrazovka prenosu.";

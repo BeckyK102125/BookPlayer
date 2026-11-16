@@ -2333,11 +2333,11 @@ class LibraryServiceExternalResourceTests: XCTestCase {
   func testSetExternalResourceLinksAndSkipsDuplicates() async {
     let book = makeBook("external-1")
 
-    let linked = await sut.setExternalResource(providerName: "jellyfin", providerId: "prov-1", for: book.uuid)
+    let linked = await sut.setExternalResource(providerName: "jellyfin", providerId: "prov-1", hostId: nil, for: book.uuid)
     XCTAssertEqual(linked?.providerId, "prov-1")
 
     // Linking the same (provider, providerId) again is a no-op
-    let duplicate = await sut.setExternalResource(providerName: "jellyfin", providerId: "prov-1", for: book.uuid)
+    let duplicate = await sut.setExternalResource(providerName: "jellyfin", providerId: "prov-1", hostId: nil, for: book.uuid)
     XCTAssertNil(duplicate)
 
     let resources = await sut.getExternalResources(for: book.relativePath)
@@ -2346,13 +2346,13 @@ class LibraryServiceExternalResourceTests: XCTestCase {
   }
 
   func testSetExternalResourceForUnknownUuidReturnsNil() async {
-    let missing = await sut.setExternalResource(providerName: "jellyfin", providerId: "prov-x", for: UUID().uuidString)
+    let missing = await sut.setExternalResource(providerName: "jellyfin", providerId: "prov-x", hostId: nil, for: UUID().uuidString)
     XCTAssertNil(missing)
   }
 
   func testRemoveExternalResource() async {
     let book = makeBook("external-2")
-    _ = await sut.setExternalResource(providerName: "audiobookshelf", providerId: "abs-1", for: book.uuid)
+    _ = await sut.setExternalResource(providerName: "audiobookshelf", providerId: "abs-1", hostId: nil, for: book.uuid)
 
     let removedId = await sut.removeExternalResource(providerName: "audiobookshelf", for: book.uuid)
     XCTAssertEqual(removedId, "abs-1")
@@ -2410,8 +2410,8 @@ class LibraryServiceExternalResourceTests: XCTestCase {
   func testFindChapterlessMediaServerResourcesSkipsTheBooksWithChapters() async {
     let chaptered = makeBook("needs-nothing", duration: 1500)
     let bare = makeBook("needs-chapters", duration: 1500)
-    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jf-chaptered", for: chaptered.uuid)
-    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jf-bare", for: bare.uuid)
+    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jf-chaptered", hostId: nil, for: chaptered.uuid)
+    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jf-bare", hostId: nil, for: bare.uuid)
     await sut.storeChaptersIfNeeded(relativePath: chaptered.relativePath, chapters: chapters([(0, 1500)]))
 
     let resources = await sut.findChapterlessMediaServerResources(at: nil)
@@ -2425,7 +2425,7 @@ class LibraryServiceExternalResourceTests: XCTestCase {
 
   func testStoreMediaServerChaptersFillsTheLinkedBook() async {
     let book = makeBook("external-chapters-4", duration: 1500)
-    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jelly-ch", for: book.uuid)
+    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jelly-ch", hostId: nil, for: book.uuid)
     sut.dataManager.getContext().refreshAllObjects()
 
     sut.storeMediaServerChapters(
@@ -2442,7 +2442,7 @@ class LibraryServiceExternalResourceTests: XCTestCase {
   /// that issued it.
   func testStoreMediaServerChaptersOnlyTouchesTheNamedProvider() async {
     let book = makeBook("external-7", duration: 200)
-    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "shared-id", for: book.uuid)
+    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "shared-id", hostId: nil, for: book.uuid)
     sut.dataManager.getContext().refreshAllObjects()
 
     // Same providerId, different provider: an ABS batch must not fill the Jellyfin-linked book
@@ -2901,9 +2901,9 @@ class LibraryServiceExternalResourceTests: XCTestCase {
   func testFindChapterlessMediaServerResourcesAtRootSkipsHardcover() async {
     let first = makeBook("root-a")
     let second = makeBook("root-b")
-    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jf-1", for: first.uuid)
-    _ = await sut.setExternalResource(providerName: "hardcover", providerId: "hc-1", for: first.uuid)
-    _ = await sut.setExternalResource(providerName: "audiobookshelf", providerId: "abs-1", for: second.uuid)
+    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "jf-1", hostId: nil, for: first.uuid)
+    _ = await sut.setExternalResource(providerName: "hardcover", providerId: "hc-1", hostId: nil, for: first.uuid)
+    _ = await sut.setExternalResource(providerName: "audiobookshelf", providerId: "abs-1", hostId: nil, for: second.uuid)
 
     let resources = await sut.findChapterlessMediaServerResources(at: nil)
 
@@ -2921,8 +2921,8 @@ class LibraryServiceExternalResourceTests: XCTestCase {
     // context just changed is a hard crash, not a conflict to resolve (CLAUDE.md hotlist #1).
     let folder = try sut.createFolder(with: "Series", inside: nil)
     try sut.moveItems([LibraryItemRef(relativePath: inFolder.relativePath, uuid: inFolder.uuid)], inside: folder.relativePath)
-    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "in-folder", for: inFolder.uuid)
-    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "at-root", for: atRoot.uuid)
+    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "in-folder", hostId: nil, for: inFolder.uuid)
+    _ = await sut.setExternalResource(providerName: "jellyfin", providerId: "at-root", hostId: nil, for: atRoot.uuid)
 
     let folderResources = await sut.findChapterlessMediaServerResources(at: folder.relativePath)
     let rootResources = await sut.findChapterlessMediaServerResources(at: nil)
@@ -2951,7 +2951,7 @@ class LibraryServiceExternalResourceTests: XCTestCase {
       inside: nil
     )
     let book = try XCTUnwrap(inserted.first)
-    _ = await sut.setExternalResource(providerName: "hardcover", providerId: "hc-dual", for: book.uuid)
+    _ = await sut.setExternalResource(providerName: "hardcover", providerId: "hc-dual", hostId: nil, for: book.uuid)
 
     let params = try await publishedProgress(afterPlaying: book.relativePath)
 
@@ -2963,7 +2963,7 @@ class LibraryServiceExternalResourceTests: XCTestCase {
   /// A book linked only to Hardcover has no server to push to, so its progress names no provider
   func testProgressOfAHardcoverOnlyBookNamesNoProvider() async throws {
     let book = makeBook("hardcover-only")
-    _ = await sut.setExternalResource(providerName: "hardcover", providerId: "hc-only", for: book.uuid)
+    _ = await sut.setExternalResource(providerName: "hardcover", providerId: "hc-only", hostId: nil, for: book.uuid)
 
     let params = try await publishedProgress(afterPlaying: book.relativePath)
 

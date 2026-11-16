@@ -413,8 +413,7 @@
 "hardcover_progress_tracking_footer" = "Ställer in den minsta procentuella framsteg som krävs innan en bok markeras som **Läser för närvarande** i ditt Hardcover-bibliotek.";
 "hardcover_automation_description" = "Synkronisera automatiskt ditt läsframsteg med Hardcover. När aktiverat kommer böcker att matchas automatiskt och läggas till i ditt bibliotek.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "API-åtkomst";
-"hardcover_api_access_footer" = "Du kan hitta din Hardcover API-åtkomst på https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "Hardcover slutförde inte inloggningen. Försök igen.";
 "hardcover_automation_title" = "Automatisering";
 "hardcover_progress_tracking_title" = "Framstegsspårning";
 "save_button" = "Spara";
@@ -753,5 +752,6 @@
 "transfer_web_not_enough_space" = "Inte tillräckligt med utrymme på enheten";
 "transfer_web_too_large" = "För stor";
 "transfer_web_unsupported" = "Filtypen stöds inte";
+"transfer_web_path_conflict" = "En annan fil eller mapp som du har skickat har redan det här namnet";
 "transfer_web_done_hint" = "Bekräfta i BookPlayer när du är klar för att importera filerna.";
 "transfer_web_load_error" = "Kan inte nå BookPlayer. Kontrollera att dess överföringsskärm fortfarande är öppen.";
