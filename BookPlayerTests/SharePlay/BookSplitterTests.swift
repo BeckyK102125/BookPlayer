@@ -42,6 +42,41 @@ final class BookSplitterTests: XCTestCase {
     XCTAssertLessThanOrEqual(shared.byteSize, ListenTogetherLimits.maxPieceBytes)
   }
 
+  private func fixtureURL(_ name: String, _ ext: String) throws -> URL {
+    try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: ext), "Missing fixture \(name).\(ext)")
+  }
+
+  /// Cuts 10 seconds out of a real book file the way the sharer cuts a long file (Start Testing dd0bde92).
+  @discardableResult
+  private func cutPiece(from source: URL) async throws -> ExportedPiece {
+    let size = try fileSize(source)
+    let duration = try await AVURLAsset(url: source).load(.duration).seconds
+    let file = SourceFile(url: source, bookStart: 0, duration: duration, byteSize: size)
+    let piece = PlannedPiece(
+      index: 2, sourceIndex: 0, sourceStart: 10, duration: 10, bookStart: 10,
+      isWholeFile: false, estimatedBytes: size / 4)
+    let exported = try await BookSplitter().export(piece, from: [file], to: folder)
+    let exportedDuration = try await AVURLAsset(url: exported.url).load(.duration).seconds
+    XCTAssertEqual(exportedDuration, 10, accuracy: 0.5)
+    return exported
+  }
+
+  /// MP3 audio can't go into an .m4a unchanged, so the piece is re-encoded as AAC.
+  func testCutsAPieceOutOfAnMP3() async throws {
+    let exported = try await cutPiece(from: try fixtureURL("mp3_NO_chapters", "mp3"))
+    XCTAssertEqual(exported.preset, "AppleM4A")
+  }
+
+  func testCutsAPieceOutOfAnMP3WithChapters() async throws {
+    let exported = try await cutPiece(from: try fixtureURL("mp3_WITH_toc", "mp3"))
+    XCTAssertEqual(exported.preset, "AppleM4A")
+  }
+
+  func testCutsAPieceOutOfAnM4B() async throws {
+    let exported = try await cutPiece(from: try fixtureURL("m4b_WELLFORMED", "m4b"))
+    XCTAssertEqual(exported.preset, "passthrough")
+  }
+
   func testWholeFilePieceIsCopiedNotReencoded() async throws {
     let source = folder.appendingPathComponent("whole.m4a")
     try AudioFixture.makeM4A(seconds: 5, at: source)

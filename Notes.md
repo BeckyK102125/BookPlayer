@@ -1992,3 +1992,30 @@ commit and tests, then move to Testing, when fixed).
 Validation result: all 20 BP-20261112 items read back as open. Previous review preserved byte-for-byte; 20 unique IDs (8 P1, 12 P2), primary file references valid, context under 60 lines, only Review.md/Notes.md/context.md modified. An added blank line at EOF was removed before the final whitespace check.
 
 Git outcome: the first git add/commit attempt was blocked by the filesystem sandbox at .git/index.lock. The permitted escalation succeeded with the local commit message "docs: recheck develop audit findings and record outstanding issues". No push was performed.
+
+## 2026-11-16 (Pro, Claude): upstream merge verified; Michael's temporary-copy share investigated
+
+Branch develop. Upstream merge aa1d5632 (13 TortugaPower commits up to 6027e850, approved by Becky) built
+and tested: `xcodebuild build-for-testing -scheme BookPlayer` then `test-without-building
+-only-testing:BookPlayerTests` on iPhone 17 Pro 3949B098 (shared with Start Speaking through its
+/private/tmp/agents/claude/start-speaking-xcodebuild.lock). Result: "Executed 1838 tests, with 0 failures",
+** TEST EXECUTE SUCCEEDED **. No new warnings in SharePlay files. The 13 newer upstream commits (player
+refactor moving PlayerManager behind PlaybackEngine) are held back: PlayerManager changes need Becky.
+`xcodebuild -resolvePackageDependencies` sat at 0% CPU on "Checking out purchases-ios" for 38 minutes and
+was killed; build-for-testing resolved the packages itself.
+
+Start Testing dd0bde92 (Michael shares a book only he has; Becky sharing to Michael worked).
+- Hypothesis 1, abandoned: an MP3 book can't be cut into .m4a pieces, so one piece fails forever.
+  Added BookSplitterTests that cut 10 s from the bundled mp3_NO_chapters.mp3, mp3_WITH_toc.mp3 and
+  m4b_WELLFORMED.m4b exactly as the sharer does. All pass: AVFoundation refuses passthrough for MP3, so
+  BookSplitter goes straight to AppleM4A, which works; the M4B uses passthrough. A passthrough-to-AAC
+  fallback I had written was removed again because nothing showed it was needed. The tests stay, with
+  the preset each file uses asserted.
+- No code defect found. Strongest remaining explanation that fits "Becky could, Michael couldn't": the
+  sharer's "When someone doesn't have the book" setting (UserDefaults key listenTogetherWhenNoCopy) is per
+  device. If Michael's phone is on "Only people who have the book can join", Becky (without the book) is
+  declined with an alert and nothing is sent. Others still possible: a chapter file missing or .mp4
+  (Listen Together not offered), or a piece failing repeatedly, which retries forever and silently in the
+  background (design choice; ending the share after N failures would need Becky's approval).
+- Next: Michael checks Settings, Playback, Listen Together; then a retest with Console logs from his phone
+  searching "Listen Together" (look for "sharing started, ownersOnly=").
