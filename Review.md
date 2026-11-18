@@ -1,3 +1,193 @@
+# Claude (Swift Reviewer): develop full audit — November 17, 2026
+
+Branch: develop.
+Full commit reviewed: f60e6393a1c5793750caa7af66b9013be284d41a.
+Checkout read: /Users/becky/Developer/Swift/BookPlayer.
+Mode: full audit before TestFlight build 7. Round prefix: SR7 (SR6-01 was the last Swift Reviewer finding).
+
+Scope: every Swift file in BookPlayer/SharePlay/ and BookPlayer/Settings/ListenTogether/, the code they touch (PlayerManager, AppDelegate, AppServices, MainCoordinator, MainView, the App Intents and PlayMediaIntentHandler), and the 13 upstream TortugaPower commits merged in aa1d5632, the merge itself, and f60e6393. Four reviewer agents each read one area line by line. I merged their findings, removed duplicates and checked the key lines of SR7-01 to SR7-05, SR7-03's listener side and SR7-15 myself. Nothing was built or run. No simulator, no Thread Sanitizer. Lenses: accessibility, concurrency, crash and leak risks, runtime paths.
+
+Build settings: SWIFT_VERSION is 5.0 in all 27 build configurations and there is no strict-concurrency setting, so Swift 6 Complete checking is not in place. Reported as found, not proposed to change here.
+
+All findings are filed in Start Testing as "SR7-NN: ... - Claude".
+
+## Verdict for TestFlight build 7
+
+Not ready yet. Two findings must be fixed first, and one needs a decision first:
+
+- SR7-01 (High, Safe Alone): a sharer who plays another book from the library while sharing controls the whole group's playback. A sharer browsing their library mid-session is ordinary use, so testers will hit it.
+- SR7-02 (High, Safe Alone): on iPad or Mac, opening a second window deletes the running session's book files. It's small to fix. If no tester uses an iPad or Mac, it could wait one build, but I'd fix it now.
+- SR7-05 (Medium, Needs Becky): build 7 will ship with Hardcover sign-in broken, because no client id is set in the local xcconfigs and upstream removed the API key field. Either add a client id before archiving, or accept that Hardcover can't be connected in build 7 and tell testers.
+
+I'd also fix SR7-03 and SR7-04 in build 7 if Becky can decide the wording now. Together they're the most likely reason dd0bde92 looked like a broken share. Everything else can follow in later builds. The merge itself is clean: no Listen Together change was lost and nothing in it breaks SharePlay. The upstream items are SR7-05, SR7-10, SR7-13 and SR7-15.
+
+## Findings
+
+### SR7-01 — High: A sharer playing another book plays, pauses and changes speed for the whole group
+
+Where: [SharerPlaybackTarget.swift:366](<BookPlayer/SharePlay/SharerPlaybackTarget.swift:366>) (handleIsPlaying), 384 (handleSpeed), 288 (applyPause), 327 (applyRate). The playback gate allows it: [MainCoordinator+ListenTogether.swift:579](<BookPlayer/SharePlay/MainCoordinator+ListenTogether.swift:579>).
+
+Failure scenario: while sharing, the sharer plays a different book from the library. handleIsPlaying has no holdsSharedBook check, so it sends `.played`. The bridge (ListenTogetherCoordinatorBridge.swift:325) then calls coordinateRateChange, and every listener starts the shared book and hears it resumed. When the sharer pauses their other book, the group pauses. It works in reverse too. A listener's Pause reaches applyPause, which calls `playerManager.pause()` without a holdsOtherBook check, so it pauses the sharer's other book. A listener's speed change sets the speed of that book. Seeks and asserts already have guards for this case; these paths don't.
+
+Fix direction: ignore PlayerManager's play, pause and speed events unless holdsSharedBook, and skip pause and setSpeed in applyPause and applyRate while holdsOtherBook.
+How to prove it's fixed: in SharerPlaybackTargetTests, with sharedItemUUID "A" and a mock whose current item is "B", toggling playing or speed sends nothing and applyPause/applyRate leave the mock alone. Then check with two phones.
+Safe Alone.
+
+### SR7-02 — High: Opening a second window deletes a running Listen Together session's files
+
+Where: [MainCoordinator.swift:98](<BookPlayer/Coordinators/MainCoordinator.swift:98>) and 119-124. Info.plist:422 turns on multiple scenes, SceneDelegate makes one coordinator chain per scene, and [ShareStorage.swift:43](<BookPlayer/SharePlay/ShareStorage.swift:43>) holds the cleanup.
+
+Failure scenario: during a listener session on iPad or Mac, the user opens a second BookPlayer window. The new window's MainCoordinator creates a second SharePlaySessionService, and its start() runs `ShareStorage().cleanAll()`, which deletes tmp/ListenTogether, including the pieces of the book that's playing. It also moves the remote commands, playback gate, intent routing and sharing-sheet presenter to the new, idle service, so lock-screen controls and Siri stop reaching the session.
+
+Fix direction: one SharePlaySessionService per process (in AppServices), with the launch cleanup run once. Scene coordinators only present UI.
+How to prove it's fixed: a unit test that starts two coordinators and checks an active share's files are still there. Then a check on the Pro with an iPad simulator and a second window.
+Safe Alone. **Unverified:** whether GroupActivities delivers the session to both windows.
+
+### SR7-03 — Medium: A piece that always fails is retried forever, with the screen kept awake
+
+Where: [SharePlaySessionService+Session.swift:132](<BookPlayer/SharePlay/SharePlaySessionService+Session.swift:132>) (runSendLoop) and 277 (failure). The listener side is at 729-750 (listenerPieceFailed has no limit outside own-copy mode).
+
+Failure scenario: the shared book is deleted or moved during the share, the disk is full, the file is damaged, or a piece is too large. failure() returns `.failed` for every error that isn't an interruption, and the loop has no attempt limit. So for the rest of the session the piece is exported again every 30 s (re-encoded, for MP3) and up to 25 MB is uploaded again. setKeepingScreenAwake(true) is set again before every try and only released when every piece is sent, so the screen never locks. The sharer hears "Trying again" once, or nothing if nobody has joined yet. The listener waits on "Waiting for the book" for good. The listener side also reloads an undecodable piece every 30 s, forever.
+
+Judgement on the design point: this is a defect, not just a policy choice. A permanent failure can't recover, and the cost (battery, data, a screen that never locks) has no end and no explanation.
+Fix direction: sort out permanent failures and never retry them. Limit the others to N tries or about 5 minutes, release the idle timer while waiting, and end with one clear message to both sides.
+How to prove it's fixed: a test in ListenTogetherReliableSendingTests with an exporter that always throws, using a fake clock. Attempts stop at the limit, the idle timer is released and the final message is delivered. The same test for repeated piece failures on a listener.
+Needs Becky (new outcome and wording; this answers the open question in context.md).
+
+### SR7-04 — Medium: A sharer isn't clearly told someone was turned away for not having the book (dd0bde92)
+
+Where:
+- [SharePlaySessionService+Session.swift:1033](<BookPlayer/SharePlay/SharePlaySessionService+Session.swift:1033>): the turned-away line is a raw announcement.
+- ListenTogetherMessages.swift:12-54: there's no message case for it.
+- ListenTogetherStatusRow.swift:117-143 and MainView.swift:199-205: the mini player and the row ignore it.
+- SharePlaySessionService.swift:1063-1081 and ListenTogetherTransport.swift:412-431: the decline is only sent once the invitee's alert is on screen. It's abandoned silently after 60 s in the background, or 3 s without joining.
+- SettingsPlaybackSectionView.swift:34-40: the choice is only an accessibility value.
+- SharePlaySessionService.swift:872: the mode note is shown once per device, ever.
+
+Failure scenario: the sharer's phone is set to "Only people who have the book can join", and they share with someone who doesn't have it. At best a sighted sharer sees a second banner line, and only with the player open. The message isn't spoken by Speak error messages, isn't sent as a notification when the app is in the background, and never names the setting. On the paths where the decline is abandoned, the sharer gets nothing, and the mini player keeps saying it's waiting for people. The Settings row doesn't show the current choice on screen, and the footer doesn't say that having the book means having the same recording.
+
+Fix direction: send the decline through messages.deliver, show it in the sharer's mini player and row value, and name Settings, Playback, Listen Together in it. Show the row's value on screen and mention "the same recording" in the footer.
+How to prove it's fixed: unit tests for the message and the accessory value. Then an owners-only share between two phones, with the player closed and VoiceOver off. Voice Control "Tap Listen Together" must still work.
+Needs Becky (wording and speech).
+
+### SR7-05 — Medium: Hardcover can't be connected in fork builds (upstream 1f02c029)
+
+Where: [HardcoverOAuth.swift:22](<BookPlayer/Hardcover/Network/HardcoverOAuth.swift:22>) (`?? ""`), with the client id sent at 130 and 206. The local Debug.xcconfig and Release.xcconfig have no BP_HARDCOVER_CLIENT_ID value; only Xcode Cloud fills it in, and the fork archives locally.
+
+Failure scenario: a tester chooses Settings, Integrations, Hardcover, Sign In. Hardcover shows an error page, and closing it gives a generic failure alert. The API key field is gone, so there's no other way to connect. Keys saved earlier keep working.
+
+Fix direction: get a client id (the fork's own Hardcover app, or upstream's public one) into the local xcconfigs, and fail early with a clear message when it's empty.
+How to prove it's fixed: Sign In shows Hardcover's login form and comes back signed in.
+Needs Becky.
+
+### SR7-06 — Medium: Joining closes open sheets and discards Transfer from Computer files or unsaved edits
+
+Where: [MainCoordinator+ListenTogether.swift:195](<BookPlayer/SharePlay/MainCoordinator+ListenTogether.swift:195>), ListenTogetherPresentation.swift:171, TransferViewModel.swift:194-201.
+
+Failure scenario: an invitation arrives while Transfer from Computer is receiving files, or while item details are being edited. Join closes every sheet without asking and without an announcement. The received files are wiped and unsaved edits are lost.
+
+Fix direction: ask first, or have Join finish the transfer (hand it to import) or keep the edits.
+How to prove it's fixed: receive a file, then accept an invitation. The file reaches the import prompt, or a question is asked.
+Needs Becky. **Unverified:** whether onDismiss always runs when a SwiftUI sheet is closed through UIKit.
+
+### SR7-07 — Medium: A sleep timer ending during a listener session can silence the listener
+
+Where: PlayerManager.swift:1969 (the timer ends and calls pause), 1629-1638 and 923-933 (deactivation 0.1 s later), and [ListenerPlayer.swift:1022](<BookPlayer/SharePlay/ListenerPlayer.swift:1022>) (the cached sessionConfigured flag).
+
+Failure scenario: a timer set before joining, or set by Siri during the session, runs out while a transfer listener is playing. PlayerManager pauses the user's own paused book and then deactivates the shared audio session under the listener's audio. The listener goes quiet while the group still shows playing. The timer never stops the shared book.
+
+Fix direction: decide what the timer should do in a session, handle it in SharePlay, and stop trusting the cached flag.
+How to prove it's fixed: on a device, set a 1-minute timer, join and let it run out.
+Needs Becky. **Unverified.**
+
+### SR7-08 — Medium: The listener player doesn't recover from a media services reset
+
+Where: [ListenerPlayer.swift:182](<BookPlayer/SharePlay/ListenerPlayer.swift:182>)-262: there's no mediaServicesWereReset observer.
+
+Failure scenario: after a reset, the listener's dead player reloads failing items every 30 s while the group stalls. An own-copy listener reaches the failure limit and leaves with a "can't be played" alert, though the file is fine.
+
+Fix direction: observe the reset, rebuild the player, and reload at the saved position.
+How to prove it's fixed: a unit test that posts the notification. Then on a device, Settings, Developer, Reset Media Services during a session.
+Safe Alone. **Unverified.**
+
+### SR7-09 — Medium: Smart Rewind on the sharer seeks the whole group back after each group Play
+
+Where: [SharerPlaybackTarget.swift:283](<BookPlayer/SharePlay/SharerPlaybackTarget.swift:283>), PlayerManager.swift:1458 and 1461, SharerPlaybackTarget.swift:407.
+
+Failure scenario: with Smart Rewind on, a listener pauses for a few seconds and resumes. The sharer rewinds about 2 s, the backward jump is sent as a group seek, and everyone hears "skipped back 2 seconds". The auto sleep timer can also start.
+
+Fix direction: a play call for group commands that skips smart rewind and the auto timer.
+How to prove it's fixed: on two phones, there's no second seek and no announcement.
+Needs Becky (PlayerManager). **Unverified.**
+
+### SR7-10 — Medium: VoiceOver focus is lost after Hardcover sign-in or log-out (upstream)
+
+Where: [HardcoverSettingsView.swift:32](<BookPlayer/Hardcover/Settings Page/HardcoverSettingsView.swift:32>) and 60, HardcoverSettingsViewModel.swift:38 and 55.
+
+Failure scenario: the whole form swaps, the focused button disappears, and nothing is announced. When offline, the Account section is an empty header.
+
+Fix direction: announce the result and move focus to a named element.
+How to prove it's fixed: a VoiceOver walk-through of sign-in and log-out.
+Needs Becky.
+
+### SR7-11 — Medium: In journal mode the sharer keeps a full temporary copy of the book until the session ends
+
+Where: [SharePlaySessionService+Session.swift:146](<BookPlayer/SharePlay/SharePlaySessionService+Session.swift:146>), BookSplitter.swift:73.
+
+Failure scenario: sharing a 1 GB multi-file book adds about 1 GB to tmp for the whole session. On a nearly full phone, that leads to export failures, which then loop forever (SR7-03).
+
+Fix direction: delete each exported piece after its upload succeeds.
+How to prove it's fixed: a test that the folder holds no uploaded pieces, plus a device check that late joiners still get their pieces.
+Safe Alone. **Unverified:** whether GroupSessionJournal reads the data after add returns.
+
+### SR7-12 — Low: A listener's request for a needed piece waits behind a running retry back-off
+
+Where: [SharePlaySessionService+Session.swift:184](<BookPlayer/SharePlay/SharePlaySessionService+Session.swift:184>)-207.
+
+Failure scenario: the piece the group is stalled on is moved to the front, but the loop isn't woken, so the group waits up to 30 s.
+
+Fix direction: call `retryWaiter.wake()` after request.
+How to prove it's fixed: a fake-clock test.
+Safe Alone.
+
+### SR7-13 — Low: Listen Together moves a listener's Hardcover progress and status forward permanently
+
+Where: SharePlaySessionService+Session.swift:470 and 840, reaching HardcoverService.swift:511-530 and 640.
+
+Failure scenario: a listener at 20% of their own copy joins a group at 80%. Hardcover jumps to 80%, and to Read if the group finishes. Hardcover never moves backwards, so going back to their earlier place doesn't undo it.
+
+Fix direction: decide whether Listen Together syncs to Hardcover; if not, skip it during own-copy sessions.
+How to prove it's fixed: a unit test.
+Needs Becky.
+
+### SR7-14 — Low: Handing Now Playing back calls pause(), which can cut off the user's own book right after Leave
+
+Where: [ListenTogetherRemoteCommands.swift:295](<BookPlayer/SharePlay/ListenTogetherRemoteCommands.swift:295>)-306.
+
+Failure scenario: Leave runs teardown, which calls pause() and arms a delayed session deactivation. If the user's own loaded book starts within 100 ms, it's cut off.
+
+Fix direction: publish the Now Playing info without calling pause().
+How to prove it's fixed: on a device, Leave for the loaded book and confirm playback continues.
+Safe Alone, unless it needs a PlayerManagerProtocol change. **Unverified.**
+
+### SR7-15 — Low: Two more source files are over 700 lines
+
+MainCoordinator+ListenTogether.swift has 787 lines. HardcoverService.swift has 989 (upstream; split it only if the fork will carry the split). Already known: SharePlaySessionService.swift (1729), SharePlaySessionService+Session.swift (1785) and ListenerPlayer.swift (1033).
+Safe Alone.
+
+## Checked and sound
+
+- Messages from the other device are untrusted, and they're validated: ChunkFrame.decode checks magic, version, counts, index and size, and ChunkGaps clamps its ranges. There are no force unwraps or `try!` on decoded data.
+- The core types are `@MainActor`. Every `assumeIsolated` call runs on the main queue and has a reason. ChunkFileWriter's `@unchecked Sendable` has a safety comment and is correct. The retry waiter can't hang at teardown.
+- ListenerPlayer's KVO and time observer are balanced. Sinks use `[weak self]` and are stored. Remote-command targets are added once. Background tasks end on every path. Own-copy progress uses the main context and snapshots.
+- Localization is complete: every Listen Together key is in Base. The iOS 27 result-builder hazard (hotlist 15) doesn't apply.
+- Upstream merge: only project.pbxproj needed hand resolution, and both sides were kept. Listen Together references are identical before and after. The HardcoverOAuthSession refresh is single-flight. Tokens stay in the Keychain and go only to Hardcover. The out-of-space restore and the legacy artwork restore are safe.
+
+## Earlier findings
+
+- SR6-01 is still open on develop. Its fix, 050d480f, is only on fix/sr6-01-rejoin-other-audio.
+- BP-20261112-03 to -22 were not rechecked in this round and remain open in Start Testing.
+
 # Codex (Astra Medium): develop audit finding recheck — November 12, 2026
 
 ## Reviewed snapshot and result
