@@ -358,10 +358,14 @@ public final class SyncService: SyncServiceProtocol, BPLogger {
     /// `hasScheduledLibraryContents` flag was reset.
     await teardownTask?.value
 
+    // Taken before asking: a logout or a lapse while the answer is on its way ends the session,
+    // and the old account's listing must then leave the library alone (BP-20261112-04)
+    let session = currentSyncSession()
     let response = try await fetchContents(at: relativePath)
 
-    try await processContentsResponse(response, parentFolder: relativePath, canDelete: true)
+    try await processContentsResponse(response, parentFolder: relativePath, canDelete: true, session: session)
 
+    guard isSameSyncSession(session) else { return }
     UserDefaults.standard.set(
       Date().timeIntervalSince1970,
       forKey: "\(Constants.UserDefaults.lastSyncTimestamp)_\(relativePath ?? "library")"
@@ -410,15 +414,19 @@ public final class SyncService: SyncServiceProtocol, BPLogger {
     // Checked and written in one step with the session's end, which clears the flag
     guard markFirstSyncDone(in: session) else { return }
 
-    try await processContentsResponse(response, parentFolder: nil, canDelete: false)
+    try await processContentsResponse(response, parentFolder: nil, canDelete: false, session: session)
   }
 
+  /// Applies a listing to the library. Each step first checks that `session` (taken before the
+  /// listing was asked for) is still the current one: after a logout or a lapse it stops, so an
+  /// old account's listing can't change the library or queue work for the next account.
   func processContentsResponse(
     _ response: ContentsResponse,
     parentFolder: String?,
-    canDelete: Bool
+    canDelete: Bool,
+    session: Int
   ) async throws {
-    guard !response.content.isEmpty else { return }
+    guard !response.content.isEmpty, isSameSyncSession(session) else { return }
 
     var completeItemsDict = Dictionary(response.content.map { ($0.relativePath, $0) }) { first, _ in first }
     var missingUuidsDict: [String: String] = [:]
@@ -438,21 +446,25 @@ public final class SyncService: SyncServiceProtocol, BPLogger {
     }
 
     await libraryService.updateInfo(for: filteredItemsDict, parentFolder: parentFolder)
-    
+
+    guard isSameSyncSession(session) else { return }
     await libraryService.storeNewItems(from: completeItemsDict, parentFolder: parentFolder)
 
     if canDelete {
+      guard isSameSyncSession(session) else { return }
       await libraryService.removeItems(notIn: Array(completeItemsDict.keys), parentFolder: parentFolder)
     }
 
     /// Only handle if the last item played is stored in the local library
     /// Note: we cannot just store the item, because we lack the info of the possible parent folders
+    guard isSameSyncSession(session) else { return }
     if let lastItemPlayed = response.lastItemPlayed,
       await libraryService.itemExists(for: lastItemPlayed.relativePath)
     {
       try await handleSyncedLastPlayed(item: lastItemPlayed)
     }
-    
+
+    guard isSameSyncSession(session) else { return }
     await jobManager.scheduleMatchUuidsJob(uuidsDict: missingUuidsDict)
   }
 
@@ -1553,6 +1565,13 @@ extension SyncService {
 
   private func isStillSyncSession(_ session: Int) -> Bool {
     isActive && missingItemsPassLock.withLock { syncSession == session }
+  }
+
+  /// No logout or lapse since `session` was taken. Unlike `isStillSyncSession`, it doesn't read
+  /// `isActive`: a list refresh's callers decide whether sync may run, this only says whether
+  /// the account it began under is still the one signed in
+  private func isSameSyncSession(_ session: Int) -> Bool {
+    missingItemsPassLock.withLock { syncSession == session }
   }
 
   /// Sync went off (a logout, a lapse): the session ends and, where asked, the first-sync

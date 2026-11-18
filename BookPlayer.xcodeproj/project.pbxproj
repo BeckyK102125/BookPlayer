@@ -347,6 +347,7 @@
 		62AAE22E274AA6DE001EB9FF /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62AAE22B274AA3EB001EB9FF /* LibraryService.swift */; };
 		62AAE231274ABB5D001EB9FF /* LibraryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62AAE230274ABB5D001EB9FF /* LibraryServiceTests.swift */; };
 		D09D1CC51EB26F2FB8F13638 /* LibraryServiceBackupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68FAA10D105CA2AB0DFE9A0D /* LibraryServiceBackupTests.swift */; };
+		5F71AB064F5998CF709E269E /* SyncListSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A0D2EC90B54932E3AEF368 /* SyncListSessionTests.swift */; };
 		62CADBA52725BCB200A4A98F /* AVAudioAssetImageDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 624AB20A2724808600F6A486 /* AVAudioAssetImageDataProvider.swift */; };
 		62CADBAB2725C23A00A4A98F /* ArtworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 415460F525E57B4F0085F8D9 /* ArtworkService.swift */; };
 		62CADBAE2725FE2900A4A98F /* AVAudioAssetImageDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 624AB20A2724808600F6A486 /* AVAudioAssetImageDataProvider.swift */; };
@@ -1618,6 +1619,7 @@
 		62AAE22B274AA3EB001EB9FF /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 		62AAE230274ABB5D001EB9FF /* LibraryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryServiceTests.swift; sourceTree = "<group>"; };
 		68FAA10D105CA2AB0DFE9A0D /* LibraryServiceBackupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryServiceBackupTests.swift; sourceTree = "<group>"; };
+		91A0D2EC90B54932E3AEF368 /* SyncListSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncListSessionTests.swift; sourceTree = "<group>"; };
 		62BF426FA3E0735F9DA5D5EE /* ListenTogetherActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherActivity.swift; path = ListenTogetherActivity.swift; sourceTree = "<group>"; };
 		62CADB8D2724E41800A4A98F /* Audiobook Player 7.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Audiobook Player 7.xcdatamodel"; sourceTree = "<group>"; };
 		62F2F25E25E18C7500E1D6A0 /* ImportableItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportableItem.swift; sourceTree = "<group>"; };
@@ -3645,6 +3647,7 @@
 				6906A54F21720FDF00A9E0B2 /* BookSortServiceTest.swift */,
 				62AAE230274ABB5D001EB9FF /* LibraryServiceTests.swift */,
 				68FAA10D105CA2AB0DFE9A0D /* LibraryServiceBackupTests.swift */,
+				91A0D2EC90B54932E3AEF368 /* SyncListSessionTests.swift */,
 				4C78CCAAFEB5A9D78AA108EC /* QueryTimeSortRefactorTests.swift */,
 				53AE3D4C955A493470C8EAA9 /* QueryTimeSortSpikeTests.swift */,
 				F448E8BBF01860FC65EB697A /* SortCharacterizationTests.swift */,
@@ -5730,6 +5733,7 @@
 				9F7C47532A2C15D300F9A500 /* AutoMockable.generated.swift in Sources */,
 				62AAE231274ABB5D001EB9FF /* LibraryServiceTests.swift in Sources */,
 				D09D1CC51EB26F2FB8F13638 /* LibraryServiceBackupTests.swift in Sources */,
+				5F71AB064F5998CF709E269E /* SyncListSessionTests.swift in Sources */,
 				689DBBD518EB5F7760ED1518 /* QueryTimeSortRefactorTests.swift in Sources */,
 				5B1559A45658B195521CC454 /* SyncResponseFixtures.swift in Sources */,
 				5A589702CFB4A8F8EC55AC3F /* SortIntegrationHarness.swift in Sources */,
