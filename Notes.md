@@ -2042,3 +2042,8 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   ThreadSanitizer warnings. Simulator shut down and erased afterwards. 3949B098 no longer exists
   (Start Speaking now has 1BC907C4).
 - First build failed: the default closures in ListenTogetherAppSession weren't @MainActor; fixed.
+
+## 2026-11-18 - SR7 fix branch merged into develop
+- Becky approved ("Yes, merge it"). `git merge --ff-only fix/sr7-01-02-sharer-and-windows` on develop:
+  5a4f4586 to fab311c9, fast-forward. No retest needed: the 1848-test run and TSan run were on fab311c9.
+- Not pushed; develop is ahead of origin/develop. Fix branch kept until Becky says it can go.
