@@ -148,6 +148,7 @@
 		4160A09223F2DE130039166B /* Localizable.stringsdict in Resources */ = {isa = PBXBuildFile; fileRef = 4160A09423F2DE130039166B /* Localizable.stringsdict */; };
 		4160A0A123F304530039166B /* LocalizableLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4160A0A023F304530039166B /* LocalizableLabel.swift */; };
 		4163E313214AC43000072AA2 /* ImportOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4163E312214AC43000072AA2 /* ImportOperationTests.swift */; };
+		9776CDCF28D1B08D47D0651B /* ImportOperationArchiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952444ADADA1CF21C7B56A49 /* ImportOperationArchiveTests.swift */; };
 		28EEB2588DE468A6B8C15272 /* RefreshTaskOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65962B5F03D221629A83C22C /* RefreshTaskOperationTests.swift */; };
 		3EBBB264D481A0F2DF48763E /* ListSyncRefreshServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 098A98893A8783E8BE1C5420 /* ListSyncRefreshServiceTests.swift */; };
 		A64308C416AABB27C66476A5 /* SleepTimerOptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 288AB833FD0408AF95443752 /* SleepTimerOptionTests.swift */; };
@@ -1415,6 +1416,7 @@
 		4161D496245660B800D1C01B /* ro */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ro; path = ro.lproj/Localizable.strings; sourceTree = "<group>"; };
 		4163E3102148606600072AA2 /* ImportFileItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportFileItem.swift; sourceTree = "<group>"; };
 		4163E312214AC43000072AA2 /* ImportOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportOperationTests.swift; sourceTree = "<group>"; };
+		952444ADADA1CF21C7B56A49 /* ImportOperationArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportOperationArchiveTests.swift; sourceTree = "<group>"; };
 		65962B5F03D221629A83C22C /* RefreshTaskOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshTaskOperationTests.swift; sourceTree = "<group>"; };
 		098A98893A8783E8BE1C5420 /* ListSyncRefreshServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSyncRefreshServiceTests.swift; sourceTree = "<group>"; };
 		CC4A76CE78E2B8171DCAF974 /* hu */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hu; path = hu.lproj/Intents.strings; sourceTree = "<group>"; };
@@ -2728,6 +2730,7 @@
 				69343D34213A079B000C425E /* Services */,
 				63833DF82AAC134600496246 /* PerformanceTests */,
 				4163E312214AC43000072AA2 /* ImportOperationTests.swift */,
+				952444ADADA1CF21C7B56A49 /* ImportOperationArchiveTests.swift */,
 				3D4833D717C7B97F7B5DFDC5 /* PromptSurfaceArbiterTests.swift */,
 				65962B5F03D221629A83C22C /* RefreshTaskOperationTests.swift */,
 				098A98893A8783E8BE1C5420 /* ListSyncRefreshServiceTests.swift */,
@@ -5753,6 +5756,7 @@
 				9F8A9A5E27AC3F8C0093AA1C /* PlayableItemTests.swift in Sources */,
 				232F1DA50BB33EB5A629B8B7 /* PlayableChapterTests.swift in Sources */,
 				4163E313214AC43000072AA2 /* ImportOperationTests.swift in Sources */,
+				9776CDCF28D1B08D47D0651B /* ImportOperationArchiveTests.swift in Sources */,
 				9AB6B44F84D195FCCF7A4F9F /* PromptSurfaceArbiterTests.swift in Sources */,
 				28EEB2588DE468A6B8C15272 /* RefreshTaskOperationTests.swift in Sources */,
 				3EBBB264D481A0F2DF48763E /* ListSyncRefreshServiceTests.swift in Sources */,

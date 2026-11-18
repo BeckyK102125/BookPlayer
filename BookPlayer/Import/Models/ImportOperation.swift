@@ -13,7 +13,7 @@ import Sentry
 import ZipArchive
 
 /// Reference: https://www.avanderlee.com/swift/asynchronous-operations/
-public class ImportOperation: Operation {
+public class ImportOperation: Operation, BPLogger {
   public let files: [URL]
   public let libraryService: LibraryServiceProtocol
   public var processedFiles = [URL]()
@@ -21,6 +21,11 @@ public class ImportOperation: Operation {
   /// A folder the files come from that this import owns, like the Transfer from Computer flow's
   /// holding folder: it never suggests a folder name, and it's removed when the import finishes.
   private let ownedSourceRoot: URL?
+  /// Extracts an archive into a folder; true on success. A seam for tests
+  private let unzip: (_ archive: URL, _ destination: URL) -> Bool
+  /// The temporary folders archives were extracted into: their files are copied into Processed, and
+  /// the folders are removed when the import finishes
+  private var extractionFolders = [URL]()
 
   private let lockQueue = DispatchQueue(label: "com.bookplayer.asyncoperation", attributes: .concurrent)
 
@@ -62,10 +67,16 @@ public class ImportOperation: Operation {
 
   init(files: [URL],
        libraryService: LibraryServiceProtocol,
-       ownedSourceRoot: URL? = nil) {
+       ownedSourceRoot: URL? = nil,
+       unzip: @escaping (_ archive: URL, _ destination: URL) -> Bool = ImportOperation.unzipArchive) {
     self.files = files
     self.libraryService = libraryService
     self.ownedSourceRoot = ownedSourceRoot
+    self.unzip = unzip
+  }
+
+  static func unzipArchive(_ archive: URL, into destination: URL) -> Bool {
+    SSZipArchive.unzipFile(atPath: archive.path, toDestination: destination.path)
   }
 
   public override func start() {
@@ -91,6 +102,10 @@ public class ImportOperation: Operation {
       try? FileManager.default.removeItem(at: ownedSourceRoot)
     }
 
+    for folder in extractionFolders {
+      try? FileManager.default.removeItem(at: folder)
+    }
+
     isExecuting = false
     isFinished = true
   }
@@ -108,42 +123,57 @@ public class ImportOperation: Operation {
     return finalInfo
   }
 
+  /// Imports an archive's contents. The archive is removed only once it's extracted, and only when the
+  /// app owns it (Documents, Inbox, the shared folder); a failed one is kept so it can be imported
+  /// again, and is never removed from a folder the user owns (BP-20261112-07).
   func handleZip(file: URL, remainingFiles: [URL]) {
-    self.suggestedFolderName = file.deletingPathExtension().lastPathComponent
-
-    // Unzip to temporary directory
-    let documentsURL = DataManager.getDocumentsFolderURL()
-
-    let tempDirectoryURL = try! FileManager.default.url(
-      for: .itemReplacementDirectory,
-      in: .userDomainMask,
-      appropriateFor: documentsURL,
-      create: true
-    )
-
-    SSZipArchive.unzipFile(atPath: file.path, toDestination: tempDirectoryURL.path, progressHandler: nil) { _, success, error in
-      try? FileManager.default.removeItem(at: file)
-
-      guard success else {
-        self.processFile(from: remainingFiles)
-        return
-      }
-
-      let enumerator = FileManager.default.enumerator(
-        at: tempDirectoryURL,
-        includingPropertiesForKeys: [.isDirectoryKey],
-        options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants], errorHandler: { (url, error) -> Bool in
-          print("directoryEnumerator error at \(url): ", error)
-          return true
-        })!
-
-      var files = [URL]()
-      for case let fileURL as URL in enumerator {
-        files.append(fileURL)
-      }
-
-      self.processFile(from: remainingFiles + files)
+    let extractionFolderURL: URL
+    do {
+      extractionFolderURL = try FileManager.default.url(
+        for: .itemReplacementDirectory,
+        in: .userDomainMask,
+        appropriateFor: DataManager.getDocumentsFolderURL(),
+        create: true
+      )
+    } catch {
+      Self.logger.error("Couldn't create a folder to extract an archive into: \(error.localizedDescription)")
+      processFile(from: remainingFiles)
+      return
     }
+    extractionFolders.append(extractionFolderURL)
+
+    // Add support for iCloud documents
+    _ = file.startAccessingSecurityScopedResource()
+    let extracted = unzip(file, extractionFolderURL)
+    file.stopAccessingSecurityScopedResource()
+
+    guard extracted else {
+      Self.logger.error("Couldn't extract an archive; it's kept so it can be imported again")
+      processFile(from: remainingFiles)
+      return
+    }
+
+    suggestedFolderName = file.deletingPathExtension().lastPathComponent
+
+    if DataManager.isAppManagedSource(file) {
+      file.disableFileProtection()
+      try? FileManager.default.removeItem(at: file)
+    }
+
+    let enumerator = FileManager.default.enumerator(
+      at: extractionFolderURL,
+      includingPropertiesForKeys: [.isDirectoryKey],
+      options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants], errorHandler: { (url, error) -> Bool in
+        print("directoryEnumerator error at \(url): ", error)
+        return true
+      })!
+
+    var files = [URL]()
+    for case let fileURL as URL in enumerator {
+      files.append(fileURL)
+    }
+
+    processFile(from: remainingFiles + files)
   }
 
   func getNextAvailableURL(for url: URL) -> URL {
