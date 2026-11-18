@@ -29,8 +29,9 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 - Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
 ## Next steps
-1. Michael checks Settings, Playback, Listen Together, "When someone doesn't have the book" on his phone.
-2. Retest dd0bde92 with both phones and Console logs ("Listen Together") from the sharer's phone.
+1. dd0bde92 (continuing on the Neo): Michael's shares fail even when both have the book, so the
+   owners-only guess is wrong. Find what differs when Michael's phone shares; get Console logs from it.
+2. Retest dd0bde92 with both phones and Console logs ("Listen Together") from Michael's phone.
 3. Becky: decide SR7-05, and SR7-03/04 wording. Then TestFlight 7. Device checks: SR7-01 on two phones,
    SR7-02 with two iPad windows.
 4. BP-20261112-03 to -10 (P1), then the P2 findings; read item status and comments first.

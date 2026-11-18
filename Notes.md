@@ -2047,3 +2047,10 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
 - Becky approved ("Yes, merge it"). `git merge --ff-only fix/sr7-01-02-sharer-and-windows` on develop:
   5a4f4586 to fab311c9, fast-forward. No retest needed: the 1848-test run and TSan run were on fab311c9.
 - Not pushed; develop is ahead of origin/develop. Fix branch kept until Becky says it can go.
+
+## 2026-11-18 - dd0bde92: Michael's shares fail even when both have the book
+- Becky on TestFlight 6: her shares work when both have the book. Michael's shares fail both when Becky
+  doesn't have the book and when they both do.
+- Correction to the 2026-11-16 entry: the "Only people who have the book can join" setting can't explain
+  the both-have-it case (owners may join). The failure follows Michael as sharer, not the copy path.
+- Commented on Start Testing dd0bde92 with this. Becky moved the discussion to the Neo; no code changed.
