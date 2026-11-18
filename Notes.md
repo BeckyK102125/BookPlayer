@@ -2091,3 +2091,30 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
 - dd0bde92 talk with Becky: the failure follows Michael as sharer. Unverified idea: low storage on his
   phone made piece export fail and retry silently forever; after SR7-03 his phone would say "Couldn't
   prepare the book for sharing". Asked for his free storage, iOS version and build.
+
+## 2026-11-18 - SR7-07 and SR7-09 (branch fix/sr7-07-09, from develop b578b168)
+- Becky approved merging fix/sr7-mediums: develop fast-forwarded to b578b168 (not pushed).
+- Becky approved the PlayerManager change for SR7-09 ("Yes, of course, you may") and chose for SR7-07
+  that the timer "should stop the share". Chosen meaning: pause the group, as the listener's own Pause
+  does (reversible; anyone can press Play). Leaving instead would be a small change if she prefers it.
+- SR7-09: new `PlayerManagerProtocol.playForGroup()`; PlayerManager's private
+  `play(autoPlayed:isGroupCommand:)` skips Smart Rewind and the auto timer for it. SharerPlaybackTarget
+  uses it for a group Play and for the group resume after the sharer's interruption. The watch's
+  PlayerManager gets `playForGroup()` that calls `play()` (no Listen Together there).
+- SR7-07: new `PlayerManagerProtocol.sleepTimerBelongsToListenTogether`, set by
+  SharePlaySessionService whenever its listener player appears or goes (`listener` didSet, new
+  SharePlaySessionService+SleepTimer.swift). While true PlayerManager skips the fade, the pause, the
+  shake binding and the sleep bookmark; the service pauses the group through `listener.userPause()`.
+  ListenerPlayer now activates the audio session on every start instead of trusting `sessionConfigured`.
+  Not covered: end-of-chapter timers never fire while listening (they watch PlayerManager's chapters),
+  the listener's volume doesn't fade first, and shake doesn't resume the group.
+- Sourcery 2.4.1 installed with Homebrew (the mocks say 2.3.0; regenerating changed only the header line).
+  `sourcery --config .sourcery.yml --cacheBasePath /private/tmp/agents/claude/bookplayer-sourcery`.
+- First build failed: the watch's PlayerManager also conforms to PlayerManagerProtocol.
+- First test run: 1866 tests, 1 failure (testTheSharersInterruptionEndingWithPermissionResumesTheGroup
+  expected play(); now asserts playForGroup()).
+- Final: `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests` on iPhone 18 Pro
+  7B46F85F: "Executed 1866 tests, with 0 failures". TSan on SharerPlaybackTargetTests,
+  ListenTogetherStartPositionTests, ListenTogetherEveryoneLeftTests, ListenTogetherSleepTimerTests,
+  ListenTogetherRemoteCommandsTests, ListenerPlayerResetTests: 133 tests, 0 failures, no warnings.
+  Simulator shut down and erased. Device checks still needed (two phones).

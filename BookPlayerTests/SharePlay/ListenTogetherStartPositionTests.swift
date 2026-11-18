@@ -232,7 +232,7 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     let (service, transport, _) = startSharingLoadedBook()
     service.bridge?.handlePlay(itemTime: 0, rate: 1)
     XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled, "a jump persists the time: it must never happen")
-    XCTAssertEqual(playerManager.playCallsCount, 1, "plays where it is")
+    XCTAssertEqual(playerManager.playForGroupCallsCount, 1, "plays where it is")
     await drainMainQueue()
     XCTAssertEqual(control.seeks, [1234, 1234], "and puts the group back at its place")
     try? await Task.sleep(for: .milliseconds(50))
@@ -383,6 +383,7 @@ final class ListenTogetherStartPositionTests: XCTestCase {
     service.bridge?.handlePause(itemTime: 30)
     XCTAssertFalse(playerManager.jumpToRecordBookmarkCalled)
     XCTAssertEqual(playerManager.playCallsCount, 0, "the other book must not play (its progress would move)")
+    XCTAssertEqual(playerManager.playForGroupCallsCount, 0)
   }
 
   func testAnUnconfirmedSessionThatMovedTheSharerBackRestoresTheirPlace() {

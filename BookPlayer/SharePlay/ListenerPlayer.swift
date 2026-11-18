@@ -1049,8 +1049,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     return activateSessionIfNeeded()
   }
 
+  /// SR7-07: activates on every start, even when this player activated it before. Another part of
+  /// the app (PlayerManager pausing its own book) can deactivate the shared session, and a cached
+  /// "already active" would then start playback into a silent session.
   private func activateSessionIfNeeded() -> Bool {
-    guard !sessionConfigured else { return true }
     let session = AVAudioSession.sharedInstance()
     do {
       try session.setCategory(.playback, mode: .spokenAudio)

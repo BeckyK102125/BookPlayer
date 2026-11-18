@@ -54,6 +54,8 @@ final class PlayerManager: NSObject, PlayerManagerProtocol, ObservableObject {
   }
 
   weak var syncProgressDelegate: PlaybackSyncProgressDelegate?
+  /// Listen Together runs on the iPhone only: never true on the watch.
+  var sleepTimerBelongsToListenTogether = false
   /// Reference to the ongoing play task
   private var playTask: Task<(), Error>?
   private var playerItem: AVPlayerItem?
@@ -846,6 +848,11 @@ extension PlayerManager {
 
   func play() {
     play(autoPlayed: false)
+  }
+
+  /// Listen Together runs on the iPhone only; nothing on the watch sends group commands.
+  func playForGroup() {
+    play()
   }
 
   func play(autoPlayed: Bool) {

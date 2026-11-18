@@ -85,6 +85,8 @@ final class PlayerManager: NSObject, PlayerManagerProtocol, ObservableObject {
   }
 
   weak var syncProgressDelegate: PlaybackSyncProgressDelegate?
+  /// See `PlayerManagerProtocol.sleepTimerBelongsToListenTogether` (SR7-07).
+  var sleepTimerBelongsToListenTogether = false
   /// Reference to the ongoing play task
   private var playTask: Task<(), Error>?
   private var playerItem: AVPlayerItem?
@@ -1395,7 +1397,17 @@ extension PlayerManager {
     audioSessionFailedThisSession = false
   }
 
+  func playForGroup() {
+    play(autoPlayed: false, isGroupCommand: true)
+  }
+
   func play(autoPlayed: Bool) {
+    play(autoPlayed: autoPlayed, isGroupCommand: false)
+  }
+
+  /// `isGroupCommand` (SR7-09): a Listen Together group Play skips Smart Rewind, whose backward seek
+  /// the group would follow, and the automatic sleep timer, which only this person's own Play starts.
+  private func play(autoPlayed: Bool, isGroupCommand: Bool) {
     playTask?.cancel()
     playTask = Task { @MainActor in
       /// Ignore play commands if there's no item loaded,
@@ -1455,10 +1467,12 @@ extension PlayerManager {
       if playerTime.isFinite && Int(currentItem.duration) == Int(playerTime) { return }
 
       restorePlayerTimeIfNeeded()
-      handleSmartRewind(currentItem)
+      if !isGroupCommand {
+        handleSmartRewind(currentItem)
 
-      if !autoPlayed {
-        handleAutoTimer()
+        if !autoPlayed {
+          handleAutoTimer()
+        }
       }
 
       fadeTimer?.invalidate()
@@ -1962,11 +1976,14 @@ extension PlayerManager {
 // MARK: - Sleep timer
 extension PlayerManager {
   private func handleSleepTimerThresholdEvent() {
+    guard !sleepTimerBelongsToListenTogether else { return }
     fadeTimer = audioPlayer.fadeVolume(from: 1, to: 0, duration: 5, completion: {})
     bindShakeObserver()
   }
 
   private func handleSleepTimerEndEvent(_ state: SleepTimerState) {
+    // SR7-07: pausing here would deactivate the audio session under the listener's audio.
+    guard !sleepTimerBelongsToListenTogether else { return }
     pause()
 
     if state == .endOfChapter {
@@ -1975,7 +1992,7 @@ extension PlayerManager {
   }
 
   private func handleSleepTimerTurnedOnEvent() {
-    guard let currentItem else { return }
+    guard !sleepTimerBelongsToListenTogether, let currentItem else { return }
 
     createOrUpdateAutomaticBookmark(
       at: currentItem.currentTime,

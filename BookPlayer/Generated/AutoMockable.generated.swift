@@ -1,4 +1,4 @@
-// Generated using Sourcery 2.3.0 — https://github.com/krzysztofzablocki/Sourcery
+// Generated using Sourcery 2.4.1 — https://github.com/krzysztofzablocki/Sourcery
 // DO NOT EDIT
 
 import Foundation
@@ -1387,6 +1387,11 @@ class PlayerManagerProtocolMock: PlayerManagerProtocol {
     }
     var underlyingIsPlaying: Bool!
     var syncProgressDelegate: PlaybackSyncProgressDelegate?
+    var sleepTimerBelongsToListenTogether: Bool {
+        get { return underlyingSleepTimerBelongsToListenTogether }
+        set(value) { underlyingSleepTimerBelongsToListenTogether = value }
+    }
+    var underlyingSleepTimerBelongsToListenTogether: Bool!
     //MARK: - load
 
     var loadAutoplayCallsCount = 0
@@ -1465,6 +1470,17 @@ class PlayerManagerProtocolMock: PlayerManagerProtocol {
     func play() {
         playCallsCount += 1
         playClosure?()
+    }
+    //MARK: - playForGroup
+
+    var playForGroupCallsCount = 0
+    var playForGroupCalled: Bool {
+        return playForGroupCallsCount > 0
+    }
+    var playForGroupClosure: (() -> Void)?
+    func playForGroup() {
+        playForGroupCallsCount += 1
+        playForGroupClosure?()
     }
     //MARK: - playPause
 

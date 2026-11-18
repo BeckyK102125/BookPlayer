@@ -64,7 +64,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   }
 
   @Published private(set) var state: ListenTogetherState = .idle
-  @Published private(set) var listener: ListenerPlayer?
+  @Published private(set) var listener: ListenerPlayer? {
+    didSet { if listener !== oldValue { listenerChangedForSleepTimer() } }
+  }
+  /// SR7-07: the sleep timer's end while this phone is a listener (SharePlaySessionService+SleepTimer).
+  var sleepTimerSubscription: AnyCancellable?
+  /// Test seam: the sleep timer's end events.
+  var sleepTimerEnded: AnyPublisher<SleepTimerState, Never> =
+    SleepTimer.shared.timerEndedPublisher.eraseToAnyPublisher()
   /// The title of the share this device joined, from the invitation; shown until the manifest arrives.
   @Published private(set) var joinedTitle: String?
   /// True when the sharer should see the one-time "listening only" note (first share on this device).

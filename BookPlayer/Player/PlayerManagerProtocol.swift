@@ -19,6 +19,11 @@ public protocol PlayerManagerProtocol: AnyObject {
   var currentSpeed: Float { get set }
   var isPlaying: Bool { get }
   var syncProgressDelegate: PlaybackSyncProgressDelegate? { get set }
+  /// SR7-07: true while this phone listens to someone else's Listen Together share, whose audio plays
+  /// through the session's own player. The sleep timer then belongs to the session: PlayerManager
+  /// doesn't fade, pause or bookmark its own (paused) book when the timer fires, and the session pauses
+  /// the group instead, as the listener's Pause button does.
+  var sleepTimerBelongsToListenTogether: Bool { get set }
 
   func load(_ item: PlayableItem, autoplay: Bool)
   func awaitCurrentLoad() async
@@ -27,6 +32,9 @@ public protocol PlayerManagerProtocol: AnyObject {
   func playPreviousItem()
   func playNextItem(autoPlayed: Bool, shouldAutoplay: Bool)
   func play()
+  /// SR7-09: play for a Listen Together group command (the sharer's phone). Unlike `play()`, there's
+  /// no Smart Rewind, whose seek would move the whole group back, and no automatic sleep timer.
+  func playForGroup()
   func playPause()
   func pause()
   func stop()

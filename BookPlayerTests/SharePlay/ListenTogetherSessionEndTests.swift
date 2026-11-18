@@ -1407,7 +1407,8 @@ final class ListenTogetherEveryoneLeftTests: XCTestCase {
     target.handleInterruption(.ended, shouldResume: true)
     await waitUntil { transport.sent.contains(.sharerInterruptionEnded(resumed: true)) }
     XCTAssertNil(service.ownInterruption)
-    XCTAssertEqual(playerManager.playCallsCount, 1)
+    XCTAssertEqual(playerManager.playForGroupCallsCount, 1, "SR7-09: a group resume, no Smart Rewind")
+    XCTAssertEqual(playerManager.playCallsCount, 0)
   }
 
   func testTheWaitEndsAtOnceIfIOSTakesTheBackgroundTimeBack() async {
