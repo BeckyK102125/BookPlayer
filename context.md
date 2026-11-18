@@ -1,56 +1,54 @@
 # context.md - current snapshot
 
-Date: 2026-11-04
-Branch: `develop` (Becky's fork, origin github.com/BeckyK102125/BookPlayer; upstream TortugaPower/BookPlayer).
-Full history and the old long snapshot (rulings, build 6 design, device checks): Notes.md, entry 2026-10-28.
+Date: 2026-11-18
+Branch: `fix/sr6-01-rejoin-other-audio` (SR6-01 fix 050d480f, with develop 63df259e merged in), pushed.
+develop is at 63df259e on GitHub (SR7-01 and SR7-02 merged with Becky's approval).
 
 ## Goal
-SharePlay "Listen Together" in the fork: one person shares a downloaded audiobook, the others listen to a
-temporary copy or their own copy, playback stays in sync, and everything works with VoiceOver and Zoom.
-Now: TestFlight 5.22.2 (6) is out (internal only); next is the two-phone test on build 6.
-Lead: the "BookPlayer Lead" chat on the Neo fixes Start Testing items (project "BookPlayer - Listen together",
-697bd58a) on weekdays 7 AM to 3 PM, following agents.md rule 3 (comment with the branch on start; comment with
-commit and tests, then move to Testing, when fixed).
-
-## Branches
-- `fix/sr6-01-rejoin-other-audio` (from develop, pushed): SR6-01 fix, waiting for the Pro to run the tests.
-- `develop`: TestFlight 5.22.2 (6) code at d55292ea, then notes, agents.md and Review.md commits.
-- `listen-together-6.0` (local only): build 6 plus the upstream 6.0.0 merge; merged into develop on 2026-10-23.
-- `listen-together-build6` and older `listen-together-*` branches: local only, kept for history.
-- Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
+Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
+VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 
 ## Last work
-- 2026-11-04: Lead chat replaced to get the new Start Testing tools. The Pro hasn't run the SR6-01 tests yet
-  (develop unchanged, no result on the item). The checkout is on fix/sr6-01-rejoin-other-audio.
-- 2026-11-02: Becky and Michael tested build 6: fine when both had the book; sharing a book only Michael had
-  failed (unknown how). Filed in Start Testing (dd0bde92, Needs Becky); they will test again.
-- 2026-11-02: SR6-01 (Start Testing, low): when an interruption ends without "should resume" while another
-  app's audio still plays, the listener now waits for Play instead of cutting that app off. Not yet tested.
-- 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.
-- 2026-10-27: lead chat started; develop fast-forwarded to c16411f4; Start Testing project had 0 items.
-- 2026-10-28: this file trimmed to 60 lines (old text in Notes.md). Becky's answers: a listener now always
-  rejoins the group when an interruption ends (even without iOS's "should resume"). The weekday noon Start
-  Testing check was removed on 2026-10-29 at Becky's request; the Lead checks Start Testing at the start of work.
-- 2026-10-23: Codex re-audit (Review.md, R01 to R22); R01 (Siri PlayMedia routing), R02 (video player), the
-  transfer-sheet cover and the live sharer status were fixed; develop pushed; TestFlight 5.22.2 (6) uploaded
-  with MARKETING_VERSION=5.22.2 on the archive command line (6.0.0 (6) expired).
+- November 18 (Neo Lead): merged develop into the SR6-01 branch so the fix can go into develop once tested.
+- November 17: SR7-01 (sharer's other book controlled the group) and SR7-02 (second window deleted the
+  session's files) fixed as fab311c9; in Testing. November 18: in develop with Becky's approval.
+- November 17: Swift Reviewer SR7 audit (Review.md 5a4f4586): 15 findings in Start Testing. Not ready for
+  TestFlight 7 until Becky decides SR7-05 (Hardcover client id).
+- November 16: merged 13 upstream TortugaPower commits (up to 6027e850) as aa1d5632; the 13 newer ones
+  (PlayerManager moved behind PlaybackEngine) are held back until Becky approves PlayerManager changes.
+- November 16: investigated dd0bde92 (Michael's share of a book only he has failed). No code defect found.
+  Likeliest cause: Michael's phone set to "Only people who have the book can join". Details in Notes.md.
+- November 12: Codex recheck of the October 23 audit; BP-20261112-03 to -22 open in Start Testing.
+- November 2: SR6-01 fixed (050d480f): after an interruption ends without "should resume" while another
+  app's audio plays, the listener waits for Play. Never built or tested yet.
 
-## Test results (fix round 4 and the 6.0.0 merge, scheme BookPlayer, plan "Unit Tests", default DerivedData)
-- Full suite after the merge: "Executed 1757 tests, with 0 failures", ** TEST SUCCEEDED **.
-- SharePlay classes plus PlayerManagerTests: 736/0; TSan on them: 0 crashes, 0 warnings.
-- 2026-10-28 rejoin change: ListenerPlayer, OwnCopy, SessionEnd and SharerPlaybackTarget tests 135/0, ** TEST SUCCEEDED **.
-- TSan on the whole suite stops at a pre-existing DirectoryWatcher race; run SharePlay classes by name.
+## Test results
+- 2026-11-17 at fab311c9 (now develop): 1848 tests, 0 failures; TSan on the three touched test classes clean.
+  `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests`
+- SR6-01 branch: not built or tested (the Neo doesn't run simulators).
+- Whole-suite TSan has a known DirectoryWatcher race.
+- Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
-## Next steps (in order)
-0. Pro: run ListenerPlayerTests on fix/sr6-01-rejoin-other-audio; if green, fast-forward develop, move SR6-01 to Testing.
-1. Two-phone test on build 6 (Becky with VoiceOver, Michael with Zoom 3x): the 13 device checks in Notes.md
-   (2026-10-28 snapshot), plus the Duo side-by-side player as sharer and the sharer mini player line at Zoom 3x,
-   plus: a listener whose audio Music or a video took rejoins by itself once that app stops (needs a new build).
-2. Fix Start Testing items as they arrive (Swift Reviewer, Aquila BP-, testers).
-3. Once build 6 is stable: the 20 deferred upstream findings R03 to R22 in Review.md (R09 touches
-   PlayerManager.swift: ask first).
-4. Split files over 700 lines: SharePlaySessionService.swift (1729), ListenerPlayer.swift (1042), ListenerPlayerTests.swift (982).
-5. Mark the new Listen Together strings for translation before a release.
+## Next steps
+1. Pro: build this branch and run ListenerPlayerTests (and the SharePlay classes); if green, fast-forward
+   develop to it and move SR6-01 to Testing.
+2. Michael checks Settings, Playback, Listen Together, "When someone doesn't have the book" on his phone;
+   then retest dd0bde92 with both phones and Console logs ("Listen Together") from the sharer's phone.
+3. Becky: decide SR7-05, and SR7-03/04 wording. Then TestFlight 7. Device checks: SR7-01 on two phones,
+   SR7-02 with two iPad windows.
+4. BP-20261112-03 to -07 and -10 (P1, Safe Alone); -08 and -09 need Becky (PlayerManager). Then P2 findings
+   and the open SR7 items; read item status and comments first.
+5. Split files over 700 lines: SharePlaySessionService.swift, SharePlaySessionService+Session.swift
+   (1785), ListenerPlayer.swift.
+6. Mark the new Listen Together strings for translation before a release.
 
 ## Open questions for Becky
-- None.
+- Merge the 13 newer upstream commits (they change PlayerManager)?
+- Should a share that keeps failing on one piece end with "Couldn't prepare the book" after a few tries,
+  instead of retrying silently forever?
+
+## Constraints
+- PlayerManager.swift: Becky approves before implementation changes.
+- Never commit BuildConfiguration/Debug.xcconfig. Leave the untracked .nova/ folder alone.
+- Simulator (Pro only): BookPlayer uses iPhone 18 Pro 7B46F85F, taking
+  /private/tmp/agents/claude/start-speaking-xcodebuild.lock.

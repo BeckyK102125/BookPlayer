@@ -1966,3 +1966,134 @@ Capture both Console logs filtered on "Listen Together:".
   Start Testing unchanged: SR6-01 open (no Pro result yet), dd0bde92 open (no comments; waiting for the retest).
   origin/develop still 90463774. No Pro session is reachable from the Neo; the Nov 2 hand-off note stands as the
   request for the Pro to run the SharePlay tests.
+
+## 2026-11-12 — Codex/Astra Medium develop audit recheck
+
+Branch: develop. Audited commit: 90463774e1abcfe163535f95bdec575ff236abb1.
+Request: recheck previous audit findings and prepend outstanding issues to Review.md.
+Three Astra Medium source reviewers revalidated all 22 October 23 findings. R01 and R02 are addressed in source by d55292ea; R03–R22 remain open (8 P1, 12 P2). Earlier upload-status, Hardcover ID, foreign-item completion, recoverable activation and six App Intent fixes remain present. Transfer-cover arbitration and live sharer accessory concerns are also addressed in source. No fresh device acceptance is claimed.
+Review.md now starts with the November 12 recheck, BP-20261112-03 through BP-20261112-22, proof steps and Safe Alone/Needs Becky classifications. Earlier Review.md bytes were preserved verbatim.
+Commands/evidence: git status --short, git branch -vv, git worktree list, git rev-parse HEAD; git diff 8cb29725 HEAD and targeted numbered source/caller reads; source setting scan confirms Swift 5.0 remains. No implementation edits, builds, runtime tests, Simulator or phone actions. Existing untracked .nova/ preserved.
+Start Testing: searched all project items and read the one existing temporary-copy sharing report dd0bde92-7e20-402d-b5ab-00fa8f984a0f, leaving it unchanged. Created 20 open audit items with matching BP-20261112 IDs and verification/classification fields. Bulk creation failed because the advertised MCP tool was unavailable; individual create_item calls succeeded. No existing status or assignment changed.
+Skills: SwiftUI Pro, Swift Concurrency Pro, Swift Testing Pro and Superpowers parallel/verification guidance. The configured Superpowers symlink was broken; the cached installed package was located and read.
+Documentation checks: verify unique finding IDs, current local link targets, complete preservation of the previous review, context at most 60 lines, and git diff --check before the local documentation commit. No push requested or performed.
+
+### Previous context snapshot retained for history
+
+# context.md - current snapshot
+
+Date: 2026-10-29
+Branch: `develop` (Becky's fork, origin github.com/BeckyK102125/BookPlayer; upstream TortugaPower/BookPlayer).
+Full history and the old long snapshot (rulings, build 6 design, device checks): Notes.md, entry 2026-10-28.
+
+## Goal
+SharePlay "Listen Together" in the fork: one person shares a downloaded audiobook, the others listen to a
+temporary copy or their own copy, playback stays in sync, and everything works with VoiceOver and Zoom.
+Now: TestFlight 5.22.2 (6) is out (internal only); next is the two-phone test on build 6.
+Lead: the "BookPlayer Lead" chat on the Neo fixes Start Testing items (project "BookPlayer - Listen together",
+697bd58a) on weekdays 7 AM to 3 PM, following agents.md rule 3 (comment with the branch on start; comment with
+commit and tests, then move to Testing, when fixed).
+
+## Branches
+- `develop`: TestFlight 5.22.2 (6) code at d55292ea, then notes, agents.md and Review.md commits.
+- `listen-together-6.0` (local only): build 6 plus the upstream 6.0.0 merge; merged into develop on 2026-10-23.
+- `listen-together-build6` and older `listen-together-*` branches: local only, kept for history.
+- Never commit BuildConfiguration/Debug.xcconfig. PlayerManager.swift: ask Becky before editing.
+
+## Last work
+- 2026-10-29: new Lead chat (the first one was full); develop with the rejoin change pushed to GitHub.
+- 2026-10-27: lead chat started; develop fast-forwarded to c16411f4; Start Testing project had 0 items.
+- 2026-10-28: this file trimmed to 60 lines (old text in Notes.md). Becky's answers: a listener now always
+  rejoins the group when an interruption ends (even without iOS's "should resume"). The weekday noon Start
+  Testing check was removed on 2026-10-29 at Becky's request; the Lead checks Start Testing at the start of work.
+- 2026-10-23: Codex re-audit (Review.md, R01 to R22); R01 (Siri PlayMedia routing), R02 (video player), the
+  transfer-sheet cover and the live sharer status were fixed; develop pushed; TestFlight 5.22.2 (6) uploaded
+  with MARKETING_VERSION=5.22.2 on the archive command line (6.0.0 (6) expired).
+
+## Test results (fix round 4 and the 6.0.0 merge, scheme BookPlayer, plan "Unit Tests", default DerivedData)
+- Full suite after the merge: "Executed 1757 tests, with 0 failures", ** TEST SUCCEEDED **.
+- SharePlay classes plus PlayerManagerTests: 736/0; TSan on them: 0 crashes, 0 warnings.
+- 2026-10-28 rejoin change: ListenerPlayer, OwnCopy, SessionEnd and SharerPlaybackTarget tests 135/0, ** TEST SUCCEEDED **.
+- TSan on the whole suite stops at a pre-existing DirectoryWatcher race; run SharePlay classes by name.
+
+## Next steps (in order)
+1. Two-phone test on build 6 (Becky with VoiceOver, Michael with Zoom 3x): the 13 device checks in Notes.md
+   (2026-10-28 snapshot), plus the Duo side-by-side player as sharer and the sharer mini player line at Zoom 3x,
+   plus: a listener whose audio Music or a video took rejoins by itself once that app stops (needs a new build).
+2. Fix Start Testing items as they arrive (Swift Reviewer, Aquila BP-, testers).
+3. Once build 6 is stable: the 20 deferred upstream findings R03 to R22 in Review.md (R09 touches
+   PlayerManager.swift: ask first).
+4. Split files over 700 lines: SharePlaySessionService.swift (1729), ListenerPlayer.swift (1032).
+5. Mark the new Listen Together strings for translation before a release.
+
+## Open questions for Becky
+- None.
+
+Validation result: all 20 BP-20261112 items read back as open. Previous review preserved byte-for-byte; 20 unique IDs (8 P1, 12 P2), primary file references valid, context under 60 lines, only Review.md/Notes.md/context.md modified. An added blank line at EOF was removed before the final whitespace check.
+
+Git outcome: the first git add/commit attempt was blocked by the filesystem sandbox at .git/index.lock. The permitted escalation succeeded with the local commit message "docs: recheck develop audit findings and record outstanding issues". No push was performed.
+
+## 2026-11-16 (Pro, Claude): upstream merge verified; Michael's temporary-copy share investigated
+
+Branch develop. Upstream merge aa1d5632 (13 TortugaPower commits up to 6027e850, approved by Becky) built
+and tested: `xcodebuild build-for-testing -scheme BookPlayer` then `test-without-building
+-only-testing:BookPlayerTests` on iPhone 17 Pro 3949B098 (shared with Start Speaking through its
+/private/tmp/agents/claude/start-speaking-xcodebuild.lock). Result: "Executed 1838 tests, with 0 failures",
+** TEST EXECUTE SUCCEEDED **. No new warnings in SharePlay files. The 13 newer upstream commits (player
+refactor moving PlayerManager behind PlaybackEngine) are held back: PlayerManager changes need Becky.
+`xcodebuild -resolvePackageDependencies` sat at 0% CPU on "Checking out purchases-ios" for 38 minutes and
+was killed; build-for-testing resolved the packages itself.
+
+Start Testing dd0bde92 (Michael shares a book only he has; Becky sharing to Michael worked).
+- Hypothesis 1, abandoned: an MP3 book can't be cut into .m4a pieces, so one piece fails forever.
+  Added BookSplitterTests that cut 10 s from the bundled mp3_NO_chapters.mp3, mp3_WITH_toc.mp3 and
+  m4b_WELLFORMED.m4b exactly as the sharer does. All pass: AVFoundation refuses passthrough for MP3, so
+  BookSplitter goes straight to AppleM4A, which works; the M4B uses passthrough. A passthrough-to-AAC
+  fallback I had written was removed again because nothing showed it was needed. The tests stay, with
+  the preset each file uses asserted.
+- No code defect found. Strongest remaining explanation that fits "Becky could, Michael couldn't": the
+  sharer's "When someone doesn't have the book" setting (UserDefaults key listenTogetherWhenNoCopy) is per
+  device. If Michael's phone is on "Only people who have the book can join", Becky (without the book) is
+  declined with an alert and nothing is sent. Others still possible: a chapter file missing or .mp4
+  (Listen Together not offered), or a piece failing repeatedly, which retries forever and silently in the
+  background (design choice; ending the share after N failures would need Becky's approval).
+- Next: Michael checks Settings, Playback, Listen Together; then a retest with Console logs from his phone
+  searching "Listen Together" (look for "sharing started, ownersOnly=").
+
+## 2026-11-17 (Pro, Claude): SR7-01 and SR7-02 fixed (branch fix/sr7-01-02-sharer-and-windows)
+
+Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md, 5a4f4586).
+- SR7-01: a book the sharer plays from the library no longer controls the group. SharerPlaybackTarget
+  sends play and pause only for the shared book, judging a pause by the book that was playing
+  (`playingItemUUID`), so stopping the shared book to switch books still pauses the group. Speed events
+  need the shared book loaded. The group's Pause, speed and the speed in a group Play skip
+  PlayerManager while another book is loaded. A first test run caught that a pause sent after the
+  switch reported time 0 (bookTime is the start position then); it now uses `lastSharedBookTime`.
+- SR7-02: new ListenTogetherAppSession (one per process). The first MainCoordinator makes the
+  SharePlaySessionService; startOnce() runs ShareStorage.cleanAll(), startObservingSessions(), the
+  remote commands and Siri routing once. One window binds the Listen Together screens
+  (claimListenTogetherUIIfFree at start and sceneDidBecomeActive); sceneDidDisconnect releases it.
+  Not checked: whether GroupActivities delivers the session to every window, and an iPad two-window
+  run (needs the Pro with an iPad simulator).
+- Tests: 5 new SharerPlaybackTargetTests, new ListenTogetherAppSessionTests (5).
+  `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests` on iPhone 18 Pro
+  7B46F85F: "Executed 1848 tests, with 0 failures". TSan on SharerPlaybackTargetTests,
+  ListenTogetherAppSessionTests and ListenTogetherRemoteCommandsTests: 50 tests, 0 failures, no
+  ThreadSanitizer warnings. Simulator shut down and erased afterwards. 3949B098 no longer exists
+  (Start Speaking now has 1BC907C4).
+- First build failed: the default closures in ListenTogetherAppSession weren't @MainActor; fixed.
+
+## 2026-11-18 - SR7 fix branch merged into develop
+- Becky approved ("Yes, merge it"). `git merge --ff-only fix/sr7-01-02-sharer-and-windows` on develop:
+  5a4f4586 to fab311c9, fast-forward. No retest needed: the 1848-test run and TSan run were on fab311c9.
+- Not pushed; develop is ahead of origin/develop. Fix branch kept until Becky says it can go.
+
+## 2026-11-18 (Neo, Claude Lead): develop merged into fix/sr6-01-rejoin-other-audio
+- Morning hand-off reported the Pro's SR7 work (develop at 63df259e). SR6-01 (050d480f) was still only on its
+  branch, never built or tested, and the Swift Reviewer noted it on the item on Nov 17.
+- Merged develop 63df259e into the branch. Conflicts only in Notes.md (kept both sides, Nov 2 and Nov 4 entries
+  before the Nov 12 to Nov 18 ones) and context.md (rewritten for the merged state from develop's version).
+  develop hadn't changed ListenerPlayer.swift, its tests or the guide since 90463774, so the fix is unchanged.
+  Not built: the Pro needs to run ListenerPlayerTests on the branch before develop
+  fast-forwards to it.
+- Start Testing: 37 items. Open High: BP-20261112-03 to -10 (-08 and -09 Needs Becky, PlayerManager).

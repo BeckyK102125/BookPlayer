@@ -21,6 +21,8 @@ public enum Constants {
     public static let missingItemsPassPending = "missingItemsPassPending"
     /// The tier the last account update reported, to notice LITE → PRO
     public static let lastKnownProAccess = "lastKnownProAccess"
+    /// Artwork cached by Kingfisher 7 (before 6.0.0) was moved to Kingfisher 8's file names
+    public static let legacyArtworkRestored = "legacyArtworkRestored"
 
     /// Armed when a book finishes playing; consumed on the next review-prompt evaluation
     public static let pendingReviewPrompt = "userPendingReviewPrompt"
@@ -100,6 +102,9 @@ public enum Constants {
     public static let hardcoverAutoMatch = "hardcoverAutoMatch"
     public static let hardcoverAutoAddWantToRead = "hardcoverAutoAddWantToRead"
     public static let hardcoverReadingThreshold = "hardcoverReadingThreshold"
+    /// The connected account's Hardcover user id and username, read from `me` after signing in
+    public static let hardcoverUserId = "hardcoverUserId"
+    public static let hardcoverUsername = "hardcoverUsername"
 
     /// Speed controls
     public static let quickSpeedFirstPreference = "quickSpeedFirstPreference"

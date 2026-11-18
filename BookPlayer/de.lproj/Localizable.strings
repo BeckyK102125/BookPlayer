@@ -413,8 +413,7 @@
 "hardcover_progress_tracking_footer" = "Legt den mindestens erforderlichen Fortschrittsprozentsatz fest, bevor ein Buch in deiner Hardcover-Bibliothek als **Gerade lesend** markiert wird.";
 "hardcover_automation_description" = "Synchronisiere deine Lesefortschritt automatisch mit Hardcover. Wenn aktiviert, werden Bücher automatisch abgeglichen und zu deiner Bibliothek hinzugefügt.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "API-Zugriff";
-"hardcover_api_access_footer" = "Du findest deinen Hardcover-API-Zugriff unter https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "Hardcover hat die Anmeldung nicht abgeschlossen. Versuche es erneut.";
 "hardcover_automation_title" = "Automatisierung";
 "hardcover_progress_tracking_title" = "Fortschrittsverfolgung";
 "save_button" = "Speichern";
@@ -753,5 +752,6 @@
 "transfer_web_not_enough_space" = "Nicht genug Speicherplatz auf dem Gerät";
 "transfer_web_too_large" = "Zu groß";
 "transfer_web_unsupported" = "Dateityp nicht unterstützt";
+"transfer_web_path_conflict" = "Eine andere Datei oder ein anderer Ordner, den du gesendet hast, heißt bereits so";
 "transfer_web_done_hint" = "Bestätige danach in BookPlayer, um die Dateien zu importieren.";
 "transfer_web_load_error" = "BookPlayer ist nicht erreichbar. Prüfe, ob der Übertragungsbildschirm noch geöffnet ist.";

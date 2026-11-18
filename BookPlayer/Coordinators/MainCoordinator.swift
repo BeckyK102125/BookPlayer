@@ -94,12 +94,15 @@ class MainCoordinator: NSObject {
 
     self.hardcoverService = coreServices.hardcoverService
     self.preferencesService = coreServices.preferencesService
-    // The own-copy finder only reads the library (addendum 2: "Both have the book").
-    self.sharePlayService = SharePlaySessionService(
-      playerManager: coreServices.playerManager,
-      ownCopyFinder: LibraryOwnCopyFinder(
-        libraryService: coreServices.libraryService, playbackService: coreServices.playbackService),
-      progressLibrary: coreServices.libraryService)
+    // One service for every window (SR7-02). The own-copy finder only reads the library (addendum 2:
+    // "Both have the book").
+    self.sharePlayService = ListenTogetherAppSession.shared.service {
+      SharePlaySessionService(
+        playerManager: coreServices.playerManager,
+        ownCopyFinder: LibraryOwnCopyFinder(
+          libraryService: coreServices.libraryService, playbackService: coreServices.playbackService),
+        progressLibrary: coreServices.libraryService)
+    }
 
     ThemeManager.shared.libraryService = libraryService
 
@@ -116,12 +119,9 @@ class MainCoordinator: NSObject {
 
     bindObservers()
 
-    // No Listen Together session survives a relaunch: remove leftover files before watching for sessions.
-    ShareStorage().cleanAll()
-    sharePlayService.startObservingSessions()
-    // Lock screen, Control Center and AirPods control the shared book during a listener session.
-    ListenTogetherRemoteCommands.shared.attach(to: sharePlayService)
-    bindListenTogether()
+    // Leftover files are removed and sessions watched once per launch, not once per window (SR7-02).
+    ListenTogetherAppSession.shared.startOnce()
+    claimListenTogetherUIIfFree()
 
     accountService.loginIfUserExists(delegate: self)
 

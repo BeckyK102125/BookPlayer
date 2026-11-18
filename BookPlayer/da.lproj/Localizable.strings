@@ -413,8 +413,7 @@
 "hardcover_progress_tracking_footer" = "Indstiller den mindste fremdriftsprocent, der kræves, før en bog markeres som **Læser i øjeblikket** i dit Hardcover-bibliotek.";
 "hardcover_automation_description" = "Synkroniser automatisk din læsefremdrift med Hardcover. Når aktiveret, vil bøger automatisk blive matchet og tilføjet til dit bibliotek.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "API-adgang";
-"hardcover_api_access_footer" = "Du kan finde din Hardcover API-adgang på https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "Hardcover fuldførte ikke login. Prøv igen.";
 "hardcover_automation_title" = "Automatisering";
 "hardcover_progress_tracking_title" = "Fremdriftssporing";
 "save_button" = "Gem";
@@ -753,5 +752,6 @@
 "transfer_web_not_enough_space" = "Ikke nok plads på enheden";
 "transfer_web_too_large" = "For stor";
 "transfer_web_unsupported" = "Filtypen understøttes ikke";
+"transfer_web_path_conflict" = "En anden fil eller mappe, du har sendt, har allerede dette navn";
 "transfer_web_done_hint" = "Bekræft i BookPlayer, når du er færdig, for at importere filerne.";
 "transfer_web_load_error" = "Kan ikke nå BookPlayer. Tjek, at dens overførselsskærm stadig er åben.";

@@ -432,8 +432,7 @@
 "hardcover_progress_tracking_footer" = "Sets the minimum progress percentage required before a book is marked as **Currently Reading** in your Hardcover library.";
 "hardcover_automation_description" = "Automatically sync your reading progress with Hardcover. When enabled, books will be automatically matched and added to your library.";
 "section_item_hardcover" = "Hardcover";
-"hardcover_api_access_title" = "API Access";
-"hardcover_api_access_footer" = "You can find your Hardcover API access at https://hardcover.app/account/api.";
+"hardcover_sign_in_failed_message" = "Hardcover didn't complete the sign-in. Try again.";
 "hardcover_automation_title" = "Automation";
 "hardcover_progress_tracking_title" = "Progress Tracking";
 "save_button" = "Save";
@@ -755,5 +754,6 @@
 "transfer_web_not_enough_space" = "Not enough space on the device";
 "transfer_web_too_large" = "Too large";
 "transfer_web_unsupported" = "File type not supported";
+"transfer_web_path_conflict" = "Another file or folder you sent has this name";
 "transfer_web_done_hint" = "When you’re done, confirm in BookPlayer to import the files.";
 "transfer_web_load_error" = "Can’t reach BookPlayer. Check that its Transfer screen is still open.";
