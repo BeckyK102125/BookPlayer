@@ -2047,3 +2047,27 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
 - Becky approved ("Yes, merge it"). `git merge --ff-only fix/sr7-01-02-sharer-and-windows` on develop:
   5a4f4586 to fab311c9, fast-forward. No retest needed: the 1848-test run and TSan run were on fab311c9.
 - Not pushed; develop is ahead of origin/develop. Fix branch kept until Becky says it can go.
+
+## 2026-11-18 (Neo, Claude Lead): three P1 audit findings fixed on fix/bp-20261112-high (from develop 63df259e)
+- Start Testing has 37 items. Open High: BP-20261112-03 to -10 (Codex/Astra recheck of the October audit).
+  Labels: -03, -04, -05, -06, -07 Safe Alone; -08, -09 (iOS PlayerManager) and -10 (Watch PlayerManager,
+  playback) Needs Becky (the PlayerManager rule; the audit called -10 Safe Alone, but it's playback in a
+  file with the same rule).
+- 1fd91009 BP-03: removeItems(notIn:) deep-deleted items after an error-ignoring move to Backup, so a name
+  collision in Backup lost the current file. Now backUpBeforeRemoval picks a free name (book-1.mp3,
+  "Vol. 2-1") and returns false on failure; only items whose files are in Backup (or had none) are deleted.
+  removeItems and the backup code moved to new Shared/Services/LibraryService+Backup.swift (registered in
+  both frameworks), so LibraryService+Sync.swift is 687 lines. New LibraryServiceBackupTests (6 tests).
+- e3e34bfe BP-07: handleZip removed the archive before checking success, from any folder. Now it's removed
+  only after extraction and only when isAppManagedSource; a failed one stays (the import screen offers it
+  again at launch); temporary extraction folders are removed in finish(); no more try! creating them; a
+  folder name is suggested only for an extracted archive. Unzip injectable. New ImportOperationArchiveTests
+  (4 tests). Not done: an on-screen message for a failed archive (new wording, Needs Becky).
+- 4cc76f77 BP-04: syncListContents takes the existing syncSession counter before fetching;
+  processContentsResponse checks it (new isSameSyncSession, no isActive read so callers' gating is
+  unchanged) before every mutation and the timestamp write. New SyncListSessionTests (2 tests).
+  SyncService.swift is now 1595 lines (was over 700 already).
+- BP-06 skipped for now: the fix changes LibraryServiceProtocol.findBooks (AutoMockable), and Sourcery isn't
+  installed on the Neo; the generated mock must not be hand-edited.
+- BP-05 left for the next batch: it's the hardest concurrency change, and nothing on this branch is built yet.
+- Nothing built or tested (the Neo doesn't build BookPlayer). Comments with the plan on -03, -04, -07.
