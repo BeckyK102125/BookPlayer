@@ -77,11 +77,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       return
     }
 
+    // SR7-02: if the window that showed Listen Together has closed, this one takes over.
+    mainCoordinator.claimListenTogetherUIIfFree()
+
     // Check if the app is on the PlayerViewController
     if mainCoordinator.hasPlayerShown() {
       // Notify controller to see if it should ask for review
       NotificationCenter.default.post(name: .requestReview, object: nil)
     }
+  }
+
+  func sceneDidDisconnect(_ scene: UIScene) {
+    mainCoordinator?.releaseListenTogetherUI()
   }
 
   func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {

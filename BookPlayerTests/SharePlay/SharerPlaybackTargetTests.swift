@@ -262,4 +262,68 @@ final class SharerPlaybackTargetTests: XCTestCase {
     target.applyPlay(at: 100, rate: 1)
     XCTAssertEqual(mock.playCallsCount, 1)
   }
+
+  // MARK: SR7-01: another book the sharer plays
+
+  /// The shared book is loaded at first; `switchToOtherBook()` loads a different one.
+  private func makeTargetSharingTheLoadedBook() -> SharerPlaybackTarget {
+    let shared = mock.currentItem!
+    let target = SharerPlaybackTarget(
+      playerManager: mock, sharedItemUUID: shared.uuid, seekCheckInterval: 1000,
+      now: { [unowned self] in self.clock }, deliversOnMainQueue: false)
+    self.target = target
+    target.localEvents.sink { [weak self] in self?.events.append($0) }.store(in: &bag)
+    return target
+  }
+
+  private func switchToOtherBook() {
+    mock.currentItem = PlayableItem.stub(currentTime: 50, duration: 600)
+  }
+
+  func testAnotherBooksPlayAndPauseNeverReachTheGroup() {
+    let target = makeTargetSharingTheLoadedBook()
+    switchToOtherBook()
+    playing.send(true)
+    playing.send(false)
+    XCTAssertTrue(events.isEmpty, "\(events)")
+    _ = target
+  }
+
+  func testAnotherBooksSpeedNeverReachesTheGroup() {
+    let target = makeTargetSharingTheLoadedBook()
+    switchToOtherBook()
+    speed.send(2)
+    XCTAssertTrue(events.isEmpty, "\(events)")
+    _ = target
+  }
+
+  func testStoppingTheSharedBookToSwitchBooksStillPausesTheGroup() {
+    let target = makeTargetSharingTheLoadedBook()
+    playing.send(true)
+    switchToOtherBook()           // the player loads the other book, then reports the stop
+    playing.send(false)
+    XCTAssertEqual(events, [.played(at: 100, rate: 1), .paused(at: 100)])
+    _ = target
+  }
+
+  func testTheGroupsPauseAndSpeedLeaveAnotherBookAlone() {
+    let target = makeTargetSharingTheLoadedBook()
+    switchToOtherBook()
+    mock.underlyingIsPlaying = true
+    target.applyPause(at: 100)
+    target.applyRate(1.5)
+    target.applyPlay(at: 100, rate: 2)
+    XCTAssertEqual(mock.pauseCallsCount, 0)
+    XCTAssertEqual(mock.setSpeedCallsCount, 0)
+    XCTAssertEqual(mock.playCallsCount, 0)
+  }
+
+  func testTheSharedBooksOwnEventsStillReachTheGroup() {
+    let target = makeTargetSharingTheLoadedBook()
+    playing.send(true)
+    speed.send(1.5)
+    XCTAssertEqual(events, [.played(at: 100, rate: 1), .rateChanged(1.5)])
+    target.applyPause(at: 100)
+    XCTAssertEqual(mock.pauseCallsCount, 1)
+  }
 }

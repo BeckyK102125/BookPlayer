@@ -65,6 +65,12 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   /// The shared book was playing when it was interrupted (so it resumes the group when allowed).
   private var resumesAfterInterruption = false
   private var lastStoppedPlayingAt: Date?
+  /// The book that was loaded when playback last started. A pause belongs to that book even if the
+  /// player has already switched to another one (SR7-01).
+  private var playingItemUUID: String?
+  /// The shared book's place the last time it was loaded here. A pause reported after the player has
+  /// switched to another book uses it, not `bookTime` (which is then the start position, or 0).
+  private var lastSharedBookTime: TimeInterval?
   /// The shared book's place: the player's while it holds that book, else where the share started
   /// (never 0, or another book's time, just because the player holds something else).
   var bookTime: TimeInterval {
@@ -94,6 +100,11 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   var holdsSharedBook: Bool {
     guard let current = playerManager.currentItem else { return false }
     return sharedItemUUID == nil || current.uuid == sharedItemUUID
+  }
+  /// `uuid` is the shared book (any book counts when no shared book is named).
+  private func isSharedBook(_ uuid: String?) -> Bool {
+    guard let uuid else { return false }
+    return sharedItemUUID == nil || uuid == sharedItemUUID
   }
   /// The player holds a book that is not the shared one: the group never plays or moves it.
   private var holdsOtherBook: Bool { playerManager.currentItem != nil && !holdsSharedBook }
@@ -195,6 +206,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
 
   private func sample(_ time: TimeInterval, at date: Date) {
     lastSample = (time, date, playerManager.currentItem?.uuid)
+    if holdsSharedBook { lastSharedBookTime = time }
   }
 
   /// Whether a group time may move this device. Before the group is established, only a time at this
@@ -268,7 +280,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
       subject.send(.heldPaused(at: self.bookTime))
       return
     }
-    if abs(rate - playerManager.currentSpeed) > 0.001 {
+    if !holdsOtherBook, abs(rate - playerManager.currentSpeed) > 0.001 {
       expectedRate = (rate, now())
       playerManager.setSpeed(rate)
     }
@@ -286,6 +298,11 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   }
 
   func applyPause(at bookTime: TimeInterval) {
+    // SR7-01: the group's Pause never stops another book the sharer is playing.
+    guard !holdsOtherBook else {
+      sample(self.bookTime, at: now())
+      return
+    }
     expectedIsPlaying = playerManager.isPlaying ? (false, now()) : nil
     playerManager.pause()
     // A pause never establishes the group (its time is this device's own) and never jumps before then.
@@ -325,7 +342,8 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   }
 
   func applyRate(_ rate: Float) {
-    guard abs(rate - playerManager.currentSpeed) > 0.001 else { return }
+    // SR7-01: the group's speed never changes another book the sharer is playing.
+    guard !holdsOtherBook, abs(rate - playerManager.currentSpeed) > 0.001 else { return }
     expectedRate = (rate, now())
     playerManager.setSpeed(rate)
   }
@@ -372,18 +390,29 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
     }
     let expected = expectedIsPlaying
     expectedIsPlaying = nil
+    // SR7-01: only the shared book's play and pause reach the group. A pause is judged by the book
+    // that was playing, so stopping the shared book to switch to another one still pauses the group.
+    if playing { playingItemUUID = playerManager.currentItem?.uuid }
+    let itemUUID = playing ? playerManager.currentItem?.uuid : (playingItemUUID ?? playerManager.currentItem?.uuid)
+    if !playing { playingItemUUID = nil }
+    guard isSharedBook(itemUUID) else { return }
+    if playing { lastSharedBookTime = bookTime }
     if let expected, expected.value == playing,
       now().timeIntervalSince(expected.date) <= Self.expectationLifetime
     {
       return
     }
-    sample(bookTime, at: now())
-    subject.send(playing ? .played(at: bookTime, rate: rate) : .paused(at: bookTime))
+    // The shared book's place, even when the player already holds the next book.
+    let time = holdsSharedBook ? bookTime : (lastSharedBookTime ?? bookTime)
+    sample(time, at: now())
+    subject.send(playing ? .played(at: time, rate: rate) : .paused(at: time))
   }
 
   private func handleSpeed(_ speed: Float) {
     let expected = expectedRate
     expectedRate = nil
+    // SR7-01: another book's speed (set by the sharer, or loaded with that book) stays on this phone.
+    guard holdsSharedBook else { return }
     if let expected, abs(expected.value - speed) < 0.001,
       now().timeIntervalSince(expected.date) <= Self.expectationLifetime
     {
@@ -396,6 +425,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
   func checkForSeek(now: Date) {
     let current = bookTime
     let uuid = playerManager.currentItem?.uuid
+    if holdsSharedBook { lastSharedBookTime = current }
     defer { lastSample = (current, now, uuid) }
     // A different (or no) book is a new baseline, never a seek.
     guard let last = lastSample, let uuid, last.uuid == uuid else { return }

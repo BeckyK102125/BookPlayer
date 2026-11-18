@@ -2019,3 +2019,26 @@ Start Testing dd0bde92 (Michael shares a book only he has; Becky sharing to Mich
   background (design choice; ending the share after N failures would need Becky's approval).
 - Next: Michael checks Settings, Playback, Listen Together; then a retest with Console logs from his phone
   searching "Listen Together" (look for "sharing started, ownersOnly=").
+
+## 2026-11-17 (Pro, Claude): SR7-01 and SR7-02 fixed (branch fix/sr7-01-02-sharer-and-windows)
+
+Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md, 5a4f4586).
+- SR7-01: a book the sharer plays from the library no longer controls the group. SharerPlaybackTarget
+  sends play and pause only for the shared book, judging a pause by the book that was playing
+  (`playingItemUUID`), so stopping the shared book to switch books still pauses the group. Speed events
+  need the shared book loaded. The group's Pause, speed and the speed in a group Play skip
+  PlayerManager while another book is loaded. A first test run caught that a pause sent after the
+  switch reported time 0 (bookTime is the start position then); it now uses `lastSharedBookTime`.
+- SR7-02: new ListenTogetherAppSession (one per process). The first MainCoordinator makes the
+  SharePlaySessionService; startOnce() runs ShareStorage.cleanAll(), startObservingSessions(), the
+  remote commands and Siri routing once. One window binds the Listen Together screens
+  (claimListenTogetherUIIfFree at start and sceneDidBecomeActive); sceneDidDisconnect releases it.
+  Not checked: whether GroupActivities delivers the session to every window, and an iPad two-window
+  run (needs the Pro with an iPad simulator).
+- Tests: 5 new SharerPlaybackTargetTests, new ListenTogetherAppSessionTests (5).
+  `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests` on iPhone 18 Pro
+  7B46F85F: "Executed 1848 tests, with 0 failures". TSan on SharerPlaybackTargetTests,
+  ListenTogetherAppSessionTests and ListenTogetherRemoteCommandsTests: 50 tests, 0 failures, no
+  ThreadSanitizer warnings. Simulator shut down and erased afterwards. 3949B098 no longer exists
+  (Start Speaking now has 1BC907C4).
+- First build failed: the default closures in ListenTogetherAppSession weren't @MainActor; fixed.
