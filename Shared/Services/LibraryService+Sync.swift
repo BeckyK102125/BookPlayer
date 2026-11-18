@@ -639,36 +639,6 @@ extension LibraryService: LibrarySyncProtocol {
     return String(relativePath[..<slash])
   }
 
-  public func removeItems(notIn identifiers: [String], parentFolder: String?) async {
-    return await withCheckedContinuation { continuation in
-      let context = dataManager.getBackgroundContext()
-      context.perform { [unowned self, context] in
-        guard
-          let items = getItems(notIn: identifiers, parentFolder: parentFolder, context: context)
-        else {
-          continuation.resume()
-          return
-        }
-
-        let backupFolderURL = DataManager.getBackupFolderURL()
-        let processedFolderURL = DataManager.getProcessedFolderURL()
-
-        /// Try to move files to backup folder before deleting
-        for item in items {
-          createBackup(
-            for: item,
-            parentFolder: parentFolder,
-            processedFolderURL: processedFolderURL,
-            backupFolderURL: backupFolderURL
-          )
-        }
-
-        try? delete(items, mode: .deep, context: context)
-        continuation.resume()
-      }
-    }
-  }
-  
   public func getItemResourcesSnapshot(for relativePath: String) -> (uuid: String, resources: [SyncableExternalResource])? {
     let context = self.dataManager.getBackgroundContext()
 
@@ -707,32 +677,6 @@ extension LibraryService: LibrarySyncProtocol {
     ]
 
     return try? context.fetch(fetchRequest).first
-  }
-
-  private func createBackup(
-    for item: SimpleLibraryItem,
-    parentFolder: String?,
-    processedFolderURL: URL,
-    backupFolderURL: URL
-  ) {
-    let fileURL = processedFolderURL.appendingPathComponent(item.relativePath)
-
-    guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-
-    if let parentFolder {
-      try? createFolderIfNeeded(for: parentFolder, inside: backupFolderURL)
-    }
-
-    let destinationURL = backupFolderURL.appendingPathComponent(item.relativePath)
-    try? FileManager.default.moveItem(atPath: fileURL.path, toPath: destinationURL.path)
-  }
-
-  private func createFolderIfNeeded(for folderPath: String, inside folderURL: URL) throws {
-    let url = folderURL.appendingPathComponent(folderPath)
-
-    if !FileManager.default.fileExists(atPath: url.path) {
-      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-    }
   }
 
   public func loadChaptersIfNeeded(relativePath: String) async {
