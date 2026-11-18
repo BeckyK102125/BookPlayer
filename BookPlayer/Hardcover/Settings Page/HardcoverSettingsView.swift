@@ -18,6 +18,14 @@ struct HardcoverSettingsView: View {
   @EnvironmentObject var theme: ThemeViewModel
 
   @StateObject var viewModel: HardcoverSettingsView.Model
+  /// SR7-10: signing in or out replaces the whole form, so the focused button disappears. Focus goes to
+  /// the element that says what happened.
+  @AccessibilityFocusState private var focusedField: Field?
+
+  enum Field: Hashable {
+    case account
+    case signIn
+  }
 
   /// Read by `HardcoverService` from the same suite; AppDelegate registers their defaults there
   @AppStorage(Constants.UserDefaults.hardcoverAutoMatch, store: UserDefaults.sharedDefaults)
@@ -50,17 +58,33 @@ struct HardcoverSettingsView: View {
     .alert("error_title".localized, isPresented: $viewModel.signInFailed) {
       Button("ok_button".localized, role: .cancel) {}
     } message: {
-      Text("hardcover_sign_in_failed_message".localized)
+      Text(viewModel.signInFailureMessage)
+    }
+    .onChange(of: viewModel.isSignedIn) { _, isSignedIn in
+      // SR7-10: the new form's first element gets focus, and a log-out is said after it.
+      focusedField = isSignedIn ? .account : .signIn
+      guard !isSignedIn else { return }
+      var announcement = AttributedString("hardcover_logged_out_announcement".localized)
+      // Low priority is queued after current speech, so it follows the focus move instead of cutting it off.
+      announcement.accessibilitySpeechAnnouncementPriority = .low
+      AccessibilityNotification.Announcement(announcement).post()
     }
   }
 
-  /// The Hardcover username, read from `me` when signing in
+  /// The Hardcover username, read from `me` when signing in. SR7-10: always a row (offline, the name
+  /// may be missing), so the section is never an empty header and focus has somewhere to land.
   var accountSection: some View {
     ThemedSection {
-      if let username = viewModel.connectedUsername {
-        Text(username)
-          .foregroundStyle(theme.primaryColor)
+      Group {
+        if let username = viewModel.connectedUsername {
+          Text(username)
+            .accessibilityLabel(String.localizedStringWithFormat("hardcover_signed_in_as".localized, username))
+        } else {
+          Text("hardcover_signed_in".localized)
+        }
       }
+      .foregroundStyle(theme.primaryColor)
+      .accessibilityFocused($focusedField, equals: .account)
     } header: {
       Text("account_title".localized)
         .foregroundStyle(theme.secondaryColor)
@@ -154,6 +178,7 @@ struct HardcoverSettingsView: View {
       .controlSize(.large)
       .tint(theme.linkColor)
       .disabled(viewModel.isSigningIn)
+      .accessibilityFocused($focusedField, equals: .signIn)
       .listRowBackground(Color.clear)
       .listRowInsets(EdgeInsets())
     } header: {
@@ -187,6 +212,8 @@ extension HardcoverSettingsView {
     @Published var connectedUsername: String?
     @Published var isSigningIn = false
     @Published var signInFailed = false
+    /// The alert's message: a failed sign-in, or (SR7-05) a build without a Hardcover client id
+    @Published var signInFailureMessage = "hardcover_sign_in_failed_message".localized
 
     @MainActor
     func onLogOutTapped() {}

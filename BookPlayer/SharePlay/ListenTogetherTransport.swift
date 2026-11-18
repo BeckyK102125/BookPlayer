@@ -409,7 +409,8 @@ final class ListenTogetherParticipantDirectory {
 /// waits more than `limit`; the session is left whatever happens.
 @MainActor
 enum ListenTogetherDecline {
-  static let limit: Duration = .seconds(3)
+  /// SR7-04: long enough to join from a slow network or a phone just unlocked (3 s often wasn't).
+  static let limit: Duration = .seconds(10)
 
   static func sendAndLeave(_ session: GroupSession<ListenTogetherActivity>) {
     let messenger = GroupSessionMessenger(session: session, deliveryMode: .reliable)

@@ -1005,6 +1005,10 @@
 		A13B98C548AA6BFD0E6FC0C7 /* PreferencesSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D25EF2A5FFF30CF12F2C21 /* PreferencesSyncService.swift */; };
 		A1AE458AACC76CD32490D4A0 /* ListenTogetherSharingSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */; };
 		73CBD8380D476C4231FFF506 /* ListenTogetherAppSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAC758E09CFF98900B6094CC /* ListenTogetherAppSessionTests.swift */; };
+		9F9892DDEED98794FB0D1FA4 /* ListenerPlayerResetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D5E9B7893A23DEA76FE0AB /* ListenerPlayerResetTests.swift */; };
+		3AB57A1C2EDB1D62D2CF8B9B /* ListenTogetherDeclineNoticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61E2B8DA805FD50545C2A124 /* ListenTogetherDeclineNoticeTests.swift */; };
+		4AAB82C35278D392051B2517 /* ListenTogetherGiveUpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42EC0EF239134335CC2A62F9 /* ListenTogetherGiveUpTests.swift */; };
+		2334363EBD68DE2E5B768B94 /* ListenTogetherJoinConfirmationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C5C3C60FA9366C1BFDBBD9 /* ListenTogetherJoinConfirmationTests.swift */; };
 		A34DA648F3EF87A9E11631B3 /* IntegrationAudiobookDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424AE6DFF6B641DB69DF3D78 /* IntegrationAudiobookDetailsView.swift */; };
 		A7A0756EBA206652A801B9D3 /* VideoPlayerSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2107EC31217A7421B2BA6A /* VideoPlayerSurface.swift */; };
 		A7FA45CB2BD6567C9B5EA372 /* IntegrationTagsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643E169A5F153B754F726AE1 /* IntegrationTagsView.swift */; };
@@ -1081,6 +1085,7 @@
 		E67C43B68DF4A0065814E5D8 /* SharePlaySessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDB451CAD8F28EF933A6464 /* SharePlaySessionService.swift */; };
 		E69D485D82A6A4CB4A4EEA9B /* SharerPlaybackTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */; };
 		1185D7B614B3D3B9C23C2C0F /* ListenTogetherAppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F32EF02188E1C9B510272F02 /* ListenTogetherAppSession.swift */; };
+		393A6BFF16CC7CAD535456D6 /* MainCoordinator+ListenTogetherJoin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A996B1644BCA729CD9C503 /* MainCoordinator+ListenTogetherJoin.swift */; };
 		E936404280A9AD9DB48225E8 /* ListenTogetherCoordinatorBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */; };
 		EA7A42DA9E50726F43278CD9 /* ListenTogetherRemoteCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C94F2DB74643E01D271C81 /* ListenTogetherRemoteCommandsTests.swift */; };
 		EB504E3FBCC49961EA1C692A /* ListenTogetherContrast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5C4FE89FA7C5FCBE34E1EC /* ListenTogetherContrast.swift */; };
@@ -1260,6 +1265,10 @@
 		056B7A76F1A44CEC30562382 /* IntegrationQuickConnectViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationQuickConnectViews.swift; sourceTree = "<group>"; };
 		087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherSharingSheetTests.swift; path = ListenTogetherSharingSheetTests.swift; sourceTree = "<group>"; };
 		EAC758E09CFF98900B6094CC /* ListenTogetherAppSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherAppSessionTests.swift; path = ListenTogetherAppSessionTests.swift; sourceTree = "<group>"; };
+		72D5E9B7893A23DEA76FE0AB /* ListenerPlayerResetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenerPlayerResetTests.swift; path = ListenerPlayerResetTests.swift; sourceTree = "<group>"; };
+		61E2B8DA805FD50545C2A124 /* ListenTogetherDeclineNoticeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherDeclineNoticeTests.swift; path = ListenTogetherDeclineNoticeTests.swift; sourceTree = "<group>"; };
+		42EC0EF239134335CC2A62F9 /* ListenTogetherGiveUpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherGiveUpTests.swift; path = ListenTogetherGiveUpTests.swift; sourceTree = "<group>"; };
+		E4C5C3C60FA9366C1BFDBBD9 /* ListenTogetherJoinConfirmationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherJoinConfirmationTests.swift; path = ListenTogetherJoinConfirmationTests.swift; sourceTree = "<group>"; };
 		0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherCoordinatorBridge.swift; path = ListenTogetherCoordinatorBridge.swift; sourceTree = "<group>"; };
 		0AF8478D8CF5C6D6C0B4EA68 /* ListenTogetherRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherRowTests.swift; path = ListenTogetherRowTests.swift; sourceTree = "<group>"; };
 		03ABF38C1641BC9BCAD3213B /* el */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = el; path = el.lproj/Intents.strings; sourceTree = "<group>"; };
@@ -1573,6 +1582,7 @@
 		43D61F68F0A174C7CA44FE8A /* IntegrationConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationConnectionView.swift; sourceTree = "<group>"; };
 		440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharerPlaybackTarget.swift; path = SharerPlaybackTarget.swift; sourceTree = "<group>"; };
 		F32EF02188E1C9B510272F02 /* ListenTogetherAppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListenTogetherAppSession.swift; path = ListenTogetherAppSession.swift; sourceTree = "<group>"; };
+		62A996B1644BCA729CD9C503 /* MainCoordinator+ListenTogetherJoin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "MainCoordinator+ListenTogetherJoin.swift"; path = "MainCoordinator+ListenTogetherJoin.swift"; sourceTree = "<group>"; };
 		460C44CA8D12999063AD0751 /* SharePlaySessionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharePlaySessionServiceTests.swift; path = SharePlaySessionServiceTests.swift; sourceTree = "<group>"; };
 		4645F9FC2D1E46AC00A04257 /* SwipeInlineTip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeInlineTip.swift; sourceTree = "<group>"; };
 		465D87512D3195D600A4AA47 /* BookmarksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksView.swift; sourceTree = "<group>"; };
@@ -4353,6 +4363,7 @@
 				FBDF4E23AD17EC33CA5917E0 /* ListenTogetherPlaybackTarget.swift */,
 				440F41D5B7BD9DB6FFDE5053 /* SharerPlaybackTarget.swift */,
 				F32EF02188E1C9B510272F02 /* ListenTogetherAppSession.swift */,
+				62A996B1644BCA729CD9C503 /* MainCoordinator+ListenTogetherJoin.swift */,
 				646948F68C4B3D542C9C2BC5 /* ListenerPlayer.swift */,
 				0A4E42578EC12D394DED2382 /* ListenTogetherCoordinatorBridge.swift */,
 				B74545FEB52503CC5A27EF3F /* ListenTogetherAnnouncer.swift */,
@@ -4422,6 +4433,10 @@
 				0AF8478D8CF5C6D6C0B4EA68 /* ListenTogetherRowTests.swift */,
 				087041B19265342FE50D58C0 /* ListenTogetherSharingSheetTests.swift */,
 				EAC758E09CFF98900B6094CC /* ListenTogetherAppSessionTests.swift */,
+				72D5E9B7893A23DEA76FE0AB /* ListenerPlayerResetTests.swift */,
+				61E2B8DA805FD50545C2A124 /* ListenTogetherDeclineNoticeTests.swift */,
+				42EC0EF239134335CC2A62F9 /* ListenTogetherGiveUpTests.swift */,
+				E4C5C3C60FA9366C1BFDBBD9 /* ListenTogetherJoinConfirmationTests.swift */,
 				00D74752827A36453D67F129 /* ListenTogetherOwnPlaybackTests.swift */,
 				E9A64EBB8FD73F4A099D0CD6 /* ListenTogetherLeaveAlertTests.swift */,
 				F5734518AC2A2F53C332D9A2 /* BookFingerprintTests.swift */,
@@ -5668,6 +5683,7 @@
 				84544DF4BCA7595981C2F554 /* ListenTogetherPlaybackTarget.swift in Sources */,
 				E69D485D82A6A4CB4A4EEA9B /* SharerPlaybackTarget.swift in Sources */,
 				1185D7B614B3D3B9C23C2C0F /* ListenTogetherAppSession.swift in Sources */,
+				393A6BFF16CC7CAD535456D6 /* MainCoordinator+ListenTogetherJoin.swift in Sources */,
 				04DF4FC999D5E2228471F17F /* ListenerPlayer.swift in Sources */,
 				E936404280A9AD9DB48225E8 /* ListenTogetherCoordinatorBridge.swift in Sources */,
 				1ACB4F598CA8DB990495EB26 /* ListenTogetherAnnouncer.swift in Sources */,
@@ -5793,6 +5809,10 @@
 				E25B40E7827FFB7EC41EF252 /* ListenTogetherRowTests.swift in Sources */,
 				A1AE458AACC76CD32490D4A0 /* ListenTogetherSharingSheetTests.swift in Sources */,
 				73CBD8380D476C4231FFF506 /* ListenTogetherAppSessionTests.swift in Sources */,
+				9F9892DDEED98794FB0D1FA4 /* ListenerPlayerResetTests.swift in Sources */,
+				3AB57A1C2EDB1D62D2CF8B9B /* ListenTogetherDeclineNoticeTests.swift in Sources */,
+				4AAB82C35278D392051B2517 /* ListenTogetherGiveUpTests.swift in Sources */,
+				2334363EBD68DE2E5B768B94 /* ListenTogetherJoinConfirmationTests.swift in Sources */,
 				87A24E72A051ABE36243474C /* ListenTogetherOwnPlaybackTests.swift in Sources */,
 				DFF146D99B7396A6685E66F9 /* ListenTogetherLeaveAlertTests.swift in Sources */,
 				897943A79F2F441043726420 /* BookFingerprintTests.swift in Sources */,

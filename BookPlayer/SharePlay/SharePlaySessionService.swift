@@ -15,8 +15,8 @@ enum ListenTogetherState: Equatable {
 
   enum EndReason: Equatable {
     case normal
-    /// Sharer: the book couldn't be prepared at all (its files couldn't be read), so nothing could be
-    /// sent and the session ended (E14). A piece failure never ends a session (decision 5).
+    /// Sharer: the book couldn't be prepared (its files couldn't be read, or one piece failed for good
+    /// or `PieceRetryPolicy.failureLimit` times, SR7-03), so the session ended (E14).
     case prepareFailed
     case unavailable
     /// Listener: the person sharing pressed End (addendum 3, decision 9).
@@ -34,6 +34,9 @@ enum ListenTogetherState: Equatable {
     /// Listener with their own copy: a file couldn't be played (gone, or failed three times), so this
     /// phone left (final review I1). One alert says why.
     case ownCopyFailed
+    /// Listener: a piece received from the person sharing couldn't be played after
+    /// `receivedPieceFailureLimit` tries, so this phone left (SR7-03). One alert says why.
+    case receivedPieceFailed
     /// Sharer (build 6): the last listener left, so Listen Together ended for everyone. One alert says why.
     case everyoneLeft
   }
@@ -403,6 +406,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func setWaitingForListeners(_ value: Bool) { if isWaitingForListeners != value { isWaitingForListeners = value } }
   /// An own file that fails this many times makes this phone leave.
   static let ownCopyFailureLimit = 3
+  /// SR7-03: a received piece that fails to play this many times makes this phone leave (about a minute
+  /// of reloads), instead of reloading it every 30 seconds for the rest of the session.
+  static let receivedPieceFailureLimit = 5
   private var appStateObservation: AnyCancellable?
   /// The app terminating (transfer fix, item 4).
   private var appExitObservations = Set<AnyCancellable>()
@@ -1007,8 +1013,9 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let decline = pendingInvitationDecline ?? pendingInvitation.map(Self.decline(for:))
     clearInvitation()
     if isShowingInvitation { state = .idle }
-    // A newer notice replaces an older one that was never shown: that one is left without a message.
-    noticeDecline?.abandon()
+    // A newer notice replaces an older one that was never shown. SR7-04: its decline is still sent, so
+    // the sharer learns why that person didn't join.
+    noticeDecline?.send()
     noticeDecline = decline
     let notice = ListenTogetherNeedsCopyNotice(bookTitle: bookTitle, cause: cause, createdAt: now())
     resetNeedsCopyAging()
@@ -1070,12 +1077,13 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   /// invitation it explains is long gone: it is discarded unshown (no alert, no decline message).
   static let needsCopyNoticeLifetime: TimeInterval = 60
 
-  /// True when a notice is waiting and still young enough to show. A too-old notice is discarded here
-  /// (its session is left without a message). Checked before every presentation attempt.
+  /// True when a notice is waiting and still young enough to show. A too-old notice is discarded here.
+  /// SR7-04: its decline is sent anyway (it was left without one, so the sharer never learned why).
+  /// Checked before every presentation attempt.
   func needsCopyNoticeIsCurrent() -> Bool {
     guard let notice = needsCopyNotice else { return false }
     guard needsCopyNoticeAge(notice) > Self.needsCopyNoticeLifetime else { return true }
-    noticeDecline?.abandon()
+    noticeDecline?.send()
     clearNeedsCopyNotice()
     return false
   }
@@ -1121,8 +1129,8 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
   func acknowledgeNeedsCopyNotice() {
     resetNeedsCopyAging()
     needsCopyNotice = nil
-    // Never shown (should not happen: only the alert acknowledges): leave without a message.
-    noticeDecline?.abandon()
+    // Never shown (should not happen: only the alert acknowledges). SR7-04: the decline is still sent.
+    noticeDecline?.send()
     noticeDecline = nil
     noticeObservation = nil
   }
@@ -1415,13 +1423,14 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
     let message = ListenTogetherUserMessage.ending(for: reason, wasListener: wasListener)
     if announces, message == nil { announcer.announce(announcement ?? ListenTogetherAnnouncements.ended()) }
     Self.logger.info("Listen Together: session ended, reason=\(String(describing: reason), privacy: .public)")
-    if wasListener, [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .ownCopyFailed].contains(reason) {
+    if wasListener, [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .ownCopyFailed, .receivedPieceFailed]
+      .contains(reason) {
       endNotice = reason
     }
     // Never offered or joined again in this app session. `.unavailable` has no share (it ends before
     // one starts), and an own End or Leave records it before tearing down.
     if [.sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .prepareFailed, .connectionEnded, .ownCopyFailed,
-      .everyoneLeft]
+      .receivedPieceFailed, .everyoneLeft]
       .contains(reason),
       let shareID
     {

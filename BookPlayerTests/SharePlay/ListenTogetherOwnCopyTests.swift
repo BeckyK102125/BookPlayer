@@ -733,12 +733,12 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     transport.emit(.participantsChanged(count: 2, ids: [me, decliner]))
     transport.emit(.participantDeclined(id: decliner))
     await flush(transport)
-    XCTAssertEqual(posted, ["listen_together_declined_no_copy".localized])
+    XCTAssertEqual(posted, ["listen_together_declined_no_copy_full".localized])
     XCTAssertEqual(service.state, .sharing(participants: 1))
     runScheduled()
     transport.emit(.participantsChanged(count: 1, ids: [me]))
     await flush(transport)
-    XCTAssertEqual(posted, ["listen_together_declined_no_copy".localized], "no joined, no left")
+    XCTAssertEqual(posted, ["listen_together_declined_no_copy_full".localized], "no joined, no left")
     XCTAssertEqual(service.state, .sharing(participants: 1))
   }
 
@@ -752,7 +752,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     transport.emit(.participantDeclined(id: UUID()))
     transport.emit(.participantDeclined(id: UUID()))
     await flush(transport)
-    XCTAssertEqual(posted, ["listen_together_declined_no_copy".localized])
+    XCTAssertEqual(posted, ["listen_together_declined_no_copy_full".localized])
     clock = clock.addingTimeInterval(11)
     transport.emit(.participantDeclined(id: UUID()))
     await flush(transport)
@@ -876,7 +876,8 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertEqual(abandoned, 0, "the session is already gone")
   }
 
-  /// Fix round 2 (N1): a notice older than 60 s is discarded unshown: no alert, no decline message.
+  /// Fix round 2 (N1): a notice older than 60 s is discarded unshown, with no alert. SR7-04: its decline
+  /// is still sent, so the sharer learns why that person didn't join.
   func testANoticeOlderThanTheLimitIsDiscardedUnshown() async {
     let service = makeService()
     var clock = Date(timeIntervalSince1970: 5_000)
@@ -890,12 +891,14 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     clock = clock.addingTimeInterval(2)
     XCTAssertFalse(service.needsCopyNoticeIsCurrent())
     XCTAssertNil(service.needsCopyNotice)
+    XCTAssertEqual(sent, 1, "the decline is sent when the notice is discarded")
     service.needsCopyNoticePresented()
-    XCTAssertEqual(sent, 0)
-    XCTAssertEqual(abandoned, 1, "left without a message")
+    XCTAssertEqual(sent, 1, "and only once")
+    XCTAssertEqual(abandoned, 0)
   }
 
-  func testANewerNoticeAbandonsTheOlderPendingDecline() async {
+  /// SR7-04: a newer notice still sends the older one's decline.
+  func testANewerNoticeSendsTheOlderPendingDecline() async {
     let service = makeService()
     var log: [String] = []
     await service.prepareInvitation(
@@ -905,7 +908,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
       details(ownersOnly: true),
       decline: ListenTogetherPendingDecline(send: { log.append("send 2") }, abandon: { log.append("abandon 2") }))
     service.needsCopyNoticePresented()
-    XCTAssertEqual(log, ["abandon 1", "send 2"])
+    XCTAssertEqual(log, ["send 1", "send 2"])
   }
 
   /// code M2: a check that ran out of time doesn't claim the book is missing.
@@ -978,7 +981,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     transport.emit(.participantDeclined(id: late))
     transport.emit(.participantsChanged(count: 1, ids: [me]))
     await flush(transport)
-    XCTAssertEqual(posted, ["listen_together_declined_no_copy".localized])
+    XCTAssertEqual(posted, ["listen_together_declined_no_copy_full".localized])
     XCTAssertEqual(service.state, .sharing(participants: 1))
   }
 

@@ -16,9 +16,11 @@ import SwiftUI
 @MainActor
 final class HardcoverSettingsViewModel: HardcoverSettingsView.Model {
   private var hardcoverService: HardcoverServiceProtocol
+  private let clientId: String
 
-  init(hardcoverService: HardcoverServiceProtocol) {
+  init(hardcoverService: HardcoverServiceProtocol, clientId: String = HardcoverOAuth.clientId) {
     self.hardcoverService = hardcoverService
+    self.clientId = clientId
 
     super.init(
       isSignedIn: hardcoverService.isSignedInWithOAuth,
@@ -41,6 +43,13 @@ final class HardcoverSettingsViewModel: HardcoverSettingsView.Model {
 
   @MainActor
   override func onSignInTapped(authenticate: @escaping (URL) async throws -> URL) async {
+    // SR7-05: without a client id Hardcover's page can only show an error; say so here instead
+    guard !clientId.isEmpty else {
+      signInFailureMessage = "hardcover_sign_in_unavailable_message".localized
+      signInFailed = true
+      return
+    }
+    signInFailureMessage = "hardcover_sign_in_failed_message".localized
     isSigningIn = true
     defer { isSigningIn = false }
 

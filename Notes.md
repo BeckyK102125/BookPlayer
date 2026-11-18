@@ -2054,3 +2054,40 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
 - Correction to the 2026-11-16 entry: the "Only people who have the book can join" setting can't explain
   the both-have-it case (owners may join). The failure follows Michael as sharer, not the copy path.
 - Commented on Start Testing dd0bde92 with this. Becky moved the discussion to the Neo; no code changed.
+
+## 2026-11-18 - SR7 Medium fixes (branch fix/sr7-mediums, from develop 85bd7833)
+- Becky: "take care of these high safe alone issues and the medium issues"; her go-ahead covers the wording.
+- SR7-03: a piece that can't be sent ends the share after `PieceRetryPolicy.failureLimit` (8) tries, or at
+  once for a permanent error (`isPermanent`: no local file, piece too large, disk full, file gone, also
+  through NSUnderlyingErrorKey). The screen may lock during the back-off wait. A listener whose received
+  piece fails to play `receivedPieceFailureLimit` (5) times leaves with "Part of the shared book couldn't
+  be played on this iPhone. You left Listen Together." (new EndReason.receivedPieceFailed, message
+  .pieceUnplayable). A media services reset clears the decode-failure counts.
+  This replaces Addendum 3 decision 5 ("never ends the session"): testUploadFailureKeepsTheSessionAndRetries
+  now checks limit-1 failures keep the share.
+- SR7-04: a turned-away listener reaches the sharer as a spoken status (`.someoneCouldNotJoin`, also when
+  the app is away) naming the setting; the alone row reads "sharing, someone couldn't join because they
+  don't have the book". Decline notices are sent, not abandoned, when replaced; the decline wait is 10 s.
+  The settings footer says "Having the book means having the same recording of it in BookPlayer."
+- SR7-05: Hardcover sign-in with no BP_HARDCOVER_CLIENT_ID fails at once with "Hardcover sign-in isn't set
+  up in this build of BookPlayer." Becky still decides whether to keep Hardcover.
+- SR7-06: Join over a sheet other than the player asks first ("Close the Open Screen?", Join / Cancel).
+  New MainCoordinator+ListenTogetherJoin.swift. The pbxproj needs quotes around a name with "+":
+  the first build failed with "not a valid property list" until they were added.
+- SR7-08: ListenerPlayer handles mediaServicesWereReset (reconfigures the session, rebuilds the queue at
+  the same place, resumes if it was playing).
+- SR7-10: Hardcover settings move VoiceOver focus to the account row on sign-in and to Sign In on
+  log-out, then a low-priority (queued) "logged out" announcement. `accessibilitySpeechQueueAnnouncement`
+  isn't a SwiftUI AttributedString attribute; low priority queues instead.
+- SR7-11: in journal mode each piece file is deleted from tmp once the journal has it; chunk mode keeps
+  them for late joiners.
+- Settings Listen Together row shows its value with LabeledContent.
+- Not done: SR7-07 (sleep timer) and SR7-09 (smart rewind) need PlayerManager changes: Becky approves.
+- Build errors fixed on the way: AVError has no fileNotFound (dropped; .noLocalFile covers it).
+- Tests: `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests` on iPhone 18
+  Pro 7B46F85F: "Executed 1863 tests, with 0 failures". TSan (`-enableThreadSanitizer YES`) on the 7 touched SharePlay
+  test classes: 104 tests, 0 failures, no ThreadSanitizer warnings. Simulator shut down and erased. New: ListenTogetherGiveUpTests,
+  ListenTogetherDeclineNoticeTests, ListenerPlayerResetTests, ListenTogetherJoinConfirmationTests.
+- dd0bde92 talk with Becky: the failure follows Michael as sharer. Unverified idea: low storage on his
+  phone made piece export fail and retry silently forever; after SR7-03 his phone would say "Couldn't
+  prepare the book for sharing". Asked for his free storage, iOS version and build.
