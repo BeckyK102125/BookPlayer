@@ -1,7 +1,7 @@
 # context.md - current snapshot
 
 Date: 2026-11-18
-Branch: fix/sr7-07-09 (from develop b578b168), not pushed. develop is 19+ commits ahead of origin/develop.
+Branch: develop at b9fe9f06 (fix/sr7-07-09 fast-forwarded in), not pushed. develop is 20+ commits ahead of origin/develop.
 
 ## Goal
 Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
@@ -20,7 +20,7 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
   into develop with Becky's approval.
 - November 18: SR7-03, 04, 05, 06, 08, 10, 11 fixed (b578b168), fast-forwarded into develop with Becky's OK.
 - November 18: SR7-07 (sleep timer pauses the group while listening) and SR7-09 (group Play skips Smart
-  Rewind and the auto timer) fixed on fix/sr7-07-09, Becky approved the PlayerManager change. Not merged.
+  Rewind and the auto timer) fixed on fix/sr7-07-09, Becky approved the PlayerManager change. Fast-forwarded into develop with Becky's OK.
 - November 12: Codex recheck of the October 23 audit; BP-20261112-03 to -22 open in Start Testing.
 
 ## Test results

@@ -2118,3 +2118,9 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   ListenTogetherStartPositionTests, ListenTogetherEveryoneLeftTests, ListenTogetherSleepTimerTests,
   ListenTogetherRemoteCommandsTests, ListenerPlayerResetTests: 133 tests, 0 failures, no warnings.
   Simulator shut down and erased. Device checks still needed (two phones).
+
+## 2026-11-18: fix/sr7-07-09 merged into develop
+
+- Becky said "Yes, merge". `git merge --ff-only fix/sr7-07-09` on develop: b578b168 to b9fe9f06, fast-forward.
+- Tests were the ones run on the branch (1866 tests, 0 failures; TSan 133 tests clean). Not pushed.
+- Still needed: two-phone checks of SR7-07 and SR7-09.
