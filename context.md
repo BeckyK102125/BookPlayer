@@ -17,9 +17,6 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 - November 20: Becky decided SR7-05: leave Hardcover alone (sign-in shows "isn't set up in this build").
 - November 16: merged 13 upstream TortugaPower commits (up to 6027e850) as aa1d5632; the 13 newer ones
   (PlayerManager moved behind PlaybackEngine) are held back until Becky approves PlayerManager changes.
-- November 16: investigated Start Testing dd0bde92 (Michael's share of a book only he has failed; Becky's
-  worked). No code defect found. MP3 and M4B cutting proven by new BookSplitterTests. Likeliest cause:
-  Michael's phone set to "Only people who have the book can join" (per-device setting). Details in Notes.md.
 - November 17: Swift Reviewer SR7 audit (Review.md 5a4f4586): 15 findings in Start Testing. Not ready for
   TestFlight 7 until SR7-01 and SR7-02 are fixed and Becky decides SR7-05 (Hardcover client id).
 - November 17: SR7-01 (sharer's other book controlled the group) and SR7-02 (second window deleted the
@@ -34,7 +31,6 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 - 2026-11-16 full unit suite on develop after the merge, iPhone 17 Pro simulator:
   `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests`
   "Executed 1838 tests, with 0 failures".
-- 2026-11-17 at fab311c9 (now develop): 1848 tests, 0 failures; TSan on the three touched test classes clean.
 - 2026-11-18 on fix/sr7-mediums: 1863 tests, 0 failures; TSan on 7 touched SharePlay classes clean.
 - 2026-11-18 on fix/sr7-07-09: 1866 tests, 0 failures; TSan on 6 touched classes clean.
 - Whole-suite TSan has a known DirectoryWatcher race.
