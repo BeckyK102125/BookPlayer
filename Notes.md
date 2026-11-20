@@ -2151,3 +2151,6 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   her on-device VoiceOver testing goes to that chat by message (app and device, count and urgency, each
   scenario with what it proves, numbered VoiceOver steps, expected result, one yes-or-no question). Build
   already on the phone first. Don't ask Becky to test in this chat. No iPad or iPhone Duo tests.
+- 2026-11-20 later: testing coordinator now makes the Start Testing updates for device tests (passed:
+  comment, milestone, assign Taylor, Needs Review, drop " - Claude"; failed: comments or files and sends the
+  ID). Every test sent to it must name the branch and the full commit of the installed build.
