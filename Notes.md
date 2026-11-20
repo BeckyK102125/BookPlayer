@@ -2147,3 +2147,7 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   check (Friday evening is Becky's time). Waiting for Becky's explicit OK, or Monday daytime.
 - Becky: SR7-05 Hardcover left alone (no client id; sign-in fails with a clear message). No iPad: SR7-02 is
   checked on an iPad simulator only. Swift 6 question for the upstream PR raised.
+- 2026-11-20 later: Becky's new rule (via the On-device testing coordinator chat, local_2c35a663): all of
+  her on-device VoiceOver testing goes to that chat by message (app and device, count and urgency, each
+  scenario with what it proves, numbered VoiceOver steps, expected result, one yes-or-no question). Build
+  already on the phone first. Don't ask Becky to test in this chat. No iPad or iPhone Duo tests.

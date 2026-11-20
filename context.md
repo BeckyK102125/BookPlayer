@@ -40,6 +40,7 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 0. Build and run the full unit suite on merge/upstream-player-engine (Pro slot), fix fallout, TSan on
    touched classes, then fast-forward develop (Becky approved the merge). Then phone checks SR7-01, 07, 09
    on two iPhones on the merged build; SR7-02 on an iPad simulator only (Becky has no iPad).
+   Phone tests go to the On-device testing coordinator chat (local_2c35a663), never to Becky directly.
 1. dd0bde92 (continuing on the Neo): Michael's shares fail even when both have the book, so the
    owners-only guess is wrong. Find what differs when Michael's phone shares; get Console logs from it.
 2. Retest dd0bde92 with both phones and Console logs ("Listen Together") from Michael's phone.
