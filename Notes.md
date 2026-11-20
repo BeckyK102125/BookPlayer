@@ -2124,3 +2124,8 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
 - Becky said "Yes, merge". `git merge --ff-only fix/sr7-07-09` on develop: b578b168 to b9fe9f06, fast-forward.
 - Tests were the ones run on the branch (1866 tests, 0 failures; TSan 133 tests clean). Not pushed.
 - Still needed: two-phone checks of SR7-07 and SR7-09.
+
+## 2026-11-20 - develop pushed, chat replaced
+- Becky approved: pushed develop b578b168..075673a4 (SR7-07/09 fixes and notes), fast-forward, GitHub had
+  nothing new. dd0bde92 has no news since 2026-11-18 (no Neo comment). The "Book Player markdown chats"
+  chat was replaced with a fresh one (replace-chat) because it had auto-compacted.

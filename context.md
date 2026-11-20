@@ -1,7 +1,7 @@
 # context.md - current snapshot
 
-Date: 2026-11-18
-Branch: develop at b9fe9f06 (fix/sr7-07-09 fast-forwarded in), not pushed. develop is 20+ commits ahead of origin/develop.
+Date: 2026-11-20
+Branch: develop, pushed to GitHub at 075673a4 (all SR7 fixes). This notes commit is local only.
 
 ## Goal
 Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
@@ -37,15 +37,14 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 1. dd0bde92 (continuing on the Neo): Michael's shares fail even when both have the book, so the
    owners-only guess is wrong. Find what differs when Michael's phone shares; get Console logs from it.
 2. Retest dd0bde92 with both phones and Console logs ("Listen Together") from Michael's phone.
-3. Becky: approve merging fix/sr7-07-09; decide SR7-05 (keep Hardcover?). Then TestFlight 7. Device checks: SR7-01 on two phones,
-   SR7-02 with two iPad windows.
+3. Becky: decide SR7-05 (Hardcover client id, or ship without sign-in). dd0bde92 is a TestFlight 7 blocker.
+   Device checks: SR7-01, SR7-07, SR7-09 on two phones; SR7-02 with two iPad windows.
 4. BP-20261112-03 to -10 (P1), then the P2 findings; read item status and comments first.
 5. Split files over 700 lines: SharePlaySessionService.swift, SharePlaySessionService+Session.swift
    (1785), ListenerPlayer.swift.
 6. Mark the new Listen Together strings for translation before a release.
 
 ## Open questions for Becky
-- Push develop (merge plus tests) to GitHub?
 - Merge the 13 newer upstream commits (they change PlayerManager)?
 - dd0bde92: Michael's free storage, iOS version and BookPlayer build.
 
