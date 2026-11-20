@@ -161,7 +161,7 @@ class ActionParserService {
       return
     }
 
-    let url = URL(fileURLWithPath: urlString)
+    let url = action.fileURL ?? URL(fileURLWithPath: urlString)
     self.removeAction(action)
     mainCoordinator.processFiles(urls: [url])
   }
@@ -197,7 +197,7 @@ class ActionParserService {
         self.removeAction(action)
         mainCoordinator.loadPlayer(
           bookIdentifier,
-          autoplay: true,
+          intent: .wantsToPlay(.user),
           showPlayer: true
         )
       }
@@ -270,7 +270,7 @@ class ActionParserService {
     self.removeAction(action)
     mainCoordinator.loadPlayer(
       bookIdentifier,
-      autoplay: true,
+      intent: .wantsToPlay(.user),
       showPlayer: true
     )
   }

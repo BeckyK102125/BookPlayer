@@ -6,29 +6,24 @@
 //  Copyright © 2024 BookPlayer LLC. All rights reserved.
 //
 
-#if os(watchOS)
-  import BookPlayerWatchKit
-#else
-  import BookPlayerKit
-#endif
 import Foundation
 
 @Observable
-final class PlayerLoaderService: @unchecked Sendable {
-  var syncService: SyncService!
-  var libraryService: LibraryService!
-  var playbackService: PlaybackServiceProtocol!
-  var playerManager: PlayerManagerProtocol!
+public final class PlayerLoaderService: @unchecked Sendable {
+  public var syncService: SyncService!
+  public var libraryService: LibraryService!
+  public var playbackService: PlaybackServiceProtocol!
+  public var playerManager: PlayerManagerProtocol!
   /// Asked before a book starts playing through this service. The main app sets it (Listen Together:
   /// during a listener session it asks "Leave Listen Together to play this book?"). nil means play.
   /// The argument is the title of the book that would start (nil when unknown).
-  @ObservationIgnored var playbackStartGate: (@MainActor (_ bookTitle: String?) async -> Bool)?
+  @ObservationIgnored public var playbackStartGate: (@MainActor (_ bookTitle: String?) async -> Bool)?
 
-  init() {}
+  public init() {}
 
   /// Whether a book may start playing now (see `playbackStartGate`).
   @MainActor
-  func mayStartPlayback(bookTitle: String? = nil) async -> Bool {
+  public func mayStartPlayback(bookTitle: String? = nil) async -> Bool {
     guard let playbackStartGate else { return true }
     return await playbackStartGate(bookTitle)
   }
@@ -36,19 +31,19 @@ final class PlayerLoaderService: @unchecked Sendable {
   /// Play/pause for the book that is already loaded. Starting it goes through `mayStartPlayback()`;
   /// pausing never asks.
   @MainActor
-  func playPauseLoadedBook() async {
+  public func playPauseLoadedBook() async {
     if !playerManager.isPlaying, !(await mayStartPlayback(bookTitle: playerManager.currentItem?.title)) { return }
     playerManager.playPause()
   }
 
   /// Plays the book that is already loaded, if `mayStartPlayback()` allows it.
   @MainActor
-  func playLoadedBook() async {
+  public func playLoadedBook() async {
     guard await mayStartPlayback(bookTitle: playerManager.currentItem?.title) else { return }
     playerManager.play()
   }
 
-  func setup(
+  public func setup(
     syncService: SyncService,
     libraryService: LibraryService,
     playbackService: PlaybackServiceProtocol,
@@ -60,13 +55,13 @@ final class PlayerLoaderService: @unchecked Sendable {
     self.playerManager = playerManager
   }
 
-  /// Returns false when nothing was loaded because `playbackStartGate` declined an autoplay load
+  /// Returns false when nothing was loaded because `playbackStartGate` declined a load that would play
   /// (callers then don't open the player).
   @MainActor
   @discardableResult
-  func loadPlayer(
+  public func loadPlayer(
     _ relativePath: String,
-    autoplay: Bool,
+    intent: PlayIntent,
     recordAsLastBook: Bool = true
   ) async throws -> Bool {
     // The loader's contract is a RELATIVE PATH — every launch surface speaks paths (App
@@ -90,7 +85,7 @@ final class PlayerLoaderService: @unchecked Sendable {
       throw BPPlayerError.fileMissing(relativePath: libraryItem.relativePath)
     }
     
-    if autoplay, !(await mayStartPlayback(bookTitle: libraryItem.title)) {
+    if case .wantsToPlay = intent, !(await mayStartPlayback(bookTitle: libraryItem.title)) {
       return false
     }
     
@@ -101,8 +96,8 @@ final class PlayerLoaderService: @unchecked Sendable {
        Constants.isRealUuid(libraryItem.uuid),
        libraryItem.uuid == playerManager.currentItem?.uuid
     {
-      if autoplay {
-        playerManager.play()
+      if case .wantsToPlay(let origin) = intent {
+        playerManager.play(origin: origin)
       }
       return true
     }
@@ -117,7 +112,7 @@ final class PlayerLoaderService: @unchecked Sendable {
     
     let item = try self.playbackService.getPlayableItem(from: libraryItem)
     
-    playerManager.load(item, autoplay: autoplay)
+    playerManager.load(item, intent: intent)
     
     if recordAsLastBook {
       libraryService.setLibraryLastBook(with: item.relativePath)

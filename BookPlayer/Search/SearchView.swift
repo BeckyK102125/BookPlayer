@@ -92,7 +92,7 @@ struct SearchView: View {
     Task {
       do {
         // False: the user chose to stay in Listen Together (R38); don't open the player.
-        guard try await playerLoaderService.loadPlayer(relativePath, autoplay: true) else { return }
+        guard try await playerLoaderService.loadPlayer(relativePath, intent: .wantsToPlay(.user)) else { return }
         playerState.showPlayerBinding.wrappedValue = true
       } catch {
         loadingState.error = error

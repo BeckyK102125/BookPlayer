@@ -305,24 +305,24 @@ class LibraryServiceProtocolMock: LibraryServiceProtocol {
             return getLastPlayedItemsLimitReturnValue
         }
     }
-    //MARK: - findBooks
+    //MARK: - findBookFileURL
 
-    var findBooksContainingCallsCount = 0
-    var findBooksContainingCalled: Bool {
-        return findBooksContainingCallsCount > 0
+    var findBookFileURLMatchingCallsCount = 0
+    var findBookFileURLMatchingCalled: Bool {
+        return findBookFileURLMatchingCallsCount > 0
     }
-    var findBooksContainingReceivedFileURL: URL?
-    var findBooksContainingReceivedInvocations: [URL] = []
-    var findBooksContainingReturnValue: [Book]?
-    var findBooksContainingClosure: ((URL) -> [Book]?)?
-    func findBooks(containing fileURL: URL) -> [Book]? {
-        findBooksContainingCallsCount += 1
-        findBooksContainingReceivedFileURL = fileURL
-        findBooksContainingReceivedInvocations.append(fileURL)
-        if let findBooksContainingClosure = findBooksContainingClosure {
-            return findBooksContainingClosure(fileURL)
+    var findBookFileURLMatchingReceivedFileURL: URL?
+    var findBookFileURLMatchingReceivedInvocations: [URL] = []
+    var findBookFileURLMatchingReturnValue: URL?
+    var findBookFileURLMatchingClosure: ((URL) -> URL?)?
+    func findBookFileURL(matching fileURL: URL) -> URL? {
+        findBookFileURLMatchingCallsCount += 1
+        findBookFileURLMatchingReceivedFileURL = fileURL
+        findBookFileURLMatchingReceivedInvocations.append(fileURL)
+        if let findBookFileURLMatchingClosure = findBookFileURLMatchingClosure {
+            return findBookFileURLMatchingClosure(fileURL)
         } else {
-            return findBooksContainingReturnValue
+            return findBookFileURLMatchingReturnValue
         }
     }
     //MARK: - getSimpleItem
@@ -1394,18 +1394,18 @@ class PlayerManagerProtocolMock: PlayerManagerProtocol {
     var underlyingSleepTimerBelongsToListenTogether: Bool!
     //MARK: - load
 
-    var loadAutoplayCallsCount = 0
-    var loadAutoplayCalled: Bool {
-        return loadAutoplayCallsCount > 0
+    var loadIntentCallsCount = 0
+    var loadIntentCalled: Bool {
+        return loadIntentCallsCount > 0
     }
-    var loadAutoplayReceivedArguments: (item: PlayableItem, autoplay: Bool)?
-    var loadAutoplayReceivedInvocations: [(item: PlayableItem, autoplay: Bool)] = []
-    var loadAutoplayClosure: ((PlayableItem, Bool) -> Void)?
-    func load(_ item: PlayableItem, autoplay: Bool) {
-        loadAutoplayCallsCount += 1
-        loadAutoplayReceivedArguments = (item: item, autoplay: autoplay)
-        loadAutoplayReceivedInvocations.append((item: item, autoplay: autoplay))
-        loadAutoplayClosure?(item, autoplay)
+    var loadIntentReceivedArguments: (item: PlayableItem, intent: PlayIntent)?
+    var loadIntentReceivedInvocations: [(item: PlayableItem, intent: PlayIntent)] = []
+    var loadIntentClosure: ((PlayableItem, PlayIntent) -> Void)?
+    func load(_ item: PlayableItem, intent: PlayIntent) {
+        loadIntentCallsCount += 1
+        loadIntentReceivedArguments = (item: item, intent: intent)
+        loadIntentReceivedInvocations.append((item: item, intent: intent))
+        loadIntentClosure?(item, intent)
     }
     //MARK: - awaitCurrentLoad
 
@@ -1470,6 +1470,21 @@ class PlayerManagerProtocolMock: PlayerManagerProtocol {
     func play() {
         playCallsCount += 1
         playClosure?()
+    }
+    //MARK: - play
+
+    var playOriginCallsCount = 0
+    var playOriginCalled: Bool {
+        return playOriginCallsCount > 0
+    }
+    var playOriginReceivedOrigin: PlayOrigin?
+    var playOriginReceivedInvocations: [PlayOrigin] = []
+    var playOriginClosure: ((PlayOrigin) -> Void)?
+    func play(origin: PlayOrigin) {
+        playOriginCallsCount += 1
+        playOriginReceivedOrigin = origin
+        playOriginReceivedInvocations.append(origin)
+        playOriginClosure?(origin)
     }
     //MARK: - playForGroup
 
@@ -1626,7 +1641,6 @@ class PlayerManagerProtocolMock: PlayerManagerProtocol {
         return reloadCurrentItemCallsCount > 0
     }
     var reloadCurrentItemClosure: (() -> Void)?
-    @MainActor
     func reloadCurrentItem() {
         reloadCurrentItemCallsCount += 1
         reloadCurrentItemClosure?()

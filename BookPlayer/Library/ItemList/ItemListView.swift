@@ -560,7 +560,7 @@ struct ItemListView: View {
         Text("playlist_add_title")
       }
     } label: {
-      Label("more_title".localized, systemImage: "ellipsis.circle")
+      Label("more_title".localized, systemImage: "ellipsis")
     }
   }
 
@@ -670,7 +670,7 @@ struct ItemListView: View {
     Task {
       do {
         // False: the user chose to stay in Listen Together (R38); don't open the player.
-        guard try await playerLoaderService.loadPlayer(relativePath, autoplay: true) else { return }
+        guard try await playerLoaderService.loadPlayer(relativePath, intent: .wantsToPlay(.user)) else { return }
         playerState.showPlayerBinding.wrappedValue = true
       } catch {
         loadingState.error = error

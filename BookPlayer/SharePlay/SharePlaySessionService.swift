@@ -1400,7 +1400,7 @@ final class SharePlaySessionService: ObservableObject, BPLogger {
       if let chapter = itemToRestore.getChapter(at: itemToRestore.currentTime) {
         itemToRestore.currentChapter = chapter
       }
-      playerManager.load(itemToRestore, autoplay: false)
+      playerManager.load(itemToRestore, intent: .idle)
     }
     joinedTitle = nil
     sharerTarget?.stop()

@@ -6,14 +6,27 @@
 //  Copyright © 2024 BookPlayer LLC. All rights reserved.
 //
 
-#if os(watchOS)
-  import BookPlayerWatchKit
-#else
-  import BookPlayerKit
-#endif
 import Combine
 import Foundation
+
+/// Who asked for playback. Only a play the user asked for arms the remembered sleep timer
+public enum PlayOrigin: Equatable {
+  case user
+  case system
+  /// A Listen Together group command on the sharer's phone (SR7-09). Like `.system` it never arms the
+  /// remembered sleep timer or restarts a finished book, and it also skips Smart Rewind, whose backward
+  /// seek the whole group would follow.
+  case group
+}
+
+/// Whether the player should be playing once its item can, and who asked for it
+public enum PlayIntent: Equatable {
+  case idle
+  case wantsToPlay(PlayOrigin)
+}
+
 /// sourcery: AutoMockable
+@MainActor
 public protocol PlayerManagerProtocol: AnyObject {
   var currentItem: PlayableItem? { get set }
   var currentSpeed: Float { get set }
@@ -25,15 +38,19 @@ public protocol PlayerManagerProtocol: AnyObject {
   /// the group instead, as the listener's Pause button does.
   var sleepTimerBelongsToListenTogether: Bool { get set }
 
-  func load(_ item: PlayableItem, autoplay: Bool)
+  /// Loads `item`, and plays it once it's ready when `intent` wants to
+  func load(_ item: PlayableItem, intent: PlayIntent)
   func awaitCurrentLoad() async
   func hasLoadedBook() -> Bool
 
   func playPreviousItem()
   func playNextItem(autoPlayed: Bool, shouldAutoplay: Bool)
+  /// A play the user asked for
   func play()
-  /// SR7-09: play for a Listen Together group command (the sharer's phone). Unlike `play()`, there's
-  /// no Smart Rewind, whose seek would move the whole group back, and no automatic sleep timer.
+  func play(origin: PlayOrigin)
+  /// SR7-09: `play(origin: .group)`, for a Listen Together group command on the sharer's phone. Unlike
+  /// `play()`, there's no Smart Rewind, whose seek would move the whole group back, and no automatic
+  /// sleep timer.
   func playForGroup()
   func playPause()
   func pause()
@@ -49,7 +66,7 @@ public protocol PlayerManagerProtocol: AnyObject {
   func jumpToChapter(_ chapter: PlayableChapter)
   /// Rebuild `currentItem` from storage (and re-bind the chapter subscription) so externally
   /// changed data — e.g. re-parsed chapters — takes effect. Preserves playback position.
-  @MainActor func reloadCurrentItem()
+  func reloadCurrentItem()
   func markAsCompleted(_ flag: Bool)
   func setSpeed(_ newValue: Float)
   func setBoostVolume(_ newValue: Bool)
