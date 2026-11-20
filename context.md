@@ -33,7 +33,6 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
   "Executed 1838 tests, with 0 failures".
 - 2026-11-18 on fix/sr7-mediums: 1863 tests, 0 failures; TSan on 7 touched SharePlay classes clean.
 - 2026-11-18 on fix/sr7-07-09: 1866 tests, 0 failures; TSan on 6 touched classes clean.
-- Whole-suite TSan has a known DirectoryWatcher race.
 - Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
 ## Next steps
