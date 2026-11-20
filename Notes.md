@@ -2129,3 +2129,21 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
 - Becky approved: pushed develop b578b168..075673a4 (SR7-07/09 fixes and notes), fast-forward, GitHub had
   nothing new. dd0bde92 has no news since 2026-11-18 (no Neo comment). The "Book Player markdown chats"
   chat was replaced with a fresh one (replace-chat) because it had auto-compacted.
+
+## 2026-11-20 - Upstream player-core merge (Pro, Claude lead), branch merge/upstream-player-engine
+- Becky approved merging upstream's 13 held-back commits (87d55348..ef291a71) "if safe". Fork's own player
+  changes were small (about 50 lines in PlayerManager), so judged safe to merge on a branch and test.
+- `git merge --no-ff upstream/develop` from develop da2b7321: 15 conflicts. Resolutions:
+  PlayerManager/Protocol now in Shared/Player: kept sleepTimerBelongsToListenTogether (SR7-07) guards;
+  SR7-09 playForGroup() = play(origin: .group), a new PlayOrigin case (a private flag would be lost when a
+  play is deferred until the load finishes, PlayerManager re-calls play(origin:)). Smart Rewind skipped for
+  .group; auto timer already user-only upstream. A01 acceptsEndOfItem and its test dropped: AVPlayerEngine
+  observes AVPlayerItemDidPlayToEndTime for its own item. A08: PhonePlayerPlatform's fatalError removed.
+  PlayerLoaderService made public with the start gate; `autoplay:` -> `intent:`. Intents keep the
+  ListenTogetherIntentRouting checks on upstream's @MainActor perform. Watch PlayerManager deleted (upstream).
+  pbxproj: both sides' file refs kept. CLAUDE.md: upstream text plus fork's audio-session and .group notes.
+  `sourcery --config .sourcery.yml` regenerated mocks (diff vs upstream: only the two fork members).
+- Committed b566c354, not built: `PRO_SLOT_BECKY_SAID=1 pro-slot take` was refused by the permission
+  check (Friday evening is Becky's time). Waiting for Becky's explicit OK, or Monday daytime.
+- Becky: SR7-05 Hardcover left alone (no client id; sign-in fails with a clear message). No iPad: SR7-02 is
+  checked on an iPad simulator only. Swift 6 question for the upstream PR raised.

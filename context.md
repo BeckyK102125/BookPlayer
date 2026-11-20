@@ -1,13 +1,20 @@
 # context.md - current snapshot
 
 Date: 2026-11-20
-Branch: develop, pushed to GitHub at 075673a4 (all SR7 fixes). This notes commit is local only.
+Branch: merge/upstream-player-engine (from develop da2b7321). develop is on GitHub at 075673a4; da2b7321
+(notes) is local only.
 
 ## Goal
 Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
 VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 
 ## Last work
+- November 20: Becky approved merging the 13 held-back upstream commits (player core behind PlaybackEngine,
+  moved into BookPlayerKit). Merged as b566c354 on merge/upstream-player-engine, 15 conflicts resolved:
+  SR7-07 guards kept, SR7-09 is now PlayOrigin.group, A08 no-crash moved to PhonePlayerPlatform, A01 guard
+  dropped (upstream's engine scopes end-of-item), mocks regenerated. NOT built or tested yet: Friday evening
+  is Becky's time on the Pro and the pro-slot override needs her explicit OK.
+- November 20: Becky decided SR7-05: leave Hardcover alone (sign-in shows "isn't set up in this build").
 - November 16: merged 13 upstream TortugaPower commits (up to 6027e850) as aa1d5632; the 13 newer ones
   (PlayerManager moved behind PlaybackEngine) are held back until Becky approves PlayerManager changes.
 - November 16: investigated Start Testing dd0bde92 (Michael's share of a book only he has failed; Becky's
@@ -34,18 +41,21 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 - Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
 ## Next steps
+0. Build and run the full unit suite on merge/upstream-player-engine (Pro slot), fix fallout, TSan on
+   touched classes, then fast-forward develop (Becky approved the merge). Then phone checks SR7-01, 07, 09
+   on two iPhones on the merged build; SR7-02 on an iPad simulator only (Becky has no iPad).
 1. dd0bde92 (continuing on the Neo): Michael's shares fail even when both have the book, so the
    owners-only guess is wrong. Find what differs when Michael's phone shares; get Console logs from it.
 2. Retest dd0bde92 with both phones and Console logs ("Listen Together") from Michael's phone.
-3. Becky: decide SR7-05 (Hardcover client id, or ship without sign-in). dd0bde92 is a TestFlight 7 blocker.
-   Device checks: SR7-01, SR7-07, SR7-09 on two phones; SR7-02 with two iPad windows.
+3. dd0bde92 is a TestFlight 7 blocker.
 4. BP-20261112-03 to -10 (P1), then the P2 findings; read item status and comments first.
 5. Split files over 700 lines: SharePlaySessionService.swift, SharePlaySessionService+Session.swift
    (1785), ListenerPlayer.swift.
 6. Mark the new Listen Together strings for translation before a release.
 
 ## Open questions for Becky
-- Merge the 13 newer upstream commits (they change PlayerManager)?
+- Swift 6: recommend keeping Swift 5 mode (as upstream) and making SharePlay code Swift 6 clean via Codex,
+  before an upstream PR. Awaiting Becky.
 - dd0bde92: Michael's free storage, iOS version and BookPlayer build.
 
 ## Constraints
