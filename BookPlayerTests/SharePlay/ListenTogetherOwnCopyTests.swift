@@ -209,7 +209,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     service.bridge?.handleSeek(itemTime: 8)
     library.getSimpleItemWithReturnValue = nil   // deleted, or moved (its path finds nothing)
     service.leave()
-    XCTAssertFalse(manager.loadAutoplayCalled, "no ghost book, no metadata error alert")
+    XCTAssertFalse(manager.loadIntentCalled, "no ghost book, no metadata error alert")
   }
 
   func testACopyConvertedDuringTheSessionIsNotRestored() throws {
@@ -218,7 +218,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     service.bridge?.handleSeek(itemTime: 8)
     library.getSimpleItemWithReturnValue = libraryItem(copy.relativePath, type: .bound)
     service.leave()
-    XCTAssertFalse(manager.loadAutoplayCalled)
+    XCTAssertFalse(manager.loadIntentCalled)
   }
 
   func testACopyThatFailedIsNotRestored() throws {
@@ -226,7 +226,7 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     let (service, manager, _) = try joinWithLoadedCopy(library: library)
     service.bridge?.handleSeek(itemTime: 8)
     service.leaveBecauseOwnCopyFailed()
-    XCTAssertFalse(manager.loadAutoplayCalled, "the broken copy is never loaded again")
+    XCTAssertFalse(manager.loadIntentCalled, "the broken copy is never loaded again")
   }
 
   // MARK: Decision D: the own place is kept as a bookmark before it follows the group
@@ -346,9 +346,9 @@ final class ListenTogetherOwnCopyTests: XCTestCase {
     XCTAssertTrue(manager.stopCalled, "old player must not overwrite shared progress")
     service.bridge?.handleSeek(itemTime: 8)
     service.leave()
-    let restored = try XCTUnwrap(manager.loadAutoplayReceivedArguments)
+    let restored = try XCTUnwrap(manager.loadIntentReceivedArguments)
     XCTAssertEqual(restored.item.currentTime, 8, accuracy: 0.05)
-    XCTAssertFalse(restored.autoplay)
+    XCTAssertEqual(restored.intent, .idle)
   }
 
   /// A real 10 s book in the library's Processed folder.
