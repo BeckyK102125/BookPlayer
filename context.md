@@ -1,8 +1,7 @@
 # context.md - current snapshot
 
 Date: 2026-11-20
-Branch: merge/upstream-player-engine (from develop da2b7321). develop is on GitHub at 075673a4; da2b7321
-(notes) is local only.
+Branch: develop at e0491b1f (local, 21 ahead of GitHub 075673a4: notes + upstream player merge). Not pushed.
 
 ## Goal
 Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
@@ -12,8 +11,7 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 - November 20: Becky approved merging the 13 held-back upstream commits (player core behind PlaybackEngine,
   moved into BookPlayerKit). Merged as b566c354 on merge/upstream-player-engine, 15 conflicts resolved:
   SR7-07 guards kept, SR7-09 is now PlayOrigin.group, A08 no-crash moved to PhonePlayerPlatform, A01 guard
-  dropped (upstream's engine scopes end-of-item), mocks regenerated. NOT built or tested yet: Friday evening
-  is Becky's time on the Pro and the pro-slot override needs her explicit OK.
+  dropped (upstream's engine scopes end-of-item), mocks regenerated. Tested (below); develop fast-forwarded.
 - November 20: Becky decided SR7-05: leave Hardcover alone (sign-in shows "isn't set up in this build").
 - November 16: merged 13 upstream TortugaPower commits (up to 6027e850) as aa1d5632; the 13 newer ones
   (PlayerManager moved behind PlaybackEngine) are held back until Becky approves PlayerManager changes.
@@ -28,18 +26,19 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 - November 12: Codex recheck of the October 23 audit; BP-20261112-03 to -22 open in Start Testing.
 
 ## Test results
+- 2026-11-20 develop e0491b1f (upstream merge), iPhone 18 Pro sim, no parallel testing: 1937 tests, 0
+  failures. TSan on 8 classes (SharePlay + both PlayerManager test classes): 246 tests, clean. iPad sim:
+  launch and Settings > Listen Together layout fine (SR7-02 simulator check, Becky: no iPad).
 - 2026-11-16 full unit suite on develop after the merge, iPhone 17 Pro simulator:
   `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests`
   "Executed 1838 tests, with 0 failures".
-- 2026-11-18 on fix/sr7-mediums: 1863 tests, 0 failures; TSan on 7 touched SharePlay classes clean.
 - 2026-11-18 on fix/sr7-07-09: 1866 tests, 0 failures; TSan on 6 touched classes clean.
 - Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
 ## Next steps
-0. Build and run the full unit suite on merge/upstream-player-engine (Pro slot), fix fallout, TSan on
-   touched classes, then fast-forward develop (Becky approved the merge). Then phone checks SR7-01, 07, 09
-   on two iPhones on the merged build; SR7-02 on an iPad simulator only (Becky has no iPad).
-   Phone tests go to the On-device testing coordinator chat (local_2c35a663), never to Becky directly.
+0. Get the develop build onto both iPhones (TestFlight 7 upload is Becky's, or an Xcode install in Pro
+   time), then send SR7-01, 07, 09 to the testing coordinator (local_2c35a663) with branch + full commit.
+   Push develop only with Becky's yes.
 1. dd0bde92 (continuing on the Neo): Michael's shares fail even when both have the book, so the
    owners-only guess is wrong. Find what differs when Michael's phone shares; get Console logs from it.
 2. Retest dd0bde92 with both phones and Console logs ("Listen Together") from Michael's phone.

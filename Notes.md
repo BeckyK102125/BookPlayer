@@ -2154,3 +2154,14 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
 - 2026-11-20 later: testing coordinator now makes the Start Testing updates for device tests (passed:
   comment, milestone, assign Taylor, Needs Review, drop " - Claude"; failed: comments or files and sends the
   ID). Every test sent to it must name the branch and the full commit of the installed build.
+- 2026-11-20 18:35-18:44 (Becky's OK for one hour, resource lead told): pro-slot taken. First build used a
+  short simulator id (fails: use the full 7B46F85F-B32A-4BD1-BFBC-38C2EB73425A). App built clean; two test
+  files needed the new API (SharePlayMenuTests: `platform: TestPlayerPlatform()`; ListenTogetherOwnCopyTests:
+  loadIntent mocks, `intent == .idle`), commit e0491b1f. First test run: "Failed to prepare device ...
+  Invalid connectionUUID" (simulator flake); booting the simulator first fixed it.
+  `xcodebuild test-without-building ... -only-testing:BookPlayerTests -parallel-testing-enabled NO`:
+  1937 tests, 0 failures. TSan (`-enableThreadSanitizer YES`, 8 classes): 246 tests, no warnings.
+  iPad Pro 13-inch sim: app launches, Settings split view and Listen Together screen laid out fine.
+  Simulators shut down and erased, slot released 18:44. develop fast-forwarded to e0491b1f (local only).
+  Existing SharePlay warnings (appWasSuspended deprecated, trailing-closure matching, unused results in
+  tests) left for the Swift 6 cleanup.
