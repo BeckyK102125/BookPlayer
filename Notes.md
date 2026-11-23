@@ -2071,3 +2071,15 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   installed on the Neo; the generated mock must not be hand-edited.
 - BP-05 left for the next batch: it's the hardest concurrency change, and nothing on this branch is built yet.
 - Nothing built or tested (the Neo doesn't build BookPlayer). Comments with the plan on -03, -04, -07.
+
+## 2026-11-23 (Neo, BookPlayer Lead): status before replacing the chat
+- Branch fix/bp-20261112-high, f2dae4ac on GitHub. Nov 18 to 20: no new code; every turn was a
+  hand-off message. The Pro had no BookPlayer lead, so neither fix/bp-20261112-high nor
+  fix/sr6-01-rejoin-other-audio was built or tested.
+- origin/develop is now c6057686: SR7 fixes, the upstream player merge (b566c354, PlayerManager behind
+  PlaybackEngine, PlayerManagerProtocol @MainActor) and import fixes #1706/#1708. Both fix branches
+  need develop merged in before testing.
+- New Critical item AQL10-02 (2fb66906): PlayerManagerProtocolMock lacks @MainActor. Not started;
+  the mock is Sourcery output, so the fix and regeneration belong with Sourcery on the Pro.
+- BP-20261112-05 still not started.
+- Chat replaced (auto-compacted, a week old) with a fresh BookPlayer Lead; context.md rewritten.
