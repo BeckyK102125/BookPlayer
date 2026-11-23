@@ -201,7 +201,7 @@ struct MainView: View {
       state: sharePlayService.state, title: playerManager.currentItem?.title,
       isRetryingSend: sharePlayService.notice == .retryingSend, pauseCause: sharePlayService.pauseCause,
       isWaitingForListeners: sharePlayService.isWaitingForListeners,
-      ownInterruption: sharePlayService.ownInterruption)
+      ownInterruption: sharePlayService.ownInterruption, someoneDeclined: sharePlayService.someoneDeclined)
   }
 
   func showPlayer() {

@@ -8,11 +8,13 @@
 
 import Foundation
 import AppIntents
+import BookPlayerKit
 
 @available(macOS 14.0, watchOS 10.0, *)
 struct CancelSleepTimerIntent: AppIntent {
   static var title: LocalizedStringResource = "intent_sleeptimer_cancel"
 
+  @MainActor
   func perform() async throws -> some IntentResult {
     SleepTimer.shared.setTimer(.off)
     return .result()

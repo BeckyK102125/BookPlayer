@@ -206,8 +206,7 @@ public class ImportOperation: Operation, BPLogger {
 
   private func hasExistingBook(_ fileURL: URL) -> Bool {
     guard
-      let existingBook = self.libraryService.findBooks(containing: fileURL)?.first,
-      let existingFileURL = existingBook.fileURL,
+      let existingFileURL = self.libraryService.findBookFileURL(matching: fileURL),
       !FileManager.default.fileExists(atPath: existingFileURL.path)
     else { return false }
 

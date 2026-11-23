@@ -153,7 +153,7 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
       title: title,
       author: author,
       usesOwnCopy: sharePlayService.invitationUsesOwnCopy,
-      onJoin: { [weak self] in self?.joinListenTogether() },
+      onJoin: { [weak self] in self?.confirmJoinListenTogether() },
       onDecline: { [weak self] in self?.sharePlayService.declineInvitation() }
     )
     .environmentObject(ThemeViewModel())
@@ -180,7 +180,8 @@ extension MainCoordinator: UIAdaptivePresentationControllerDelegate {
   }
 
   /// Joins, then clears every screen above the main view so the listener screen can be presented.
-  private func joinListenTogether() {
+  /// SR7-06: reached through `confirmJoinListenTogether`, which asks first when that closes a sheet.
+  func joinListenTogether() {
     let invitation = invitationController
     invitationController = nil
     sharePlayService.joinInvitation()

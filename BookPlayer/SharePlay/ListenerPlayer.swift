@@ -107,6 +107,9 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
   var onProgressChanged: ((TimeInterval, Int) -> Void)?
   /// A received piece could not be played (its item failed): it was dropped and must come again.
   var onPieceFailed: ((Int) -> Void)?
+  /// SR7-08: iOS reset its media services and this player rebuilt its items; failures counted before
+  /// it were the reset's, not the files'.
+  var onMediaServicesReset: (() -> Void)?
 
   /// Internal (not private) only so tests can move the queue on.
   let player = AVQueuePlayer()
@@ -259,6 +262,34 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
         MainActor.assumeIsolated { self?.playbackStateChanged() }
       }
       .store(in: &disposeBag)
+    NotificationCenter.default.publisher(for: AVAudioSession.mediaServicesWereResetNotification)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated { self?.mediaServicesWereReset() }
+      }
+      .store(in: &disposeBag)
+  }
+
+  /// SR7-08: iOS reset its media services, so the audio session's setup and every loaded item are
+  /// gone. The session is set up again on the next play, and the pieces here are loaded again at the
+  /// same place, playing on if the group was playing. Internal for tests.
+  func mediaServicesWereReset() {
+    guard !isStopped else { return }
+    let position = positionForSaving
+    let wasPlaying = wantsPlayback
+    Self.logger.info("Listen Together: media services were reset; reloading at \(position, privacy: .public)")
+    sessionConfigured = false
+    seekGeneration += 1
+    pendingSeekOffset = nil
+    isSeeking = false
+    player.pause()
+    player.removeAllItems()
+    forgetItems(keeping: [])
+    loadedPieceIndex = nil
+    queuedPieceIndex = nil
+    isPlaying = false
+    onMediaServicesReset?()
+    if !load(at: position) { isHeldWhilePlaying = wasPlaying }
   }
 
   deinit {
@@ -1018,8 +1049,10 @@ final class ListenerPlayer: ObservableObject, ListenTogetherPlaybackTarget, BPLo
     return activateSessionIfNeeded()
   }
 
+  /// SR7-07: activates on every start, even when this player activated it before. Another part of
+  /// the app (PlayerManager pausing its own book) can deactivate the shared session, and a cached
+  /// "already active" would then start playback into a silent session.
   private func activateSessionIfNeeded() -> Bool {
-    guard !sessionConfigured else { return true }
     let session = AVAudioSession.sharedInstance()
     do {
       try session.setCategory(.playback, mode: .spokenAudio)

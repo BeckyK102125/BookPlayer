@@ -8,6 +8,7 @@
 
 import Foundation
 import AppIntents
+import BookPlayerKit
 
 @available(macOS 14.0, watchOS 10.0, tvOS 16.0, *)
 struct CustomSleepTimerIntent: AppIntent {
@@ -23,6 +24,7 @@ struct CustomSleepTimerIntent: AppIntent {
     Summary("Set Sleep Timer for \(\.$duration)")
   }
 
+  @MainActor
   func perform() async throws -> some IntentResult {
     let seconds = duration.converted(to: .seconds).value
     SleepTimer.shared.setTimer(.countdown(seconds))

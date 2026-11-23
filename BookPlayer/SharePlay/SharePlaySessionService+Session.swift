@@ -75,9 +75,10 @@ extension SharePlaySessionService {
   /// task is cancelled (`tearDown` cancels `sharingTask`).
   ///
   /// Addendum 3: pieces are small (about 12 minutes) and sent in the order the group needs them
-  /// (`PieceUploadScheduler`, asked again before every piece). A failed piece never ends the session:
-  /// it is tried again after a back-off (2, 5, 15, then every 30 seconds), and at once when the app
-  /// becomes active; interruptions never count as failures. While pieces are left, the idle timer is
+  /// (`PieceUploadScheduler`, asked again before every piece). A failed piece is tried again after a
+  /// back-off (2, 5, 15, then every 30 seconds), and at once when the app becomes active; interruptions
+  /// never count as failures. SR7-03: a failure no retry can fix, or `PieceRetryPolicy.failureLimit`
+  /// failures of one piece, ends the share for everyone with "Couldn't prepare the book". While pieces are left, the idle timer is
   /// held off and each piece runs inside a background task.
   ///
   /// With "Send it for this session", every piece is uploaded even if everyone so far has their own
@@ -158,14 +159,24 @@ extension SharePlaySessionService {
         Self.logger.info(
           "Listen Together: piece \(piece.index, privacy: .public) interrupted, retry in \(String(describing: delay), privacy: .public) (not counted)")
         await retryWaiter.wait(delay, sleep: retrySleep)
-      case .failed:
+      case .failed(let permanent):
         let failures = (pieceFailures[piece.index] ?? 0) + 1
         pieceFailures[piece.index] = failures
+        // SR7-03: a failure no retry can fix, or one piece failing `failureLimit` times, ends the share
+        // with one message on every phone instead of retrying for the rest of the session.
+        if permanent || failures >= PieceRetryPolicy.failureLimit {
+          Self.logger.error(
+            "Listen Together: piece \(piece.index, privacy: .public) gave up after \(failures, privacy: .public) failures, permanent=\(permanent, privacy: .public)")
+          await failSharing(on: transport)
+          return
+        }
         // Behind the other pieces still to send, unless a listener waits for it (minor 5).
         pieceScheduler?.markFailed(piece.index)
         // B3 (3.3): while nobody else has joined, failures are retried silently.
         if hasOtherParticipants { setNotice(.retryingSend) }
         let delay = PieceRetryPolicy.delay(afterFailures: failures)
+        // SR7-03: the screen may lock while nothing is sent; it is held off again before the next try.
+        setKeepingScreenAwake(false)
         Self.logger.info(
           "Listen Together: piece \(piece.index, privacy: .public) failure \(failures, privacy: .public), retry in \(String(describing: delay), privacy: .public)")
         await retryWaiter.wait(delay, sleep: retrySleep)
@@ -228,8 +239,9 @@ extension SharePlaySessionService {
 
   enum PieceSendResult: Equatable {
     case uploaded(UUID)
-    /// A real failure: counts towards the back-off.
-    case failed
+    /// A real failure: counts towards the back-off and the limit. `permanent`: no retry can fix it
+    /// (SR7-03), so the share ends at once.
+    case failed(permanent: Bool)
     /// The app was suspended or in the background, or the work was interrupted or cancelled: retried
     /// without counting.
     case interrupted
@@ -285,7 +297,7 @@ extension SharePlaySessionService {
     let detail = (error as? BookSplitterError)?.diagnostics ?? nsError.localizedDescription
     Self.logger.error(
       "Listen Together: \(stage, privacy: .public) piece \(piece.index, privacy: .public) failed: \(ListenTogetherErrorDescription.describe(error), privacy: .public) app=\(appStateAtStart.rawValue, privacy: .public)->\(appStateNow.rawValue, privacy: .public) interruption=\(interrupted, privacy: .public) detail=\(detail)")
-    return interrupted ? .interrupted : .failed
+    return interrupted ? .interrupted : .failed(permanent: PieceRetryPolicy.isPermanent(error))
   }
 
   /// Where the group is, for choosing the next piece: the sharer's own player while it holds the
@@ -546,6 +558,8 @@ extension SharePlaySessionService {
     player.onActionWhileSharerInterrupted = { [weak self] in self?.listenerActionWhileSharerInterrupted() }
     player.onReachedEndOfBook = { [weak self] in self?.listenerReachedEndOfBook() }
     player.onPieceFailed = { [weak self] index in self?.listenerPieceFailed(index) }
+    // SR7-08: failures counted before a media services reset were the reset's, not the files'.
+    player.onMediaServicesReset = { [weak self] in self?.pieceDecodeFailures = [:] }
     // Play or pause while the group waits for this device's piece: nothing is sent; say why.
     player.onToggleWhileWaiting = { [weak self] in
       guard let self, !self.isUsingOwnCopy, self.waitingToggleLimiter.allows(at: Date()) else { return }
@@ -738,6 +752,11 @@ extension SharePlaySessionService {
       ownCopyFileFailed(index, failures: failures, delay: delay)
       return
     }
+    // SR7-03: a piece that never plays isn't reloaded for the rest of the session; this phone leaves.
+    guard failures < Self.receivedPieceFailureLimit else {
+      leaveBecauseReceivedPieceFailed(index)
+      return
+    }
     Self.logger.error(
       "Listen Together: piece \(index, privacy: .public) dropped (failure \(failures, privacy: .public)), loading it again in \(String(describing: delay), privacy: .public)")
     guard let transport, let attachmentID = pieceIndexByAttachment.first(where: { $0.value == index })?.key
@@ -790,6 +809,17 @@ extension SharePlaySessionService {
     let transport = self.transport
     stopReceivingBeforeLeaving(transport)
     tearDown(reason: .ownCopyFailed, leaveTransport: false)
+    if let transport { leaveTellingTheSharer(transport) }
+  }
+
+  /// SR7-03: a received piece failed `receivedPieceFailureLimit` times. This phone leaves on purpose
+  /// (the sharer hears "left") and one alert says why.
+  func leaveBecauseReceivedPieceFailed(_ index: Int) {
+    guard role == .listener, !isUsingOwnCopy else { return }
+    Self.logger.error("Listen Together: piece \(index, privacy: .public) can't be played; leaving on this phone")
+    let transport = self.transport
+    stopReceivingBeforeLeaving(transport)
+    tearDown(reason: .receivedPieceFailed, leaveTransport: false)
     if let transport { leaveTellingTheSharer(transport) }
   }
 
@@ -1031,8 +1061,9 @@ extension SharePlaySessionService {
   }
 
   /// Someone couldn't join an owners-only share (no copy). They are never counted, and their brief
-  /// join and leave are never announced. The sharer hears one queued line, coalesced to one per
-  /// 10 seconds; listeners hear nothing. Nothing says who it was or what they own.
+  /// join and leave are never announced. The sharer gets one message, coalesced to one per 10 seconds:
+  /// announced, read by "Speak error messages", or a notification when away, naming the setting
+  /// (SR7-04); listeners hear nothing. Nothing says who it was or what they own.
   private func participantDeclined(_ id: UUID?) {
     guard role != nil else { return }
     if let id {
@@ -1045,7 +1076,7 @@ extension SharePlaySessionService {
     // E11: also a second status line, so a sharer without VoiceOver learns why no one joined.
     setSomeoneDeclined(true)
     guard declineAnnouncementLimiter.allows(at: now()) else { return }
-    announcer.announce("listen_together_declined_no_copy".localized)
+    messages.deliver(.someoneCouldNotJoin)
   }
 
   /// The roster by id. The first one is the baseline. Someone new is counted and announced only after
