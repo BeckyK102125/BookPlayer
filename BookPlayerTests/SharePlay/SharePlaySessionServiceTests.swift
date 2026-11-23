@@ -183,19 +183,17 @@ final class SharePlaySessionServiceTests: XCTestCase {
     XCTAssertEqual(posted.last, ListenTogetherAnnouncements.joined())
   }
 
-  /// Addendum 3, decision 5: a piece that keeps failing never ends the session; it is retried.
+  /// Addendum 3, decision 5, as changed by SR7-03: a failing piece is retried and the session goes on,
+  /// up to `PieceRetryPolicy.failureLimit` tries (ListenTogetherGiveUpTests covers reaching it).
   func testUploadFailureKeepsTheSessionAndRetries() async throws {
     let service = makeService(), transport = FakeTransport()
-    transport.failUploads = true
+    transport.uploadErrors = Array(
+      repeating: URLError(.networkConnectionLost), count: PieceRetryPolicy.failureLimit - 1)
     let item = try makeSharedItem()
-    let sending = Task { await service.beginSharing(with: transport, item: item) }
-    await waitUntil { transport.sent.contains { if case .manifest = $0 { return true } else { return false } } }
-    try? await Task.sleep(for: .milliseconds(100))
+    await service.beginSharing(with: transport, item: item)
     XCTAssertEqual(service.state, .sharing(participants: 1))
     XCTAssertFalse(transport.left)
     XCTAssertFalse(transport.sent.contains(.sessionEnding))
-    transport.failUploads = false
-    await sending.value
     XCTAssertEqual(transport.uploads.count, 1)
   }
 

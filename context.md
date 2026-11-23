@@ -1,54 +1,59 @@
 # context.md - current snapshot
 
-Date: 2026-11-18
-Branch: `fix/sr6-01-rejoin-other-audio` (SR6-01 fix 050d480f, with develop 63df259e merged in), pushed.
-develop is at 63df259e on GitHub (SR7-01 and SR7-02 merged with Becky's approval).
+Date: 2026-11-23
+Branch: `fix/sr6-01-rejoin-other-audio` (SR6-01: wait for Play instead of cutting off another app's
+audio on rejoin), develop c6057686 merged in. Local only; not built or tested yet.
 
 ## Goal
 Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
 VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 
 ## Last work
-- November 18 (Neo Lead): merged develop into the SR6-01 branch so the fix can go into develop once tested.
-- November 17: SR7-01 (sharer's other book controlled the group) and SR7-02 (second window deleted the
-  session's files) fixed as fab311c9; in Testing. November 18: in develop with Becky's approval.
+- November 23 (Pro): develop merged into this branch; ListenerPlayer conflict resolved keeping SR6-01's
+  other-audio check and SR7-07's always-activate. Needs build, ListenerPlayerTests and full suite.
+- November 20: Becky approved merging the 13 held-back upstream commits (player core behind PlaybackEngine,
+  moved into BookPlayerKit). Merged as b566c354 on merge/upstream-player-engine, 15 conflicts resolved:
+  SR7-07 guards kept, SR7-09 is now PlayOrigin.group, A08 no-crash moved to PhonePlayerPlatform, A01 guard
+  dropped (upstream's engine scopes end-of-item), mocks regenerated. Tested (below); develop fast-forwarded.
+- November 20: Becky decided SR7-05: leave Hardcover alone (sign-in shows "isn't set up in this build").
 - November 17: Swift Reviewer SR7 audit (Review.md 5a4f4586): 15 findings in Start Testing. Not ready for
-  TestFlight 7 until Becky decides SR7-05 (Hardcover client id).
-- November 16: merged 13 upstream TortugaPower commits (up to 6027e850) as aa1d5632; the 13 newer ones
-  (PlayerManager moved behind PlaybackEngine) are held back until Becky approves PlayerManager changes.
-- November 16: investigated dd0bde92 (Michael's share of a book only he has failed). No code defect found.
-  Likeliest cause: Michael's phone set to "Only people who have the book can join". Details in Notes.md.
+  TestFlight 7 until SR7-01 and SR7-02 are fixed and Becky decides SR7-05 (Hardcover client id).
+- November 17: SR7-01 (sharer's other book controlled the group) and SR7-02 (second window deleted the
+  session's files) fixed as fab311c9; Start Testing items moved to Testing. November 18: fast-forwarded
+  into develop with Becky's approval.
+- November 18: SR7-03, 04, 05, 06, 08, 10, 11 fixed (b578b168), fast-forwarded into develop with Becky's OK.
+- November 18: SR7-07 (sleep timer pauses the group while listening) and SR7-09 (group Play skips Smart
+  Rewind and the auto timer) fixed on fix/sr7-07-09, Becky approved the PlayerManager change. Fast-forwarded into develop with Becky's OK.
 - November 12: Codex recheck of the October 23 audit; BP-20261112-03 to -22 open in Start Testing.
-- November 2: SR6-01 fixed (050d480f): after an interruption ends without "should resume" while another
-  app's audio plays, the listener waits for Play. Never built or tested yet.
 
 ## Test results
-- 2026-11-17 at fab311c9 (now develop): 1848 tests, 0 failures; TSan on the three touched test classes clean.
+- 2026-11-20 develop e0491b1f (upstream merge), iPhone 18 Pro sim, no parallel testing: 1937 tests, 0
+  failures. TSan on 8 classes (SharePlay + both PlayerManager test classes): 246 tests, clean. iPad sim:
+  launch and Settings > Listen Together layout fine (SR7-02 simulator check, Becky: no iPad).
+- 2026-11-16 full unit suite on develop after the merge, iPhone 17 Pro simulator:
   `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests`
-- SR6-01 branch: not built or tested (the Neo doesn't run simulators).
-- Whole-suite TSan has a known DirectoryWatcher race.
+  "Executed 1838 tests, with 0 failures".
+- 2026-11-18 on fix/sr7-07-09: 1866 tests, 0 failures; TSan on 6 touched classes clean.
 - Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
 ## Next steps
-1. Pro: build this branch and run ListenerPlayerTests (and the SharePlay classes); if green, fast-forward
-   develop to it and move SR6-01 to Testing.
-2. Michael checks Settings, Playback, Listen Together, "When someone doesn't have the book" on his phone;
-   then retest dd0bde92 with both phones and Console logs ("Listen Together") from the sharer's phone.
-3. Becky: decide SR7-05, and SR7-03/04 wording. Then TestFlight 7. Device checks: SR7-01 on two phones,
-   SR7-02 with two iPad windows.
-4. BP-20261112-03 to -07 and -10 (P1, Safe Alone); -08 and -09 need Becky (PlayerManager). Then P2 findings
-   and the open SR7 items; read item status and comments first.
+0. Get the develop build onto both iPhones (TestFlight 7 upload is Becky's, or an Xcode install in Pro
+   time), then send SR7-01, 07, 09 to the testing coordinator (local_2c35a663) with branch + full commit.
+1. dd0bde92 (continuing on the Neo): Michael's shares fail even when both have the book, so the
+   owners-only guess is wrong. Find what differs when Michael's phone shares; get Console logs from it.
+2. Retest dd0bde92 with both phones and Console logs ("Listen Together") from Michael's phone.
+3. dd0bde92 is a TestFlight 7 blocker.
+4. BP-20261112-03 to -10 (P1), then the P2 findings; read item status and comments first.
 5. Split files over 700 lines: SharePlaySessionService.swift, SharePlaySessionService+Session.swift
    (1785), ListenerPlayer.swift.
 6. Mark the new Listen Together strings for translation before a release.
 
 ## Open questions for Becky
-- Merge the 13 newer upstream commits (they change PlayerManager)?
-- Should a share that keeps failing on one piece end with "Couldn't prepare the book" after a few tries,
-  instead of retrying silently forever?
+- Swift 6: recommend keeping Swift 5 mode (as upstream) and making SharePlay code Swift 6 clean via Codex,
+  before an upstream PR. Awaiting Becky.
+- dd0bde92: Michael's free storage, iOS version and BookPlayer build.
 
 ## Constraints
 - PlayerManager.swift: Becky approves before implementation changes.
 - Never commit BuildConfiguration/Debug.xcconfig. Leave the untracked .nova/ folder alone.
-- Simulator (Pro only): BookPlayer uses iPhone 18 Pro 7B46F85F, taking
-  /private/tmp/agents/claude/start-speaking-xcodebuild.lock.
+- Simulator: BookPlayer uses iPhone 18 Pro 7B46F85F, taking /private/tmp/agents/claude/start-speaking-xcodebuild.lock.

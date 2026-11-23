@@ -137,7 +137,7 @@ final class AppServices: BPLogger {
         playbackService: playbackService,
         syncService: syncService,
         speedService: SpeedService(libraryService: libraryService),
-        shakeMotionService: ShakeMotionService(),
+        platform: PhonePlayerPlatform(shakeMotionService: ShakeMotionService()),
         widgetReloadService: WidgetReloadService(),
         hasStreamingEnabled: { accountService.hasStreamingEnabled() },
         /// Already on main: `PlayerManager` routes every failure through `presentOnMain`.
@@ -301,7 +301,7 @@ final class AppServices: BPLogger {
 
     let loaded: Bool
     do {
-      loaded = try await playerLoaderService.loadPlayer(relativePath, autoplay: true)
+      loaded = try await playerLoaderService.loadPlayer(relativePath, intent: .wantsToPlay(.user))
     } catch {
       UserDefaults.sharedDefaults.removeObject(
         forKey: Constants.UserDefaults.sharedWidgetNowPlayingPath

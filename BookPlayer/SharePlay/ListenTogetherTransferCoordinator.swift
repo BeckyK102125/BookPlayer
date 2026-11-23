@@ -77,6 +77,15 @@ final class ListenTogetherTransferCoordinator: BPLogger {
         let id = try await journalAdd(url)
         modeSwitch.journalAddSucceeded()
         journalIDs.insert(id)
+        // SR7-11: the journal holds the piece now, so its exported file goes; a whole book no longer
+        // sits in tmp for the session. A piece needed again is exported again (`listenerNeeds`).
+        // Chunk mode keeps its files: late joiners are sent them from there.
+        do {
+          try FileManager.default.removeItem(at: url)
+        } catch {
+          Self.logger.error(
+            "Listen Together: could not remove an uploaded piece: \(ListenTogetherErrorDescription.describe(error), privacy: .public)")
+        }
         return id
       } catch {
         let notSupported = TransportModeSwitch.isNotSupported(error)

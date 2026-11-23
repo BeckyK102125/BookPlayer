@@ -66,6 +66,44 @@ enum PieceRetryPolicy {
     delays[min(max(failures, 1), delays.count) - 1]
   }
 
+  /// SR7-03: a piece that fails this many times in a row ends the share (about two and a half minutes
+  /// of tries with the delays above). Retrying for good kept the screen awake and re-sent up to 25 MB
+  /// every 30 seconds with nobody told why the book never arrived.
+  static let failureLimit = 8
+
+  /// SR7-03: a failure that no retry can fix (the book's file is gone, the phone is out of space, or the
+  /// piece is too large to send). It ends the share at once.
+  static func isPermanent(_ error: Error) -> Bool {
+    switch error as? BookSplitterError {
+    case .noLocalFile?, .pieceTooLarge?:
+      return true
+    case .exportFailed(_, _, let underlying?)?:
+      return isPermanent(underlying)
+    case .exportFailed(_, _, nil)?:
+      return false
+    case nil:
+      break
+    }
+    let nsError = error as NSError
+    let permanentHere: Bool
+    switch nsError.domain {
+    case NSCocoaErrorDomain:
+      permanentHere = [NSFileNoSuchFileError, NSFileReadNoSuchFileError, NSFileWriteOutOfSpaceError]
+        .contains(nsError.code)
+    case NSPOSIXErrorDomain:
+      permanentHere = nsError.code == Int(ENOENT) || nsError.code == Int(ENOSPC)
+    case AVFoundationErrorDomain:
+      // A missing source file is `.noLocalFile` above; the export itself reports a full disk.
+      permanentHere = nsError.code == AVError.diskFull.rawValue
+    default:
+      permanentHere = false
+    }
+    if permanentHere { return true }
+    // AVFoundation wraps the file system's error (often a POSIX one) as its underlying error.
+    if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError { return isPermanent(underlying) }
+    return false
+  }
+
   static func isInterruption(_ error: Error) -> Bool {
     if error is CancellationError { return true }
     if case .exportFailed(_, _, let underlying?)? = error as? BookSplitterError {

@@ -292,7 +292,8 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
     if !holdsOtherBook {
       // Only expect an echo if the state will actually change.
       expectedIsPlaying = playerManager.isPlaying ? nil : (true, now())
-      playerManager.play()
+      // SR7-09: no Smart Rewind (the group would follow its seek) and no automatic sleep timer.
+      playerManager.playForGroup()
     }
     if !accepted { requestReassert() }
   }
@@ -370,7 +371,7 @@ final class SharerPlaybackTarget: ListenTogetherPlaybackTarget, BPLogger {
         interruption = nil
         resumesAfterInterruption = false
         // PlayerManager may already have resumed by itself; its play is reported to the group as usual.
-        if !playerManager.isPlaying { playerManager.play() }
+        if !playerManager.isPlaying { playerManager.playForGroup() }
       } else {
         Self.logger.info("Listen Together: the sharer's interruption ended; waiting for the sharer's Play")
         resumesAfterInterruption = false

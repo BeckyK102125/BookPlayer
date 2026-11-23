@@ -66,7 +66,8 @@ final class SharerPlaybackTargetTests: XCTestCase {
     let target = makeTarget()
     target.applyPlay(at: 100.2, rate: 1.5)
     XCTAssertEqual(mock.setSpeedReceivedNewValue, 1.5)
-    XCTAssertEqual(mock.playCallsCount, 1)
+    XCTAssertEqual(mock.playForGroupCallsCount, 1)
+    XCTAssertEqual(mock.playCallsCount, 0, "SR7-09: a group Play never runs Smart Rewind or the auto timer")
     XCTAssertEqual(mock.jumpToRecordBookmarkCallsCount, 0) // within 0.5 s: no jump
   }
 
@@ -157,7 +158,7 @@ final class SharerPlaybackTargetTests: XCTestCase {
     let target = makeTarget()
     target.applyRate(1.75)
     XCTAssertEqual(mock.setSpeedReceivedNewValue, 1.75)
-    XCTAssertEqual(mock.playCallsCount, 0)
+    XCTAssertEqual(mock.playForGroupCallsCount, 0)
     speed.send(1.75)      // PlayerManager reports our own change
     XCTAssertTrue(events.isEmpty)
   }
@@ -219,7 +220,7 @@ final class SharerPlaybackTargetTests: XCTestCase {
     XCTAssertEqual(target.interruption, .interrupted)
     target.applyPlay(at: 100, rate: 1)
     target.applyPlay(at: 120, rate: 1)
-    XCTAssertEqual(mock.playCallsCount, 0, "PlayerManager.play() would fatalError if the session can't activate")
+    XCTAssertEqual(mock.playForGroupCallsCount, 0, "PlayerManager.play() would fatalError if the session can't activate")
     XCTAssertEqual(events, [.heldPaused(at: 100), .heldPaused(at: 100)], "the group is asked to stay paused")
   }
 
@@ -230,7 +231,7 @@ final class SharerPlaybackTargetTests: XCTestCase {
     mock.underlyingIsPlaying = false   // the system paused it
     target.handleInterruption(.ended, shouldResume: true)
     XCTAssertNil(target.interruption)
-    XCTAssertEqual(mock.playCallsCount, 1, "the sharer resumes the group by itself")
+    XCTAssertEqual(mock.playForGroupCallsCount, 1, "the sharer resumes the group by itself")
   }
 
   func testTheInterruptionEndingWithoutPermissionWaitsForTheSharersPlay() {
@@ -240,9 +241,9 @@ final class SharerPlaybackTargetTests: XCTestCase {
     mock.underlyingIsPlaying = false
     target.handleInterruption(.ended, shouldResume: false)
     XCTAssertEqual(target.interruption, .needsPlay)
-    XCTAssertEqual(mock.playCallsCount, 0)
+    XCTAssertEqual(mock.playForGroupCallsCount, 0)
     target.applyPlay(at: 100, rate: 1)
-    XCTAssertEqual(mock.playCallsCount, 0, "still never from the group")
+    XCTAssertEqual(mock.playForGroupCallsCount, 0, "still never from the group")
     playing.send(true)                 // the sharer pressed Play
     XCTAssertNil(target.interruption)
   }
@@ -252,7 +253,7 @@ final class SharerPlaybackTargetTests: XCTestCase {
     target.handleInterruption(.began, shouldResume: false)
     target.handleInterruption(.ended, shouldResume: true)
     XCTAssertEqual(target.interruption, .needsPlay, "the group was paused: the sharer decides")
-    XCTAssertEqual(mock.playCallsCount, 0)
+    XCTAssertEqual(mock.playForGroupCallsCount, 0)
   }
 
   func testAStaleInterruptionFromASuspendedAppIsIgnored() {
@@ -260,7 +261,7 @@ final class SharerPlaybackTargetTests: XCTestCase {
     target.handleInterruption(.began, shouldResume: false, wasSuspended: true)
     XCTAssertNil(target.interruption)
     target.applyPlay(at: 100, rate: 1)
-    XCTAssertEqual(mock.playCallsCount, 1)
+    XCTAssertEqual(mock.playForGroupCallsCount, 1)
   }
 
   // MARK: SR7-01: another book the sharer plays
@@ -315,7 +316,7 @@ final class SharerPlaybackTargetTests: XCTestCase {
     target.applyPlay(at: 100, rate: 2)
     XCTAssertEqual(mock.pauseCallsCount, 0)
     XCTAssertEqual(mock.setSpeedCallsCount, 0)
-    XCTAssertEqual(mock.playCallsCount, 0)
+    XCTAssertEqual(mock.playForGroupCallsCount, 0)
   }
 
   func testTheSharedBooksOwnEventsStillReachTheGroup() {

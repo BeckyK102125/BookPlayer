@@ -79,6 +79,23 @@ final class ListenTogetherTransferCoordinatorTests: XCTestCase {
     listener.messageReceived(.heartbeat, from: sharerID)
   }
 
+  // MARK: Temporary files (SR7-11)
+
+  func testAPieceAddedToTheJournalIsRemovedFromTmp() async throws {
+    let piece = try makePiece()
+    _ = try await sharer.upload(fileAt: piece)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: piece.path))
+  }
+
+  func testAPieceSentAsChunksIsKeptForLateJoiners() async throws {
+    heardFromSharer()
+    journalResults = [.failure(FakeJournalErrors.notSupported)]
+    let piece = try makePiece()
+    _ = try await sharer.upload(fileAt: piece)
+    XCTAssertEqual(sharer.mode, .chunks)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: piece.path))
+  }
+
   // MARK: Sharer switch (I3, I2)
 
   func testTheFirstRealFailureIsThrownAndTheSecondSendsTheSamePieceAsChunks() async throws {

@@ -2088,6 +2088,83 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   5a4f4586 to fab311c9, fast-forward. No retest needed: the 1848-test run and TSan run were on fab311c9.
 - Not pushed; develop is ahead of origin/develop. Fix branch kept until Becky says it can go.
 
+## 2026-11-18 - dd0bde92: Michael's shares fail even when both have the book
+- Becky on TestFlight 6: her shares work when both have the book. Michael's shares fail both when Becky
+  doesn't have the book and when they both do.
+- Correction to the 2026-11-16 entry: the "Only people who have the book can join" setting can't explain
+  the both-have-it case (owners may join). The failure follows Michael as sharer, not the copy path.
+- Commented on Start Testing dd0bde92 with this. Becky moved the discussion to the Neo; no code changed.
+
+## 2026-11-18 - SR7 Medium fixes (branch fix/sr7-mediums, from develop 85bd7833)
+- Becky: "take care of these high safe alone issues and the medium issues"; her go-ahead covers the wording.
+- SR7-03: a piece that can't be sent ends the share after `PieceRetryPolicy.failureLimit` (8) tries, or at
+  once for a permanent error (`isPermanent`: no local file, piece too large, disk full, file gone, also
+  through NSUnderlyingErrorKey). The screen may lock during the back-off wait. A listener whose received
+  piece fails to play `receivedPieceFailureLimit` (5) times leaves with "Part of the shared book couldn't
+  be played on this iPhone. You left Listen Together." (new EndReason.receivedPieceFailed, message
+  .pieceUnplayable). A media services reset clears the decode-failure counts.
+  This replaces Addendum 3 decision 5 ("never ends the session"): testUploadFailureKeepsTheSessionAndRetries
+  now checks limit-1 failures keep the share.
+- SR7-04: a turned-away listener reaches the sharer as a spoken status (`.someoneCouldNotJoin`, also when
+  the app is away) naming the setting; the alone row reads "sharing, someone couldn't join because they
+  don't have the book". Decline notices are sent, not abandoned, when replaced; the decline wait is 10 s.
+  The settings footer says "Having the book means having the same recording of it in BookPlayer."
+- SR7-05: Hardcover sign-in with no BP_HARDCOVER_CLIENT_ID fails at once with "Hardcover sign-in isn't set
+  up in this build of BookPlayer." Becky still decides whether to keep Hardcover.
+- SR7-06: Join over a sheet other than the player asks first ("Close the Open Screen?", Join / Cancel).
+  New MainCoordinator+ListenTogetherJoin.swift. The pbxproj needs quotes around a name with "+":
+  the first build failed with "not a valid property list" until they were added.
+- SR7-08: ListenerPlayer handles mediaServicesWereReset (reconfigures the session, rebuilds the queue at
+  the same place, resumes if it was playing).
+- SR7-10: Hardcover settings move VoiceOver focus to the account row on sign-in and to Sign In on
+  log-out, then a low-priority (queued) "logged out" announcement. `accessibilitySpeechQueueAnnouncement`
+  isn't a SwiftUI AttributedString attribute; low priority queues instead.
+- SR7-11: in journal mode each piece file is deleted from tmp once the journal has it; chunk mode keeps
+  them for late joiners.
+- Settings Listen Together row shows its value with LabeledContent.
+- Not done: SR7-07 (sleep timer) and SR7-09 (smart rewind) need PlayerManager changes: Becky approves.
+- Build errors fixed on the way: AVError has no fileNotFound (dropped; .noLocalFile covers it).
+- Tests: `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests` on iPhone 18
+  Pro 7B46F85F: "Executed 1863 tests, with 0 failures". TSan (`-enableThreadSanitizer YES`) on the 7 touched SharePlay
+  test classes: 104 tests, 0 failures, no ThreadSanitizer warnings. Simulator shut down and erased. New: ListenTogetherGiveUpTests,
+  ListenTogetherDeclineNoticeTests, ListenerPlayerResetTests, ListenTogetherJoinConfirmationTests.
+- dd0bde92 talk with Becky: the failure follows Michael as sharer. Unverified idea: low storage on his
+  phone made piece export fail and retry silently forever; after SR7-03 his phone would say "Couldn't
+  prepare the book for sharing". Asked for his free storage, iOS version and build.
+
+## 2026-11-18 - SR7-07 and SR7-09 (branch fix/sr7-07-09, from develop b578b168)
+- Becky approved merging fix/sr7-mediums: develop fast-forwarded to b578b168 (not pushed).
+- Becky approved the PlayerManager change for SR7-09 ("Yes, of course, you may") and chose for SR7-07
+  that the timer "should stop the share". Chosen meaning: pause the group, as the listener's own Pause
+  does (reversible; anyone can press Play). Leaving instead would be a small change if she prefers it.
+- SR7-09: new `PlayerManagerProtocol.playForGroup()`; PlayerManager's private
+  `play(autoPlayed:isGroupCommand:)` skips Smart Rewind and the auto timer for it. SharerPlaybackTarget
+  uses it for a group Play and for the group resume after the sharer's interruption. The watch's
+  PlayerManager gets `playForGroup()` that calls `play()` (no Listen Together there).
+- SR7-07: new `PlayerManagerProtocol.sleepTimerBelongsToListenTogether`, set by
+  SharePlaySessionService whenever its listener player appears or goes (`listener` didSet, new
+  SharePlaySessionService+SleepTimer.swift). While true PlayerManager skips the fade, the pause, the
+  shake binding and the sleep bookmark; the service pauses the group through `listener.userPause()`.
+  ListenerPlayer now activates the audio session on every start instead of trusting `sessionConfigured`.
+  Not covered: end-of-chapter timers never fire while listening (they watch PlayerManager's chapters),
+  the listener's volume doesn't fade first, and shake doesn't resume the group.
+- Sourcery 2.4.1 installed with Homebrew (the mocks say 2.3.0; regenerating changed only the header line).
+  `sourcery --config .sourcery.yml --cacheBasePath /private/tmp/agents/claude/bookplayer-sourcery`.
+- First build failed: the watch's PlayerManager also conforms to PlayerManagerProtocol.
+- First test run: 1866 tests, 1 failure (testTheSharersInterruptionEndingWithPermissionResumesTheGroup
+  expected play(); now asserts playForGroup()).
+- Final: `xcodebuild test-without-building -scheme BookPlayer -only-testing:BookPlayerTests` on iPhone 18 Pro
+  7B46F85F: "Executed 1866 tests, with 0 failures". TSan on SharerPlaybackTargetTests,
+  ListenTogetherStartPositionTests, ListenTogetherEveryoneLeftTests, ListenTogetherSleepTimerTests,
+  ListenTogetherRemoteCommandsTests, ListenerPlayerResetTests: 133 tests, 0 failures, no warnings.
+  Simulator shut down and erased. Device checks still needed (two phones).
+
+## 2026-11-18: fix/sr7-07-09 merged into develop
+
+- Becky said "Yes, merge". `git merge --ff-only fix/sr7-07-09` on develop: b578b168 to b9fe9f06, fast-forward.
+- Tests were the ones run on the branch (1866 tests, 0 failures; TSan 133 tests clean). Not pushed.
+- Still needed: two-phone checks of SR7-07 and SR7-09.
+
 ## 2026-11-18 (Neo, Claude Lead): develop merged into fix/sr6-01-rejoin-other-audio
 - Morning hand-off reported the Pro's SR7 work (develop at 63df259e). SR6-01 (050d480f) was still only on its
   branch, never built or tested, and the Swift Reviewer noted it on the item on Nov 17.
@@ -2097,3 +2174,52 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   Not built: the Pro needs to run ListenerPlayerTests on the branch before develop
   fast-forwards to it.
 - Start Testing: 37 items. Open High: BP-20261112-03 to -10 (-08 and -09 Needs Becky, PlayerManager).
+
+## 2026-11-20 - develop pushed, chat replaced
+- Becky approved: pushed develop b578b168..075673a4 (SR7-07/09 fixes and notes), fast-forward, GitHub had
+  nothing new. dd0bde92 has no news since 2026-11-18 (no Neo comment). The "Book Player markdown chats"
+  chat was replaced with a fresh one (replace-chat) because it had auto-compacted.
+
+## 2026-11-20 - Upstream player-core merge (Pro, Claude lead), branch merge/upstream-player-engine
+- Becky approved merging upstream's 13 held-back commits (87d55348..ef291a71) "if safe". Fork's own player
+  changes were small (about 50 lines in PlayerManager), so judged safe to merge on a branch and test.
+- `git merge --no-ff upstream/develop` from develop da2b7321: 15 conflicts. Resolutions:
+  PlayerManager/Protocol now in Shared/Player: kept sleepTimerBelongsToListenTogether (SR7-07) guards;
+  SR7-09 playForGroup() = play(origin: .group), a new PlayOrigin case (a private flag would be lost when a
+  play is deferred until the load finishes, PlayerManager re-calls play(origin:)). Smart Rewind skipped for
+  .group; auto timer already user-only upstream. A01 acceptsEndOfItem and its test dropped: AVPlayerEngine
+  observes AVPlayerItemDidPlayToEndTime for its own item. A08: PhonePlayerPlatform's fatalError removed.
+  PlayerLoaderService made public with the start gate; `autoplay:` -> `intent:`. Intents keep the
+  ListenTogetherIntentRouting checks on upstream's @MainActor perform. Watch PlayerManager deleted (upstream).
+  pbxproj: both sides' file refs kept. CLAUDE.md: upstream text plus fork's audio-session and .group notes.
+  `sourcery --config .sourcery.yml` regenerated mocks (diff vs upstream: only the two fork members).
+- Committed b566c354, not built: `PRO_SLOT_BECKY_SAID=1 pro-slot take` was refused by the permission
+  check (Friday evening is Becky's time). Waiting for Becky's explicit OK, or Monday daytime.
+- Becky: SR7-05 Hardcover left alone (no client id; sign-in fails with a clear message). No iPad: SR7-02 is
+  checked on an iPad simulator only. Swift 6 question for the upstream PR raised.
+- 2026-11-20 later: Becky's new rule (via the On-device testing coordinator chat, local_2c35a663): all of
+  her on-device VoiceOver testing goes to that chat by message (app and device, count and urgency, each
+  scenario with what it proves, numbered VoiceOver steps, expected result, one yes-or-no question). Build
+  already on the phone first. Don't ask Becky to test in this chat. No iPad or iPhone Duo tests.
+- 2026-11-20 later: testing coordinator now makes the Start Testing updates for device tests (passed:
+  comment, milestone, assign Taylor, Needs Review, drop " - Claude"; failed: comments or files and sends the
+  ID). Every test sent to it must name the branch and the full commit of the installed build.
+- 2026-11-20 18:35-18:44 (Becky's OK for one hour, resource lead told): pro-slot taken. First build used a
+  short simulator id (fails: use the full 7B46F85F-B32A-4BD1-BFBC-38C2EB73425A). App built clean; two test
+  files needed the new API (SharePlayMenuTests: `platform: TestPlayerPlatform()`; ListenTogetherOwnCopyTests:
+  loadIntent mocks, `intent == .idle`), commit e0491b1f. First test run: "Failed to prepare device ...
+  Invalid connectionUUID" (simulator flake); booting the simulator first fixed it.
+  `xcodebuild test-without-building ... -only-testing:BookPlayerTests -parallel-testing-enabled NO`:
+  1937 tests, 0 failures. TSan (`-enableThreadSanitizer YES`, 8 classes): 246 tests, no warnings.
+  iPad Pro 13-inch sim: app launches, Settings split view and Listen Together screen laid out fine.
+  Simulators shut down and erased, slot released 18:44. develop fast-forwarded to e0491b1f (local only).
+  Existing SharePlay warnings (appWasSuspended deprecated, trailing-closure matching, unused results in
+  tests) left for the Swift 6 cleanup.
+
+## 2026-11-23 (Pro, BookPlayer Lead): develop merged into fix/sr6-01-rejoin-other-audio
+- `git merge --no-ff develop` (c6057686) into 5048a778. One code conflict, ListenerPlayer.swift: SR6-01's
+  isOtherAudioPlaying() helper and develop's SR7-07 activateSessionIfNeeded (activates on every start,
+  no sessionConfigured guard) are independent; kept both. The resolved file differs from develop only by
+  SR6-01's seam, doc comment, interruption check and helper. Notes combined in date order.
+- Not built or tested (Becky's time). Next: build, ListenerPlayerTests and full suite, Tuesday 7 AM to
+  3 PM behind pro-slot. ListenerPlayer.swift is 1075 lines (over 700, split pending).

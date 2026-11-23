@@ -21,6 +21,8 @@ enum ListenTogetherUserMessage: Hashable {
   case connectionEndedSharer
   /// Listener with their own copy: it can't be played, so this phone left (final review I1).
   case ownCopyUnplayable
+  /// Listener: a piece sent by the person sharing can't be played, so this phone left (SR7-03).
+  case pieceUnplayable
   /// Sharer: the book couldn't be prepared at all; the session ends (E14).
   case prepareFailed
   /// Sharer (build 6): the last listener left, so Listen Together ended for everyone.
@@ -35,6 +37,9 @@ enum ListenTogetherUserMessage: Hashable {
   case sharerBack
   /// Sharer: a piece failed and is tried again (E5).
   case retryingSend
+  /// Sharer, owners-only share (SR7-04): someone couldn't join because they don't have the book. Says
+  /// where the setting is, is read by "Speak error messages" and is a notification when away.
+  case someoneCouldNotJoin
   /// Listener: the group waits for this device's piece (E6).
   case waitingForBook
   /// Listener (Option 1): stopped on this phone while the group plays on.
@@ -67,9 +72,9 @@ enum ListenTogetherUserMessage: Hashable {
   var kind: Kind {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart:
+      .ownCopyUnplayable, .pieceUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart:
       return .alert
-    case .waitingForSharer, .retryingSend, .waitingForBook, .pausedBecauseSomeoneLeft, .stoppedHere,
+    case .waitingForSharer, .retryingSend, .someoneCouldNotJoin, .waitingForBook, .pausedBecauseSomeoneLeft, .stoppedHere,
       .pausedWaitingForListeners, .sharerInterruption, .ownInterruption:
       return .status
     case .sharerBack:
@@ -88,6 +93,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .connectionEnded: return "listen_together_connection_ended".localized
     case .connectionEndedSharer: return "listen_together_connection_ended_sharer".localized
     case .ownCopyUnplayable: return "listen_together_own_copy_unplayable".localized
+    case .pieceUnplayable: return "listen_together_piece_unplayable".localized
     case .prepareFailed: return "listen_together_prepare_failed".localized
     case .everyoneLeft: return "listen_together_ended_everyone_left".localized
     case .unavailable: return "listen_together_unavailable".localized
@@ -95,6 +101,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .waitingForSharer: return "listen_together_waiting_for_sharer".localized
     case .sharerBack: return "listen_together_sharer_back".localized
     case .retryingSend: return "listen_together_send_failed".localized
+    case .someoneCouldNotJoin: return "listen_together_declined_no_copy_full".localized
     case .waitingForBook: return "listen_together_waiting_download".localized
     case .stoppedHere(let stop): return stop.text
     case .sharerInterruption(.interrupted): return "listen_together_sharer_interrupted".localized
@@ -117,6 +124,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .connectionEnded: return "connectionEnded"
     case .connectionEndedSharer: return "connectionEndedSharer"
     case .ownCopyUnplayable: return "ownCopyUnplayable"
+    case .pieceUnplayable: return "pieceUnplayable"
     case .prepareFailed: return "prepareFailed"
     case .everyoneLeft: return "everyoneLeft"
     case .unavailable: return "unavailable"
@@ -124,6 +132,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .waitingForSharer: return "waitingForSharer"
     case .sharerBack: return "sharerBack"
     case .retryingSend: return "retryingSend"
+    case .someoneCouldNotJoin: return "someoneCouldNotJoin"
     case .waitingForBook: return "waitingForBook"
     case .stoppedHere(.interrupted): return "stoppedHereInterrupted"
     case .stoppedHere(.needsPlay): return "stoppedHereNeedsPlay"
@@ -142,8 +151,9 @@ enum ListenTogetherUserMessage: Hashable {
   var speaks: Bool {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .ownCopyUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart, .waitingForSharer,
-      .retryingSend, .alertShownElsewhere:
+      .ownCopyUnplayable, .pieceUnplayable, .prepareFailed, .everyoneLeft, .unavailable, .didntStart,
+      .waitingForSharer,
+      .retryingSend, .someoneCouldNotJoin, .alertShownElsewhere:
       return true
     case .sharerBack, .waitingForBook, .stoppedHere, .sharerInterruption, .ownInterruption:
       return false
@@ -163,7 +173,7 @@ enum ListenTogetherUserMessage: Hashable {
   var notifiesWhenAway: Bool {
     switch self {
     case .pausedBecauseSomeoneLeft, .pausedWaitingForListeners, .stoppedHere(.needsPlay), .sharerInterruption,
-      .ownInterruption(.needsPlay):
+      .ownInterruption(.needsPlay), .someoneCouldNotJoin:
       return true
     default: return false
     }
@@ -177,7 +187,7 @@ enum ListenTogetherUserMessage: Hashable {
   var isEnding: Bool {
     switch self {
     case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .connectionEndedSharer,
-      .ownCopyUnplayable, .prepareFailed, .everyoneLeft:
+      .ownCopyUnplayable, .pieceUnplayable, .prepareFailed, .everyoneLeft:
       return true
     default: return false
     }
@@ -186,7 +196,8 @@ enum ListenTogetherUserMessage: Hashable {
   /// A listener's ending: shown only after the listener cover has left (guidance A.0).
   var waitsForListenerCover: Bool {
     switch self {
-    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .ownCopyUnplayable: return true
+    case .sharerEnded, .sharerLeft, .sharerCouldNotPrepare, .connectionEnded, .ownCopyUnplayable, .pieceUnplayable:
+      return true
     default: return false
     }
   }
@@ -202,6 +213,7 @@ enum ListenTogetherUserMessage: Hashable {
     case .connectionEnded: return wasListener ? .connectionEnded : .connectionEndedSharer
     case .prepareFailed: return .prepareFailed
     case .ownCopyFailed: return .ownCopyUnplayable
+    case .receivedPieceFailed: return .pieceUnplayable
     case .everyoneLeft: return .everyoneLeft
     case .normal, .left, .unavailable: return nil
     }

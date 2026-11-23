@@ -22,6 +22,7 @@ struct LastBookStartPlaybackIntent: AudioPlaybackIntent {
   var libraryService: LibraryService
   #endif
 
+  @MainActor
   func perform() async throws -> some IntentResult {
     #if MAIN_APP
     let coreServices = try await AppServices.shared.awaitCoreServices()
@@ -41,7 +42,7 @@ struct LastBookStartPlaybackIntent: AudioPlaybackIntent {
       playerLoaderService: playerLoaderService
     )
     #else
-    try await playerLoaderService.loadPlayer(book.relativePath, autoplay: true)
+    try await playerLoaderService.loadPlayer(book.relativePath, intent: .wantsToPlay(.user))
     #endif
 
     return .result()

@@ -14,13 +14,12 @@ import Foundation
 struct PausePlaybackIntent: AudioPlaybackIntent {
   static var title: LocalizedStringResource = "intent_playback_pause_title"
 
+  @MainActor
   func perform() async throws -> some IntentResult {
     let coreServices = try await AppServices.shared.awaitCoreServices()
     // Listen Together (fork audit A17): a listener pauses the shared book, never their own.
     if try await ListenTogetherIntentRouting.handle(.pause) { return .result() }
-    await MainActor.run {
-      coreServices.playerLoaderService.playerManager.pause()
-    }
+    coreServices.playerLoaderService.playerManager.pause()
 
     return .result()
   }

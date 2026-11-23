@@ -32,12 +32,18 @@ struct SettingsPlaybackSectionView: View {
       }
       .settingsRowBackground(for: .autolock)
       NavigationLink(value: SettingsScreen.listenTogether) {
-        Text("settings_listen_together_title".localized)
-          .bpFont(.body)
+        // SR7-04: the current choice in short form, shown on screen and read as the row's value, so it
+        // is seen and heard without opening the screen.
+        LabeledContent {
+          Text(listenTogetherMode.shortValue)
+            .bpFont(.body)
+            .foregroundStyle(theme.secondaryColor)
+        } label: {
+          Text("settings_listen_together_title".localized)
+            .bpFont(.body)
+        }
       }
       .settingsRowBackground(for: .listenTogether)
-      // The current choice in short form, so it is heard without opening the screen.
-      .accessibilityValue(listenTogetherMode.shortValue)
     } header: {
       Text("settings_playback_title")
         .bpFont(.subheadline)

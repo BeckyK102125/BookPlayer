@@ -414,6 +414,10 @@
 "hardcover_automation_description" = "Synkronisera automatiskt ditt läsframsteg med Hardcover. När aktiverat kommer böcker att matchas automatiskt och läggas till i ditt bibliotek.";
 "section_item_hardcover" = "Hardcover";
 "hardcover_sign_in_failed_message" = "Hardcover slutförde inte inloggningen. Försök igen.";
+"hardcover_sign_in_unavailable_message" = "Hardcover sign-in isn't set up in this build of BookPlayer.";
+"hardcover_signed_in" = "Signed in";
+"hardcover_signed_in_as" = "Signed in as %@";
+"hardcover_logged_out_announcement" = "Logged out of Hardcover.";
 "hardcover_automation_title" = "Automatisering";
 "hardcover_progress_tracking_title" = "Framstegsspårning";
 "save_button" = "Spara";
@@ -509,6 +513,8 @@
 "listen_together_title" = "Listen Together";
 "listen_together_end_button" = "End Listen Together";
 "listen_together_join_button" = "Join";
+"listen_together_join_close_title" = "Close the Open Screen?";
+"listen_together_join_close_message" = "Joining Listen Together closes the screen that's open. Anything there that isn't saved or imported yet is lost.";
 "listen_together_decline_button" = "Not Now";
 "listen_together_invitation_message" = "Listen to %@ by %@ together.";
 "listen_together_needs_facetime_title" = "Couldn't open sharing";
@@ -585,6 +591,7 @@
 "listen_together_copy_unusable_title" = "Your copy can't be used";
 "listen_together_copy_unusable_message" = "BookPlayer couldn't use your copy of %@. The person sharing is only listening with people who have the book, so you can't join.";
 "listen_together_declined_no_copy" = "Someone couldn't join because they don't have the book.";
+"listen_together_declined_no_copy_full" = "Someone couldn't join because they don't have the book. To send it to people who don't have it, choose Settings, Playback, Listen Together, then Send it for this session.";
 "listen_together_first_share_message_owners_only" = "Only people who already have this book can join. Nothing is sent.";
 "settings_listen_together_title" = "Listen Together";
 "settings_listen_together_header" = "When someone doesn't have the book";
@@ -592,7 +599,7 @@
 "settings_listen_together_owners_only" = "Only people who have the book can join";
 "settings_listen_together_value_send" = "Sends the book";
 "settings_listen_together_value_owners_only" = "Owners only";
-"settings_listen_together_footer" = "This applies when you share a book. People who already have the book always play their own copy. Their place in it moves to where the group is. If it moves by more than 30 seconds, their old place is first saved as a bookmark called “Your place before Listen Together”.\n\nSend it for this session: people who don't have the book get a temporary copy. It is deleted when the session ends.\n\nOnly people who have the book can join: nothing is sent. People who don't have the book are told they need their own copy.\n\nA change applies to the next session you share.";
+"settings_listen_together_footer" = "This applies when you share a book. Having the book means having the same recording of it in BookPlayer. People who already have the book always play their own copy. Their place in it moves to where the group is. If it moves by more than 30 seconds, their old place is first saved as a bookmark called “Your place before Listen Together”.\n\nSend it for this session: people who don't have the book get a temporary copy. It is deleted when the session ends.\n\nOnly people who have the book can join: nothing is sent. People who don't have the book are told they need their own copy.\n\nA change applies to the next session you share.";
 "listen_together_check_failed_title" = "Couldn't check your library";
 "listen_together_check_failed_message" = "BookPlayer couldn't check your library for %@ in time, so you can't join. Ask the person sharing to send it.";
 "listen_together_sharer_ended" = "The person sharing ended Listen Together.";
@@ -617,6 +624,7 @@
 "listen_together_row_value_paused_lost_connection" = "paused, someone lost their connection, %@";
 "listen_together_end_confirm_message" = "It ends for everyone.";
 "listen_together_row_value_sharing_alone" = "sharing, waiting for people to join, %@";
+"listen_together_row_value_sharing_declined" = "sharing, someone couldn't join because they don't have the book, %@";
 "listen_together_cancel_sharing_button" = "Cancel Sharing";
 "settings_listen_together_speak_header" = "Messages";
 "settings_listen_together_speak_toggle" = "Speak error messages";
@@ -631,6 +639,7 @@
 "listen_together_row_value_sharer_quiet" = "can't reach the person sharing, %@";
 "listen_together_row_value_sharing_retrying" = "couldn't send part of the book, trying again, %@";
 "listen_together_own_copy_unplayable" = "Your copy of this book can't be played right now. You left Listen Together.";
+"listen_together_piece_unplayable" = "Part of the shared book couldn't be played on this iPhone. You left Listen Together.";
 "listen_together_interrupted_here" = "Listen Together will continue when the interruption ends.";
 "listen_together_stopped_here" = "Stopped on this iPhone. Press Play to rejoin the others.";
 "listen_together_leave_confirm_message_last" = "You will leave Listen Together on this iPhone. You are the last listener, so Listen Together ends for everyone. The book is deleted from this iPhone.";

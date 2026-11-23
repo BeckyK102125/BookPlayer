@@ -8,6 +8,7 @@
 
 import AVFoundation
 import Foundation
+import AVFoundation
 import MediaPlayer
 
 @testable import BookPlayer
@@ -15,6 +16,7 @@ import MediaPlayer
 import Combine
 import XCTest
 
+@MainActor
 class PlayerManagerTests: XCTestCase {
   var playbackServiceMock: PlaybackServiceProtocolMock!
   var syncServiceMock: SyncServiceProtocolMock!
@@ -34,17 +36,25 @@ class PlayerManagerTests: XCTestCase {
       item.currentTime = time
     }
     self.syncServiceMock = SyncServiceProtocolMock()
-    self.sut = PlayerManager(
+    self.sut = makeManager()
+  }
+
+  private func makeManager(engine: PlaybackEngine? = nil) -> PlayerManager {
+    let speedService = SpeedServiceProtocolMock()
+    speedService.getSpeedRelativePathReturnValue = 1
+
+    return PlayerManager(
       libraryService: LibraryServiceProtocolMock(),
       playbackService: playbackServiceMock,
       syncService: syncServiceMock,
-      speedService: SpeedServiceProtocolMock(),
-      shakeMotionService: ShakeMotionServiceProtocolMock(),
+      speedService: speedService,
+      platform: TestPlayerPlatform(),
       widgetReloadService: WidgetReloadService(),
       // Entitled by default, so nothing here is suppressed by tier; the item half of the rule
       // is covered by MediaServersShortcutTests against PlayableChapter.
       hasStreamingEnabled: { [weak self] in self?.streamingEnabled ?? true },
-      presentFailure: { _ in }
+      presentFailure: { _ in },
+      engine: engine
     )
   }
 
@@ -271,7 +281,7 @@ class PlayerManagerTests: XCTestCase {
       playbackService: playbackServiceMock,
       syncService: SyncServiceProtocolMock(),
       speedService: SpeedServiceProtocolMock(),
-      shakeMotionService: ShakeMotionServiceProtocolMock(),
+      platform: TestPlayerPlatform(),
       widgetReloadService: WidgetReloadService(),
       hasStreamingEnabled: { false },
       presentFailure: { _ in }
@@ -300,7 +310,7 @@ class PlayerManagerTests: XCTestCase {
       playbackService: playbackServiceMock,
       syncService: syncService,
       speedService: SpeedServiceProtocolMock(),
-      shakeMotionService: ShakeMotionServiceProtocolMock(),
+      platform: TestPlayerPlatform(),
       widgetReloadService: WidgetReloadService(),
       hasStreamingEnabled: { true },
       presentFailure: presentFailure,
@@ -319,7 +329,7 @@ class PlayerManagerTests: XCTestCase {
       presented.fulfill()
     }
 
-    manager.loadChapterMetadata(streamedChapter(.item), autoplay: true)
+    manager.loadChapterMetadata(streamedChapter(.item), intent: .wantsToPlay(.user))
     await fulfillment(of: [presented], timeout: 5)
 
     XCTAssertEqual(failure?.reason, .streamUnavailable)
@@ -334,7 +344,7 @@ class PlayerManagerTests: XCTestCase {
     let lookup = LookupStub(answer: .sessionExpired)
     let manager = makeStreamingManager(lookup: lookup) { _ in presented.fulfill() }
 
-    manager.loadChapterMetadata(streamedChapter(.item), autoplay: false)
+    manager.loadChapterMetadata(streamedChapter(.item), intent: .idle)
     await fulfillment(of: [presented], timeout: 0.5)
 
     XCTAssertEqual(lookup.calls, 1, "the load ran")
@@ -453,7 +463,7 @@ class PlayerManagerTests: XCTestCase {
       playbackService: playbackServiceMock,
       syncService: SyncServiceProtocolMock(),
       speedService: SpeedServiceProtocolMock(),
-      shakeMotionService: ShakeMotionServiceProtocolMock(),
+      platform: TestPlayerPlatform(),
       widgetReloadService: WidgetReloadService(),
       hasStreamingEnabled: { false },
       presentFailure: { _ in }
@@ -498,7 +508,7 @@ class PlayerManagerTests: XCTestCase {
       index: 1
     )
 
-    _ = try? await sut.loadPlayerItem(for: chapter, forceRefreshURL: false)
+    _ = try? await sut.resolveAsset(for: chapter, forceRefresh: false)
 
     XCTAssertEqual(
       syncServiceMock.getRemoteFileURLsOfForTypeCallsCount,
@@ -507,7 +517,7 @@ class PlayerManagerTests: XCTestCase {
     )
   }
 
-  /// Branch order in `loadPlayerItem`: a media-server chapter streams from its own URL even
+  /// Branch order in `resolveAsset`: a media-server chapter streams from its own URL even
   /// when the caller forces a refresh. Inverting the external and cloud branches would send
   /// a Jellyfin/ABS book to the S3 presign endpoint, which has nothing to hand back for it.
   @MainActor
@@ -524,7 +534,7 @@ class PlayerManagerTests: XCTestCase {
       index: 1
     )
 
-    _ = try await sut.loadPlayerItem(for: chapter, forceRefreshURL: true)
+    _ = try await sut.resolveAsset(for: chapter, forceRefresh: true)
 
     XCTAssertEqual(
       syncServiceMock.getRemoteFileURLsOfForTypeCallsCount,
@@ -720,36 +730,137 @@ class PlayerManagerTests: XCTestCase {
     XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 1, accuracy: 0.0001)
   }
 
-  // MARK: Fork audit A01: only this player's own item finishes the book
+  // MARK: - Seeks in flight
 
-  func testOnlyThisPlayersCurrentItemCountsAsFinished() {
-    let mine = AVPlayerItem(url: URL(fileURLWithPath: "/tmp/mine.m4a"))
-    let other = AVPlayerItem(url: URL(fileURLWithPath: "/tmp/other.m4a"))
-    XCTAssertTrue(PlayerManager.acceptsEndOfItem(mine, currentPlayerItem: mine))
-    XCTAssertFalse(PlayerManager.acceptsEndOfItem(other, currentPlayerItem: mine), "another player's item")
-    XCTAssertFalse(PlayerManager.acceptsEndOfItem(mine, currentPlayerItem: nil), "an item this player already replaced")
-    XCTAssertFalse(PlayerManager.acceptsEndOfItem(nil, currentPlayerItem: mine))
+  /// A chapter long enough to sit past `PlayerTimeSample`'s file-start threshold, loaded and ready, with
+  /// playback `currentTime` into it. Its seeks land when the test says so
+  private func installLongChapterItem(currentTime: TimeInterval) -> ControlledPlayer {
+    let player = ControlledPlayer()
+    player.landsSeeksImmediately = false
+    syncServiceMock.isActive = false
+    sut = makeManager(engine: AVPlayerEngine(
+      makePlayer: { player },
+      makePlayerItem: { asset in
+        let item = ControlledPlayerItem(asset: asset)
+        item.become(.readyToPlay)
+        return item
+      }
+    ))
+
+    let chapter = PlayableChapter(
+      title: "chapter 1",
+      author: "author",
+      start: 0,
+      duration: 600,
+      relativePath: "",
+      remoteURL: nil,
+      externalURL: nil,
+      index: 1
+    )
+    let book = PlayableItem(
+      title: "test book",
+      author: "test author",
+      chapters: [chapter],
+      currentTime: 0,
+      duration: 600,
+      relativePath: "",
+      uuid: "LEGACY_UUID",
+      parentFolder: nil,
+      percentCompleted: 10,
+      lastPlayDate: nil,
+      isFinished: false,
+      isBoundBook: false
+    )
+
+    /// Loaded at the start, so the load itself doesn't seek
+    let loaded = expectation(forNotification: .bookReady, object: nil)
+    sut.load(book, intent: .idle)
+    wait(for: [loaded], timeout: 1)
+    /// The item's ready status reaches the manager on main
+    drainMainQueue()
+
+    book.currentTime = currentTime
+    player.reportedTime = currentTime
+    return player
   }
 
-  func testAListenTogetherPieceFinishingNeverFinishesThePersonalBook() {
-    let library = LibraryServiceProtocolMock()
-    let manager = PlayerManager(
-      libraryService: library,
-      playbackService: playbackServiceMock,
-      syncService: SyncServiceProtocolMock(),
-      speedService: SpeedServiceProtocolMock(),
-      shakeMotionService: ShakeMotionServiceProtocolMock(),
-      widgetReloadService: WidgetReloadService(),
-      hasStreamingEnabled: { true },
-      presentFailure: { _ in }
-    )
-    let item = generatePlayableItem()
-    item.currentChapter = item.chapters.last!
-    manager.currentItem = item
-    // The listener's AVQueuePlayer finishes a piece: the notification is for its item, not ours.
-    let pieceItem = AVPlayerItem(url: URL(fileURLWithPath: "/tmp/piece-000.m4a"))
-    manager.playerDidFinishPlaying(Notification(name: .AVPlayerItemDidPlayToEndTime, object: pieceItem))
-    XCTAssertFalse(library.markAsFinishedFlagRelativePathCalled, "the personal book is not marked finished")
-    XCTAssertFalse(library.setLibraryLastBookWithCalled, "and the next personal book is not started")
+  private func drainMainQueue() {
+    let drained = expectation(description: "main queue drained")
+    DispatchQueue.main.async { drained.fulfill() }
+    wait(for: [drained], timeout: 1)
+  }
+
+  /// GH #1641, #1664: the periodic observer fires while the seek is in flight and reads the old
+  /// position. Recording it made the landing at the file start look like the player moved alone.
+  func testRestartingAChapterSurvivesATickFromBeforeTheSeekLands() {
+    let player = installLongChapterItem(currentTime: 120)
+
+    sut.skipToPreviousChapter()
+    sut.updateTime()
+    player.finishSeek()
+    drainMainQueue()
+    /// Inside `PlayerTimeSample`'s file-start window: against the old position this reading is the
+    /// snap-back that triggers the recovery, and `jumpTo` already wrote 0.1, so 0.3 shows it was accepted
+    player.reportedTime = 0.3
+    sut.updateTime()
+
+    XCTAssertEqual(player.seekTargets.count, 1)
+    XCTAssertEqual(player.seekTargets.first ?? -1, 0.1, accuracy: 0.0001)
+    XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 0.3, accuracy: 0.0001)
+  }
+
+  /// Paused, the player's only tick for a seek arrives before it lands, so the landing has to publish
+  /// the position itself, or the player screen and Now Playing keep the old one
+  func testALandedSeekPublishesThePositionWithoutWaitingForATick() {
+    let player = installLongChapterItem(currentTime: 120)
+
+    sut.jumpTo(300, recordBookmark: false)
+    sut.updateTime()
+    let published = expectation(forNotification: .bookPlaying, object: nil)
+    player.finishSeek()
+
+    wait(for: [published], timeout: 1)
+    XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 300, accuracy: 0.0001)
+  }
+
+  func testATickBeforeASeekLandsDoesNotRecordTheOldPosition() {
+    let player = installLongChapterItem(currentTime: 120)
+
+    sut.jumpTo(300, recordBookmark: false)
+    sut.updateTime()
+
+    XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 300, accuracy: 0.0001)
+    player.finishSeek()
+    drainMainQueue()
+    player.reportedTime = 301
+    sut.updateTime()
+
+    XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 301, accuracy: 0.0001)
+  }
+
+  func testOnlyTheLatestSeekEndsTheWait() {
+    let player = installLongChapterItem(currentTime: 120)
+
+    sut.jumpTo(300, recordBookmark: false)
+    sut.jumpTo(300, recordBookmark: false)
+    // AVPlayer finishes a superseded seek first
+    player.finishSeek(finished: false)
+    drainMainQueue()
+    sut.updateTime()
+
+    XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 300, accuracy: 0.0001)
+  }
+
+  func testAnInterruptedSeekStillResumesTracking() {
+    let player = installLongChapterItem(currentTime: 120)
+
+    sut.jumpTo(300, recordBookmark: false)
+    // A seek outside of PlayerManager, like Picture in Picture's skip back, took over
+    player.finishSeek(finished: false)
+    drainMainQueue()
+    player.reportedTime = 280
+    sut.updateTime()
+
+    XCTAssertEqual(sut.currentItem?.currentTime ?? -1, 280, accuracy: 0.0001)
   }
 }

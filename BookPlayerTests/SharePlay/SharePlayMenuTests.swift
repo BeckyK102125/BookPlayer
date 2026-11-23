@@ -50,7 +50,7 @@ final class SharePlayMenuTests: XCTestCase {
       playbackService: PlaybackServiceProtocolMock(),
       syncService: SyncServiceProtocolMock(),
       speedService: SpeedServiceProtocolMock(),
-      shakeMotionService: ShakeMotionServiceProtocolMock(),
+      platform: TestPlayerPlatform(),
       widgetReloadService: WidgetReloadService(),
       hasStreamingEnabled: { true },
       presentFailure: { _ in }
