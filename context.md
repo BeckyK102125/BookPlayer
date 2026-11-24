@@ -1,8 +1,8 @@
 # context.md - current snapshot
 
-Date: 2026-11-23
+Date: 2026-11-24
 Branch: `fix/sr6-01-rejoin-other-audio` (SR6-01: wait for Play instead of cutting off another app's
-audio on rejoin), develop c6057686 merged in. Local only; not built or tested yet.
+audio on rejoin), develop c6057686 merged in (a6b09304). Tested Nov 24; local, push in the Pro's own time.
 
 ## Goal
 Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
@@ -10,7 +10,7 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 
 ## Last work
 - November 23 (Pro): develop merged into this branch; ListenerPlayer conflict resolved keeping SR6-01's
-  other-audio check and SR7-07's always-activate. Needs build, ListenerPlayerTests and full suite.
+  other-audio check and SR7-07's always-activate. Nov 24: 1939 tests, 0 failures; TSan clean.
 - November 20: Becky approved merging the 13 held-back upstream commits (player core behind PlaybackEngine,
   moved into BookPlayerKit). Merged as b566c354 on merge/upstream-player-engine, 15 conflicts resolved:
   SR7-07 guards kept, SR7-09 is now PlayOrigin.group, A08 no-crash moved to PhonePlayerPlatform, A01 guard

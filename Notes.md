@@ -2223,3 +2223,13 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   SR6-01's seam, doc comment, interruption check and helper. Notes combined in date order.
 - Not built or tested (Becky's time). Next: build, ListenerPlayerTests and full suite, Tuesday 7 AM to
   3 PM behind pro-slot. ListenerPlayer.swift is 1075 lines (over 700, split pending).
+
+## 2026-11-24 (Pro, BookPlayer Lead): SR6-01 branch tested
+- a6b09304, iPhone 18 Pro sim 7B46F85F, pro-slot held 08:15 to 08:23 (waited for a Start Speaking Mac test;
+  my first attempt called `pro-slot take` with one argument, got its usage message, and was stopped before
+  it built anything).
+- `xcodebuild build-for-testing` then `test-without-building -only-testing:BookPlayerTests
+  -parallel-testing-enabled NO`: "Executed 1939 tests, with 0 failures".
+- TSan (`xcodebuild test -enableThreadSanitizer YES`) on ListenerPlayerTests and ListenerPlayerResetTests:
+  55 tests, 0 failures, no warnings. Simulator shut down and erased; results folder deleted.
+- SR6-01 (aa080993) commented and moved to Testing. Not pushed (Pro's own time) or merged into develop.
