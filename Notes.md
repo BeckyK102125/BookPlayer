@@ -2213,3 +2213,13 @@ Becky said "Yes, fix them" for the two High findings of the SR7 audit (Review.md
   date order; context.md rewritten for the merged branch.
 - Not built or tested: it's Becky's time (15:30 on). Next Pro build window is Tuesday 7 AM to 3 PM,
   behind pro-slot.
+
+## 2026-11-24 (Pro, BookPlayer Lead): fix/bp-20261112-high tested
+- 24d5f366, iPhone 18 Pro sim 7B46F85F, pro-slot held 08:15 to 08:23.
+- `xcodebuild build-for-testing` then `test-without-building -only-testing:BookPlayerTests
+  -parallel-testing-enabled NO`: "Executed 1949 tests, with 0 failures", including all 12 new tests
+  (LibraryServiceBackupTests 6, ImportOperationArchiveTests 4, SyncListSessionTests 2).
+- TSan (`xcodebuild test -enableThreadSanitizer YES`) on those three classes plus ImportOperationTests:
+  18 tests, 0 failures, no warnings. Simulator shut down and erased; results folder deleted.
+- BP-20261112-03, -04, -07 commented and moved to Testing. Not pushed (Pro's own time) or merged into
+  develop. BP-07's on-screen message for a failed archive still Needs Becky.

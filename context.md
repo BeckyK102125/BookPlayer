@@ -1,8 +1,8 @@
 # context.md - current snapshot
 
-Date: 2026-11-23
-Branch: `fix/bp-20261112-high` (Neo's BP-03/04/07 fixes), develop c6057686 merged in. Local only, not
-built or tested yet. develop c6057686 is on GitHub.
+Date: 2026-11-24
+Branch: `fix/bp-20261112-high` (Neo's BP-03/04/07 fixes), develop c6057686 merged in (24d5f366). Tested Nov 24;
+local, push in the Pro's own time. develop c6057686 is on GitHub.
 
 ## Goal
 Listen Together: share downloaded audiobooks, keep playback and own-copy progress in sync, and support
@@ -21,23 +21,21 @@ VoiceOver and Zoom. Get develop ready for TestFlight build 7.
 ## Test results
 - develop e0491b1f/c6057686, Nov 20, iPhone 18 Pro sim, no parallel testing: 1937 tests, 0 failures.
   TSan on 8 classes: 246 tests, clean.
-- fix/bp-20261112-high (with develop merged) and fix/sr6-01-rejoin-other-audio: not built or tested.
+- Nov 24, this branch 24d5f366: 1949 tests, 0 failures; TSan on the 3 new classes clean. SR6-01 branch
+  a6b09304: 1939 tests, 0 failures; TSan clean. BP-03, -04, -07 and SR6-01 in Testing.
 - Whole-suite TSan has a known DirectoryWatcher race.
 - Project still declares Swift 5.0; Swift 6 Complete checking is not established.
 
 ## Next steps
-1. Tuesday 7 AM to 3 PM (pro-slot): build this branch; run LibraryServiceBackupTests,
-   ImportOperationArchiveTests, SyncListSessionTests (TSan) and the full suite; if green, push the branch
-   and move BP-20261112-03, -04, -07 to Testing.
-2. Merge develop into fix/sr6-01-rejoin-other-audio, build, run ListenerPlayerTests and the full suite.
-3. Get the develop build onto both iPhones (TestFlight 7 is Becky's upload, or an Xcode install), then
+1. Push this branch and the SR6-01 branch in the Pro's own time; ask Becky about merging both into develop.
+2. Get the develop build onto both iPhones (TestFlight 7 is Becky's upload, or an Xcode install), then
    send SR7-01, 07, 09 to the testing coordinator (local_2c35a663).
-4. dd0bde92: Michael's shares fail; needs Console logs ("Listen Together") from Michael's phone.
+3. dd0bde92: Michael's shares fail; needs Console logs ("Listen Together") from Michael's phone.
    TestFlight 7 blocker.
-5. BP-20261112-05 (sync op admitted after logout), -06 (needs Sourcery, Pro), then P2 -11 to -22.
-6. Needs Becky: BP-20261112-08, -09, -10 (PlayerManager, recheck after the engine merge); a message
+4. BP-20261112-05 (sync op admitted after logout), -06 (needs Sourcery, Pro), then P2 -11 to -22.
+5. Needs Becky: BP-20261112-08, -09, -10 (PlayerManager, recheck after the engine merge); a message
    for a failed zip (BP-07).
-7. Split files over 700 lines: SharePlaySessionService*.swift, ListenerPlayer.swift, SyncService.swift.
+6. Split files over 700 lines: SharePlaySessionService*.swift, ListenerPlayer.swift, SyncService.swift.
 
 ## Open questions for Becky
 - TestFlight build 7 or an Xcode install to get develop onto both iPhones?
